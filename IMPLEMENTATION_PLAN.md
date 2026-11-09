@@ -3870,28 +3870,32 @@ SlaidsRepository
    └─ Supabase   (produksjon – konfigurert og innlogget)
 ```
 
-Slaids er en **énbruker-app**. Supabase-prosjektet deles med mdeditz, som ikke
-bruker Supabase Auth i det hele tatt, så det finnes ingen konto- eller
-produktkobling til noen annen app. Bare den faste Supabase Auth-brukeren definert
-av `SLAIDS_OWNER_ID` kan bruke Slaids i produksjon; e-postadressen er bare
-påloggingsidentifikatoren for denne brukeren, ikke selve autorisasjonsregelen.
+Slaids har **flere selvstendige brukere**, hver med sitt eget private bibliotek.
+Det er flerbrukerstøtte, ikke samarbeid: ingen delte arbeidsområder, ingen
+samtidig redigering av den samme presentasjonen, og ingen delingsrettigheter
+utover publisering (§ 43.5). Hvem som er Slaids-bruker, i hvilken rolle og om
+kontoen er aktiv, står i Slaids' egen tilgangsliste (§ 43.1).
+
+Supabase-prosjektet deles med mdeditz, som ikke bruker Supabase Auth. Prosjektet
+står åpent for registrering, og det endrer ikke Slaids: en Auth-konto alene gir
+ingenting her. Slaids håndhever sin egen liste uavhengig av hva andre apper i
+prosjektet gjør.
 
 Krav som gjelder:
 
-- bruk Supabase Auth, ikke et hjemmelaget passordsystem;
-- app-gaten skal bare slippe gjennom Slaids' faste Auth-bruker;
+- bruk Supabase Auth, ikke et hjemmelaget passord- eller kodesystem;
+- app-gaten skal bare slippe gjennom aktive brukere i Slaids' tilgangsliste;
 - browser-eksponerte tabeller beskyttes med RLS som både håndhever eierskap og
-  den faste Slaids-brukeren;
+  at kalleren er en aktiv Slaids-bruker;
 - service-role/secret keys skal aldri ligge i frontend – bare
   `VITE_SUPABASE_PUBLISHABLE_KEY`;
-- assets legges i private Storage buckets med policies som håndhever samme
-  brukerbegrensning.
+- assets legges i private Storage buckets med policies som håndhever det samme.
 
 ### Datamodell
 
-Fire tabeller i `public`, alle med `owner_id uuid → auth.users`. RLS gir bare
-Slaids' faste Auth-bruker tilgang, og bare til rader der `owner_id` samtidig er
-den samme brukerens UUID:
+Fire tabeller i `public`, alle med `owner_id uuid → auth.users`. RLS gir en
+aktiv Slaids-bruker tilgang til rader der `owner_id` er brukerens egen UUID, og
+ingen andre noe som helst:
 
 | Tabell                  | Innhold                                                  |
 | ----------------------- | -------------------------------------------------------- |
@@ -3908,8 +3912,11 @@ dokument.
 
 Binærdata ligger i den private bucketen `slaids-assets`, med sti
 `<owner_id>/<presentation_id>/<asset_id>`. Storage-policyene krever både at første
-ledd er den innloggede brukerens UUID og at denne UUID-en er Slaids' faste
-tillatte Auth-bruker. Sletting av en presentasjon må også rydde Storage:
+ledd er den innloggede brukerens UUID og at brukeren er en aktiv Slaids-bruker.
+`slaids_assets.object_path` er bundet til nøyaktig denne stien med en
+`check`-constraint, så en filrad aldri kan peke på en annen brukers fil – det
+betyr noe fordi serveren og delingsfunksjonen laster ned filer med
+service-rollen. Sletting av en presentasjon må også rydde Storage:
 DB-metadata følger med via fremmednøkkelen, men Storage-objekter gjør det ikke.
 
 Rekkefølgen er ikke likegyldig. Raden slettes først, filene etterpå. Motsatt vei
@@ -3919,12 +3926,12 @@ på er verre enn å la ligge data ingenting peker på – og det siste ryddes av
 `deleteOrphanAssets()`, som sammenligner presentasjonsmappene i bucketen mot
 presentasjonene som finnes.
 
-`owner_id` settes alltid fra den tillatte autentiserte sesjonen, aldri fra
-brukerinput. Fremmednøklene er sammensatte – `(folder_id, owner_id)` og
-`(presentation_id, owner_id)` – slik at eieren følger med referansen. Dette er
-forsvar i dybden selv om Slaids bare har én tillatt bruker: en rad eller referanse
-kan aldri flyttes til en annen Auth-identitet dersom tilgangsmodellen senere
-endres eller data manipuleres utenfor klienten.
+`owner_id` settes alltid fra den autentiserte sesjonen (eller, i agent-API-et,
+fra den autentiserte prinsipalen), aldri fra brukerinput. Fremmednøklene er
+sammensatte – `(folder_id, owner_id)` og `(presentation_id, owner_id)` – slik at
+eieren følger med referansen: en rad eller referanse kan aldri flyttes til en
+annen bruker, og RLS' `with check` stopper en bruker som prøver å skrive en
+annen `owner_id` på sin egen rad.
 
 ### Samtidighet
 
@@ -3993,6 +4000,127 @@ det er ikke en feil, det er lokal modus. Previewen kjører da mot en tom
 Dexie-base og ser tom ut. Se § 18 for regelen: ingen variabler = bevisst lokal
 modus, begge = Supabase-modus, nøyaktig én = hard konfigurasjonsfeil.
 
+## 43.1\. Brukere, roller og innlogging
+
+Slaids har flere brukere, opprettet av en administrator. Det finnes ingen
+offentlig registrering og ingen selvbetjent opprettelse av Slaids-kontoer.
+Arbeidsplan og kartlegging: `docs/MULTI_USER_PLAN.md`.
+
+### Identitet og tilgangsliste
+
+Supabase Auth er den eneste autentiseringstjenesten og eier identiteten.
+Slaids eier **tilgangen**, i tabellen `public.slaids_users`:
+
+| Kolonne      | Betydning                                                     |
+| ------------ | ------------------------------------------------------------- |
+| `user_id`    | Auth-brukerens stabile UUID – identiteten, aldri e-posten      |
+| `role`       | `user` eller `admin`                                          |
+| `active`     | `false` = deaktivert; data beholdes, tilgang stenges          |
+| `created_at`, `created_by` | når og av hvilken administrator brukeren ble lagt til |
+
+Regler:
+
+1. **Én sannhetskilde.** RLS (`public.slaids_is_active_user()`), app-gaten og
+   agent-API-et spør alle den samme tabellen. Rolle og status leses aldri fra
+   JWT-claims, `user_metadata` eller noe annet en bruker kan påvirke.
+2. **Bare serveren skriver.** `authenticated` kan lese sin egen rad og ingenting
+   annet, og kan ikke skrive til tabellen. Endringer går gjennom
+   administrasjonsserveren med service-rollen etter at den har kontrollert at
+   kalleren er aktiv administrator.
+3. **Deaktivering virker umiddelbart.** Fordi hver policy spør tilgangslisten,
+   stenges en deaktivert bruker ute på neste databaseforespørsel, også med en
+   økt som allerede finnes. Agenttokens og OAuth-tokens avvises på samme måte
+   (§ 44). Kontoen og dataene slettes ikke; reaktivering gir alt tilbake.
+4. **Det finnes alltid en aktiv administrator.** En trigger i databasen avviser
+   enhver endring – rolle, status eller sletting, også via sletting av
+   Auth-kontoen – som ville fjerne den siste aktive administratoren
+   (`SLAIDS_LAST_ACTIVE_ADMIN`). Regelen ligger i databasen fordi alle veier går
+   gjennom den.
+5. **Administrator er en administrasjonsrett, ikke en lesetilgang.** En
+   administrator ser andres e-post, rolle og status, aldri deres presentasjoner,
+   filer eller tokens. RLS skiller ikke på rolle.
+6. **Bootstrap.** Den eksisterende kontoen `peder.holman@gmail.com`
+   (`dab4f04f-cc4c-46b1-854e-3c8b17341966`) ble første administrator i
+   migrasjonen, og bare hvis både UUID og e-post stemte. Eksisterende data
+   tilhørte allerede denne UUID-en og ble ikke flyttet.
+
+### Opprette brukere
+
+En administrator oppgir e-post og rolle i Administrasjon → Brukere. Serveren
+gjenbruker en eksisterende Auth-konto med samme e-post (også en fra en annen app
+i prosjektet – én person, én identitet), og oppretter ellers en ny Auth-bruker
+uten passord og uten å sende e-post. Deretter legges brukeren i
+`slaids_users`. Det finnes ingen invitasjon: den nye brukeren logger inn med
+engangskode, og biblioteket er tomt.
+
+### Innlogging med engangskode
+
+1. Brukeren oppgir e-post.
+2. Slaids kaller `signInWithOtp` med `shouldCreateUser: false` – en ukjent
+   adresse gir aldri en ny Auth-konto.
+3. Supabase sender en sekssifret kode (e-postmalen inneholder `{{ .Token }}`).
+4. Brukeren skriver koden; `verifyOtp` gir en økt.
+5. App-gaten slipper bare inn en aktiv rad i tilgangslisten. En Auth-konto uten
+   rad får «ingen tilgang», en deaktivert får «kontoen er deaktivert» – begge
+   med utlogging, ingen av dem med data.
+
+Slaids genererer ingen koder selv og har ingen passorddatabase. Feil kode,
+utløpt kode, ny kode, ventetid mellom forespørsler og grensen for
+e-postutsending skal gi forståelige meldinger og mulighet for nytt forsøk.
+
+### Vedvarende innlogging
+
+«Hold meg innlogget på denne enheten» velger hvor den ene Supabase-klienten
+lagrer økten:
+
+- **valgt** – `localStorage`: økten overlever lukking av nettleseren og fornyes
+  med Supabases refresh-token så lenge den brukes, uten forhåndsbestemt
+  sluttdato. Den kan likevel utløpe eller tilbakekalles av sikkerhetsgrunner;
+  Slaids lover ikke evig innlogging;
+- **ikke valgt** – `sessionStorage`: økten gjelder nettleserøkten i denne fanen.
+
+Innlogging tømmer den andre lagringen, og utlogging tømmer begge, så en ny
+innlogging aldri arver en tidligere brukers økt. Utlogging gjelder denne
+enheten (`scope: 'local'`), ikke brukerens andre enheter. Det finnes én
+Supabase-klient i nettleseren, ikke én per lagringsvalg.
+
+### Administrasjon
+
+Administrasjon → Brukere er bare synlig for administratorer, men synligheten er
+ikke sikkerheten: hver administrasjonshandling går til serveren, som
+
+- verifiserer brukerens vanlige innloggingstoken mot Supabase Auth;
+- avviser agenttokens og OAuth-delegasjoner (et token med `client_id`) –
+  administrasjon er aldri en agentoperasjon eller et MCP-verktøy;
+- krever at kalleren er aktiv administrator i `slaids_users`.
+
+En administrator kan se brukere (e-post, rolle, status), legge til en bruker som
+`user` eller `admin`, gi og fjerne administratorrollen, og deaktivere og
+reaktivere kontoer – men ikke fjerne den siste aktive administratoren.
+
+### Andre apper i prosjektet
+
+Slaids endrer ikke globale Auth-innstillinger uten å dokumentere konsekvensene
+for de andre appene, og rører aldri deres tabeller, policyer eller buckets.
+E-postmalen, SMTP-oppsettet og kodelengden er prosjektglobale. De ble endret for
+Slaids etter at det var kontrollert at ingen annen app i prosjektet bruker
+Supabase Auth: e-post sendes via Resend fra `innlogging@slaids.no` (Peders
+beslutning 2026-11-09; Supabases innebygde e-post leverer bare til medlemmer av
+Supabase-organisasjonen, så en ny Slaids-bruker ville ikke fått koden), og malen
+inneholder bare koden – en innloggingslenke ved siden av ville blitt brukt opp
+av e-postskannere som åpner lenker, og gjort koden ugyldig. Tar en annen app i
+bruk Supabase Auth i dette prosjektet, må malen vurderes på nytt.
+
+### Tester
+
+`supabase/tests/access.test.ts` kjører alle migrasjonene i en ekte Postgres
+(PGlite) og prøver hver Slaids-tabell og bucketen som administrator, vanlig
+bruker, Auth-konto fra en annen app, deaktivert bruker og `anon`. Den sjekker
+også at ingen policy er festet til en fast UUID, at alle krever en aktiv
+Slaids-bruker, at siste administrator er beskyttet, at andre appers objekter er
+urørt, og at tilbakerullingen i `supabase/rollback/` gjenoppretter de gamle
+policyene.
+
 ---
 
 ## 43.5\. Deling
@@ -4002,12 +4130,11 @@ på, og det er verdt å si eksplisitt hva det utelukker: ingen invitasjoner, ing
 roller, ingen skrivetilgang for andre, og ingen offentlig katalog. Man må kjenne
 den ugjettbare lenken.
 
-Det er også det som gjør deling forenlig med at Slaids er en énbruker-app
-(§ 43): en delt lenke gir ingen konto, ingen Auth-bruker og ingen tilgang til
-noe som helst annet – bare lesetilgang til én publisert kopi. `SLAIDS_OWNER_ID`
-er fortsatt den eneste som kan logge inn, og fortsatt den eneste som kan endre
-noe. Deling er den eneste veien noen andre ser noe i det hele tatt, og de ser en
-kopi.
+Det er også det som holder deling adskilt fra brukerkontoene (§ 43.1): en delt
+lenke gir ingen konto, ingen Auth-bruker og ingen tilgang til noe som helst
+annet – bare lesetilgang til én publisert kopi. Bare eieren kan endre noe.
+Publiseringer fra en deaktivert konto svarer som «ikke aktiv» så lenge kontoen
+er deaktivert, og virker igjen ved reaktivering.
 
 ### To dokumenter
 

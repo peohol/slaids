@@ -267,19 +267,28 @@ og publiserer nøkkelsettet på `…/auth/v1/.well-known/jwks.json`; det er den
 verifiseringen av OAuth-tokens bruker, og en symmetrisk algoritme nekter den å
 bruke. En nøkkel fra et annet prosjekt skal aldri settes inn her.
 
-Slaids har ikke et flerbrukersystem: bare én bestemt Supabase Auth-bruker er
-tillatt. Innloggingsskjermen ber derfor bare om passord, og både app-gaten og RLS-
-policyene avviser alle andre Auth-brukere. Supabase-prosjektet deles med
-mdeditz, som ikke bruker Supabase Auth i det hele tatt, så det finnes ingen
-konto- eller produktkobling til noen annen app. Utlogging bruker
-`scope: 'local'`, slik at den bare avslutter Slaids-sesjonen i denne
-nettleseren.
+Slaids har flere brukere, og hver har sitt eget private bibliotek. Hvem som er
+Slaids-bruker står i Slaids' egen tilgangsliste, tabellen `slaids_users`
+(Auth-UUID, rolle `user`/`admin`, aktiv eller deaktivert). En Supabase
+Auth-konto alene gir ingen tilgang: app-gaten, RLS-policyene og agent-API-et
+spør alle den samme listen. Nye brukere legges til av en administrator, aldri
+ved registrering. Administrator er en rett til å administrere brukere, ikke til å
+se andres presentasjoner. Den normative beskrivelsen står i
+`IMPLEMENTATION_PLAN.md` § 43.1.
+
+Supabase-prosjektet deles med mdeditz, som ikke bruker Supabase Auth i det hele
+tatt, så det finnes ingen konto- eller produktkobling til noen annen app.
+Utlogging bruker `scope: 'local'`, slik at den bare avslutter Slaids-sesjonen i
+denne nettleseren.
 
 Skjemaet ligger i `supabase/migrations/`:
 
+- tilgangslisten `slaids_users`, som nettleseren bare kan lese sin egen rad i,
+  og en trigger som sørger for at det alltid finnes minst én aktiv
+  administrator;
 - fire tabeller i `public` (`slaids_folders`, `slaids_presentations`,
   `slaids_templates`, `slaids_assets`), alle med `owner_id` og RLS som både
-  håndhever eierskap og Slaids' ene tillatte Auth-bruker;
+  håndhever eierskap og at brukeren er en aktiv Slaids-bruker;
 - en trigger som øker `version` og setter `updated_at` når selve dokumentet
   endres, slik at en gammel kopi fra en annen fane får en tydelig konfliktfeil i
   stedet for å overskrive en nyere. Rene delingsendringer holdes utenfor: å
@@ -292,7 +301,13 @@ Skjemaet ligger i `supabase/migrations/`:
   `is_published` på presentasjonene: et dekk er publisert når det er delt alene
   eller ligger i en delt mappe;
 - den private bucketen `slaids-assets` med policies som binder hver fil til
-  `<owner_id>/<presentation_id>/<asset_id>` og den samme tillatte brukeren.
+  `<owner_id>/<presentation_id>/<asset_id>` og krever en aktiv Slaids-bruker.
+
+Tilgangsreglene testes mot en ekte Postgres: `supabase/tests/access.test.ts`
+kjører alle migrasjonene i PGlite og prøver hver tabell og bucketen som ulike
+brukere. Hvis multibruker-migrasjonen må rulles tilbake i produksjon, ligger
+motstykket i `supabase/rollback/` – utenfor migrasjonsmappen, så
+deploy-skriptet aldri kjører det.
 
 Deling har i tillegg en Edge Function, `slaids-share`, som er den eneste
 offentlige inngangen. Se «Deling» lenger ned for hva den gjør og hvorfor den
@@ -474,10 +489,9 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE=/sti/til/chrome npm run e2e
 
 ## Deling
 
-Deling er **publisering, ikke samarbeid**. Slaids er fortsatt en énbruker-app:
-en delt lenke gir ingen konto og ingen Auth-bruker, bare lesetilgang til én
-publisert kopi. Den som eier presentasjonen er fremdeles den eneste som kan
-logge inn og den eneste som kan endre noe.
+Deling er **publisering, ikke samarbeid**: en delt lenke gir ingen konto og
+ingen Auth-bruker, bare lesetilgang til én publisert kopi. Den som eier
+presentasjonen er den eneste som kan endre noe.
 
 Det er to dokumenter, og forskjellen mellom dem er hele sikkerhetsmodellen:
 

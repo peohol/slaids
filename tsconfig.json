@@ -31,6 +31,7 @@
     "e2e",
     "scripts",
     "supabase/functions",
+    "supabase/tests",
     "vite.config.ts",
     "playwright.config.ts",
     "vitest.setup.ts",
