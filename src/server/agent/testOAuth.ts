@@ -22,7 +22,9 @@
  * import somebody adds later.
  */
 
+import type { SlaidsUserAccess } from '../../persistence/slaidsUsers'
 import { JwksCache, supabaseIssuer, type OAuthResourceConfig } from './oauth'
+import type { OwnerAccessLookup } from './tokens'
 
 export const TEST_SUPABASE_URL = 'https://project.supabase.co'
 export const TEST_ISSUER = supabaseIssuer(TEST_SUPABASE_URL)
@@ -32,8 +34,34 @@ export const TEST_JWKS_URI = `${TEST_ISSUER}/.well-known/jwks.json`
 export const TEST_OWNER = '11111111-2222-3333-4444-555555555555'
 export const TEST_CLIENT = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 
-/** A second user of the same project — one Slaids does not know. */
+/** A second user of the same project — one Slaids does not know, unless a test lets them in. */
 export const OTHER_OWNER = '99999999-8888-7777-6666-555555555555'
+
+/**
+ * Slaids' access list, in memory.
+ *
+ * The production lookup is `readUserAccess` against `slaids_users`; what the
+ * authentication code needs from it is only "which row, if any, does this user
+ * have", and that is what this answers — mutably, so a test can deactivate a
+ * user between two calls exactly as an administrator would.
+ */
+export interface TestAccessList {
+  lookup: OwnerAccessLookup
+  /** `true`/`false` sets the user active or deactivated; `null` removes them. */
+  set(userId: string, active: boolean | null): void
+}
+
+export function testAccessList(
+  members: Record<string, boolean> = { [TEST_OWNER]: true },
+): TestAccessList {
+  const rows = new Map<string, SlaidsUserAccess>()
+  const set = (userId: string, active: boolean | null): void => {
+    if (active === null) rows.delete(userId)
+    else rows.set(userId, { userId, role: 'user', active })
+  }
+  for (const [userId, active] of Object.entries(members)) set(userId, active)
+  return { lookup: (userId) => Promise.resolve(rows.get(userId) ?? null), set }
+}
 
 const ECDSA = { name: 'ECDSA', namedCurve: 'P-256' } as const
 const SIGN = { name: 'ECDSA', hash: 'SHA-256' } as const
@@ -138,7 +166,6 @@ export async function testAuthorizationServer(): Promise<TestAuthorizationServer
       issuer: TEST_ISSUER,
       jwksUri: TEST_JWKS_URI,
       audiences: ['authenticated'],
-      owners: new Set([TEST_OWNER]),
       clients: null,
       defaultScopes: ['presentations:read', 'presentations:write', 'assets:write'],
       ...overrides,

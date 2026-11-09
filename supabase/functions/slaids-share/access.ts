@@ -99,9 +99,14 @@ export function readShareRequest(method: string, url: URL): ShareRequest | null 
   return assetId === null ? { kind: 'snapshot', deck } : { kind: 'asset', deck, assetId }
 }
 
-/** A row as the endpoint reads it: never `owner_id`, never the private document. */
+/**
+ * A row as the endpoint reads it: never the private document. `owner_id` is
+ * read only to ask whether its owner is still an active Slaids user (see
+ * `ownerMayPublish`); it is never returned.
+ */
 export interface SharedRow {
   id: string
+  owner_id?: unknown
   is_shared: boolean | null
   shared_document: unknown
   /**
@@ -132,6 +137,32 @@ export function publishedDocument(row: SharedRow | null | undefined): unknown | 
   const document = row.shared_document
   if (!document || typeof document !== 'object') return null
   return document
+}
+
+/**
+ * Slaids' access list. Named here rather than imported because this file runs
+ * in Deno on Supabase, outside the app's module graph; `access.test.ts` holds it
+ * to `SLAIDS_USERS_TABLE` in `src/persistence/slaidsUsers.ts`.
+ */
+export const USERS_TABLE = 'slaids_users'
+
+/** The owner's row on the access list, as the endpoint reads it: `active` and nothing else. */
+export interface OwnerAccessRow {
+  active: unknown
+}
+
+/**
+ * Whether an owner's publications may answer at all.
+ *
+ * Only while the owner is an active Slaids user. A deactivated account's
+ * links answer the same generic 404 as a link that never existed — they are
+ * not deleted, and they come back unchanged if the account is reactivated.
+ * An owner with no row, or a row that could not be read, is not active: this
+ * is the last gate before data leaves for an anonymous reader, and it fails
+ * closed.
+ */
+export function ownerMayPublish(row: OwnerAccessRow | null | undefined): boolean {
+  return row?.active === true
 }
 
 /** A folder as the endpoint reads it: looked up by token, never returned as is. */

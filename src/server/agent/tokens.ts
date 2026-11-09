@@ -29,6 +29,7 @@
 
 import type { AgentScope } from '../../agent/types'
 import { looksLikeAgentToken, type AgentTokenRecord } from '../../persistence/agentTokens'
+import { isActiveAccess, type SlaidsUserAccess } from '../../persistence/slaidsUsers'
 import type { AuditSubject } from './audit'
 import { looksLikeJwt } from './oauth'
 
@@ -79,8 +80,16 @@ export type AuthFailure =
   | 'revoked'
   | 'expired'
   | 'no-scopes'
-  /** The token store itself did not answer. Not the caller's fault, same answer. */
+  /**
+   * The token store, or Slaids' access list, did not answer. Not the caller's
+   * fault, same answer.
+   */
   | 'unavailable'
+  /**
+   * A valid credential whose owner is not an active Slaids user: deactivated by
+   * an administrator, or never on the access list at all. Either family.
+   */
+  | 'owner-inactive'
   /** Not a JWT, not an algorithm this resource verifies, or not readable JSON. */
   | 'oauth-malformed'
   /** The signature did not check out against the authorization server's keys. */
@@ -102,7 +111,10 @@ export type AuthFailure =
   | 'oauth-client'
   /** Past `exp`. */
   | 'oauth-expired'
-  /** A real user of the project, and not one this deployment lets into Slaids. */
+  /**
+   * A real user of the Supabase project who is not on Slaids' access list — a
+   * user of another app in the same project, say.
+   */
   | 'oauth-unknown-owner'
   /** The deployment offers no OAuth at all, and something JWT-shaped arrived. */
   | 'oauth-unconfigured'
@@ -255,6 +267,7 @@ export const REFUSAL_CODES: Record<AuthFailure, string> = {
   expired: 'TOKEN_EXPIRED',
   'no-scopes': 'TOKEN_WITHOUT_SCOPES',
   unavailable: 'TOKEN_STORE_UNAVAILABLE',
+  'owner-inactive': 'OWNER_INACTIVE',
   'oauth-malformed': 'OAUTH_TOKEN_MALFORMED',
   'oauth-invalid': 'OAUTH_SIGNATURE_INVALID',
   'oauth-unknown-key': 'OAUTH_UNKNOWN_KEY',
@@ -266,6 +279,60 @@ export const REFUSAL_CODES: Record<AuthFailure, string> = {
   'oauth-expired': 'OAUTH_TOKEN_EXPIRED',
   'oauth-unknown-owner': 'OAUTH_UNKNOWN_OWNER',
   'oauth-unconfigured': 'OAUTH_NOT_CONFIGURED',
+}
+
+/**
+ * Whose access a credential's owner has, by Supabase user id.
+ *
+ * `readUserAccess` from `src/persistence/slaidsUsers.ts` in production, always
+ * with an owner id taken from a verified credential — never from the request.
+ */
+export type OwnerAccessLookup = (ownerId: string) => Promise<SlaidsUserAccess | null>
+
+/**
+ * The last step of authentication, for both families: is the owner a Slaids
+ * user, and an active one, right now?
+ *
+ * A credential proves who someone is. It says nothing about whether Slaids
+ * still lets them in — an agent token outlives its owner's deactivation, and an
+ * OAuth grant lives on at the authorization server, which is shared with other
+ * apps and has never heard of Slaids' access list. So the list is read on every
+ * request, after the credential checks out and before anything is routed. No
+ * caching: deactivation has to take effect on the next call, not the next cold
+ * start.
+ *
+ * What the owner's log learns, and what it does not:
+ *
+ *  - an owner who is not on the list at all is nobody here. Whatever the
+ *    credential said, nothing is attributed to them — no audit row is written
+ *    for someone who is not a Slaids user, so a user of another app cannot fill
+ *    Slaids' log by presenting their own tokens;
+ *  - a deactivated owner is a Slaids user, and their log says `OWNER_INACTIVE`
+ *    — unless the credential was already refused for its own reason (revoked,
+ *    expired), in which case that reason stands;
+ *  - the caller is told the same 401 in every case.
+ */
+export async function admitActiveOwner(
+  outcome: AuthOutcome,
+  ownerAccess: OwnerAccessLookup,
+): Promise<AuthOutcome> {
+  const subject = outcome.ok ? auditSubject(outcome.principal) : outcome.identified
+  if (!subject) return outcome
+
+  let access: SlaidsUserAccess | null
+  try {
+    access = await ownerAccess(subject.ownerId)
+  } catch (error) {
+    console.error('slaids-agent: kunne ikke lese tilgangslisten', error)
+    return { ok: false, reason: 'unavailable' }
+  }
+
+  if (access === null) {
+    return { ok: false, reason: subject.kind === 'oauth' ? 'oauth-unknown-owner' : 'owner-inactive' }
+  }
+  if (!outcome.ok) return outcome
+  if (!isActiveAccess(access)) return { ok: false, reason: 'owner-inactive', identified: subject }
+  return outcome
 }
 
 /** The scopes an operation asks for that this principal does not hold. */

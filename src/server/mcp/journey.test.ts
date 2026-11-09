@@ -47,12 +47,13 @@ import { canonicalMcpUrl } from '../../routing'
 import { chromiumSlidePreviewRenderer } from '../../render/preview'
 import { decodePng, distinctColours } from '../../render/png'
 import { pngPixelSize } from '../../render/rasterize'
-import { authenticateOAuthToken } from '../agent/oauth'
+import { oauthAuthenticator } from '../agent/supabase'
 import {
   OTHER_OWNER,
   TEST_CLIENT,
   TEST_ISSUER,
   TEST_OWNER,
+  testAccessList,
   testAuthorizationServer,
   type TestAuthorizationServer,
 } from '../agent/testOAuth'
@@ -76,8 +77,8 @@ beforeAll(async () => {
   // isolation test below vacuous: a stranger who is refused at the door has
   // proved nothing about whether an accepted caller can reach another owner's
   // decks, and it is the second question the repository pinning answers.
-  const config = authorization.config({ owners: new Set([TEST_OWNER, OTHER_OWNER]) })
-  const jwks = authorization.jwks()
+  const config = authorization.config()
+  const members = testAccessList({ [TEST_OWNER]: true, [OTHER_OWNER]: true })
 
   // Wired exactly as `src/server/agent/index.ts` wires production: the same
   // verification function, the same config object, the same key cache. Only the
@@ -86,8 +87,7 @@ beforeAll(async () => {
     preview: chromiumSlidePreviewRenderer(),
     oauth: config,
     publicOrigin: PUBLIC_ORIGIN,
-    authenticateOAuth: (token) =>
-      authenticateOAuthToken({ token, config, jwks, now: new Date() }),
+    authenticateOAuth: oauthAuthenticator(config, members.lookup, () => new Date(), authorization.jwks()),
   })
   served = await listenHarness(deployment)
   accessToken = await authorization.sign()
