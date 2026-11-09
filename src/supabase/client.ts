@@ -7,6 +7,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { authSessionStorage } from './authStorage'
 import { SupabaseConfigurationError, readSupabaseConfigState } from './config'
 
 let client: SupabaseClient | null = null
@@ -28,10 +29,13 @@ export function getSupabaseClient(): SupabaseClient {
   const { config } = state
   client = createClient(config.url, config.publishableKey, {
     auth: {
-      // The SDK keeps the session itself, which is what survives a reload.
+      // The SDK keeps the session itself, which is what survives a reload —
+      // in the storage the person chose at sign-in (see `authStorage.ts`).
       persistSession: true,
+      storage: authSessionStorage,
       autoRefreshToken: true,
-      // Slaids has no redirect-based sign-in, so there is never a session in the URL.
+      // Sign-in is a code typed into Slaids, never a redirect, so there is never
+      // a session in the URL.
       detectSessionInUrl: false,
     },
   })

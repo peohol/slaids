@@ -80,8 +80,8 @@ describe('Root', () => {
     // Porten selv er dekket av `gateView`; her er poenget bare at
     // arbeidsområdet fortsatt går gjennom den, og at ingenting av
     // delingsvisningen er blandet inn i det.
-    expect(gateView('signed-out')).toBe('sign-in')
-    expect(gateView('loading')).toBe('loading')
+    expect(gateView('signed-out', null)).toBe('sign-in')
+    expect(gateView('loading', null)).toBe('loading')
 
     const markup = renderToStaticMarkup(<Root pathname="/" />)
     expect(markup).not.toContain('shared-')
