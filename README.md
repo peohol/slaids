@@ -342,8 +342,7 @@ overlever at nettleseren lukkes og fornyes av Supabase så lenge økten er gyldi
 ellers i fanens `sessionStorage`, som forsvinner når nettleserøkten slutter. En
 fane uten husket innlogging deler ikke økten med andre faner. Økten ligger aldri
 begge steder: en ny innlogging fjerner den fra lagringen den ikke valgte, og
-utlogging fjerner den fra begge. Utlogging bruker `scope: 'local'`, slik at den
-bare avslutter økten på denne enheten.
+utlogging fjerner den fra begge.
 
 Tilgangen sjekkes ved oppstart, ved innlogging og når fanen får fokus igjen
 (høyst hvert 15. sekund). Deaktivering stenger dermed en åpen fane, og databasen
