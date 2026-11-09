@@ -12,10 +12,12 @@
  * Three properties it has to have, and each one is a way the screen could
  * otherwise be worse than useless:
  *
- *  - **It is behind `AuthGate`.** Approving an authorization is the owner's act.
- *    A consent screen a stranger could reach is a consent screen that grants
- *    somebody else's data, and the gate is already the check for "is this the
- *    Slaids owner" — the same pin the server-side allowlist enforces.
+ *  - **It is behind `AuthGate`.** Approving an authorization is the account
+ *    holder's act. A consent screen a stranger could reach is a consent screen
+ *    that grants somebody else's data, and the gate is already the check for
+ *    "is this an active Slaids user" — the same access list the server
+ *    enforces. Signing in happens in place, at this address, so the request
+ *    is still here when the code has been accepted.
  *  - **It names the application asking, not a generic "an app".** The whole
  *    value of a consent screen is that the user can recognise, or fail to
  *    recognise, who is asking. The name and the redirect address both come from
@@ -168,15 +170,15 @@ export function OAuthConsentView({
 
   if (state.kind === 'loading' || state.kind === 'deciding') {
     return (
-      <div className="auth" data-testid="oauth-consent-loading">
+      <main className="auth" data-testid="oauth-consent-loading">
         <p className="hint">{state.kind === 'loading' ? 'Henter forespørselen …' : 'Sender deg videre …'}</p>
-      </div>
+      </main>
     )
   }
 
   if (state.kind === 'no-request') {
     return (
-      <div className="auth" data-testid="oauth-consent-empty">
+      <main className="auth" data-testid="oauth-consent-empty">
         <div className="auth__card">
           <h1 className="auth__title">Slaids</h1>
           <p className="hint">
@@ -184,13 +186,13 @@ export function OAuthConsentView({
             forespørsel å svare på akkurat nå.
           </p>
         </div>
-      </div>
+      </main>
     )
   }
 
   if (state.kind === 'failed') {
     return (
-      <div className="auth" data-testid="oauth-consent-error">
+      <main className="auth" data-testid="oauth-consent-error">
         <div className="auth__card">
           <h1 className="auth__title">Slaids</h1>
           <p className="error-text" role="alert">
@@ -198,12 +200,12 @@ export function OAuthConsentView({
           </p>
           <p className="hint">Be appen om å prøve på nytt.</p>
         </div>
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className="auth" data-testid="oauth-consent">
+    <main className="auth" data-testid="oauth-consent">
       <div className="auth__card">
         <h1 className="auth__title">Slaids</h1>
         <p className="auth__subtitle">
@@ -248,6 +250,6 @@ export function OAuthConsentView({
           </button>
         </div>
       </div>
-    </div>
+    </main>
   )
 }

@@ -1029,6 +1029,67 @@ button.palette__swatch {
 }
 
 /*
+ * «Hold meg innlogget på denne enheten». The checkbox sits on the first line of
+ * its label, and the consequence of leaving it off is said right under it, so
+ * the choice is made knowing what it means.
+ */
+.auth__remember {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  align-items: start;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.auth__remember > input {
+  margin: 2px 0 0;
+}
+
+.auth__remember-hint {
+  display: block;
+  margin-top: 3px;
+}
+
+.auth__address {
+  color: var(--chrome-text);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The code field is the one thing on the second step, and it looks like what
+ * goes in it: six even digits, spaced out, read and compared at a glance
+ * against the email.
+ */
+.auth__code {
+  height: 54px;
+  font-size: 28px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+  text-align: center;
+}
+
+.auth__code::placeholder {
+  color: var(--chrome-text-dim);
+  opacity: 0.35;
+}
+
+.auth__message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.auth__links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px;
+  margin: 0 -12px -8px;
+}
+
+/*
  * The OAuth consent screen's two buttons.
  *
  * Side by side and the same width, because they are the same size of decision:

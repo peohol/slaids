@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AuthError, SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { setSupabaseClient } from '../supabase/client'
 import { createPresentation } from '../domain/presentation'
-import { LAST_OPEN_PRESENTATION_KEY, readPref, writePref } from './prefs'
-import { describeAuthError, stopSessionWatcher, useSessionStore } from './session'
+import { lastOpenPresentationKey, readPref, writePref } from './prefs'
+import { authSessionStorage } from '../supabase/authStorage'
+import { stopSessionWatcher, useSessionStore } from './session'
 import { useToasts } from './toast'
 import { useEditorStore } from './store'
 
@@ -16,7 +17,17 @@ type StubSession = { user: { id: string; email?: string } } | null
 interface AuthStub {
   session?: StubSession
   getSessionError?: unknown
-  signInResult?: { data: { session: unknown }; error: unknown }
+  /** What `signInWithOtp` answers. */
+  requestError?: unknown
+  /** What `verifyOtp` answers; a session on success. */
+  verifyResult?: { data: { session: unknown }; error: unknown }
+  /**
+   * The signed-in user's own row in `slaids_users`, as row level security
+   * returns it: `null` when they are not on the list.
+   */
+  accessRow?: { user_id: string; role: string; active: boolean } | null
+  /** `slaids_users` could not be read. */
+  accessError?: { message: string }
   signOutError?: unknown
   /**
    * The rare path where auth-js returns early and leaves the stored session in
@@ -30,6 +41,13 @@ interface AuthStub {
 
 /** What the last `signOut` call was given, so the scope can be asserted on. */
 const signOutCalls: unknown[] = []
+/** What the sign-in calls were given. */
+const otpCalls: unknown[] = []
+const verifyCalls: unknown[] = []
+/** The SDK's listener, to send it an event the way another tab's broadcast does. */
+let emitAuthEvent: ((event: string, session: StubSession) => void) | null = null
+/** How often the access list was read. */
+let accessReads = 0
 
 /**
  * A stand-in for auth-js 2.112.4. The detail that matters: `signOut` drops the
@@ -43,12 +61,18 @@ function fakeClient(stub: AuthStub = {}): SupabaseClient {
     auth: {
       onAuthStateChange: (callback: (event: string, session: StubSession) => void) => {
         listener = callback
+        emitAuthEvent = callback
         return { data: { subscription: { unsubscribe: () => (listener = null) } } }
       },
       getSession: () =>
         Promise.resolve({ data: { session }, error: stub.getSessionError ?? null }),
-      signInWithPassword: () => {
-        const result = stub.signInResult ?? { data: { session }, error: null }
+      signInWithOtp: (params: unknown) => {
+        otpCalls.push(params)
+        return Promise.resolve({ data: {}, error: stub.requestError ?? null })
+      },
+      verifyOtp: (params: unknown) => {
+        verifyCalls.push(params)
+        const result = stub.verifyResult ?? { data: { session }, error: null }
         if (!result.error) session = (result.data.session ?? null) as StubSession
         return Promise.resolve(result)
       },
@@ -61,6 +85,28 @@ function fakeClient(stub: AuthStub = {}): SupabaseClient {
         return Promise.resolve({ error: stub.signOutError ?? null })
       },
     },
+    from: (table: string) => {
+      expect(table).toBe('slaids_users')
+      const query = {
+        select: () => query,
+        eq: (_column: string, value: string) => {
+          expect(value).toBe(session?.user.id)
+          return query
+        },
+        maybeSingle: () => {
+          accessReads += 1
+          return Promise.resolve({
+            data: stub.accessError
+              ? null
+              : stub.accessRow === undefined
+                ? { user_id: session?.user.id, role: 'admin', active: true }
+                : stub.accessRow,
+            error: stub.accessError ?? null,
+          })
+        },
+      }
+      return query
+    },
   } as unknown as SupabaseClient
 }
 
@@ -71,14 +117,18 @@ function configure(): void {
 
 beforeEach(() => {
   signOutCalls.length = 0
+  otpCalls.length = 0
+  verifyCalls.length = 0
+  accessReads = 0
   stopSessionWatcher()
+  authSessionStorage.reset()
   useSessionStore.setState({
     status: 'loading',
     userId: null,
     email: null,
     error: null,
-    signingIn: false,
-    signInError: null,
+    access: null,
+    role: null,
   })
 })
 
@@ -122,13 +172,13 @@ describe('auth-gating', () => {
   it('lar en reload beholde hvilken presentasjon som var åpen', async () => {
     configure()
     setSupabaseClient(fakeClient({ session: { user: USER } }))
-    writePref(LAST_OPEN_PRESENTATION_KEY, 'p1')
+    writePref(lastOpenPresentationKey(USER.id), 'p1')
 
     await useSessionStore.getState().start()
 
     // Opening a session is not leaving one: there is no previous user whose
     // traces need clearing, and the preference must survive.
-    expect(readPref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)).toBe('p1')
+    expect(readPref<string | null>(lastOpenPresentationKey(USER.id), null)).toBe('p1')
   })
 
   it('viser en forståelig feil når Supabase er konfigurert men utilgjengelig', async () => {
@@ -162,46 +212,217 @@ describe('auth-gating', () => {
   })
 })
 
-describe('innlogging', () => {
-  it('logger inn med e-post og passord', async () => {
+describe('innlogging med engangskode', () => {
+  it('ber om en kode uten å kunne opprette en konto', async () => {
     configure()
-    setSupabaseClient(
-      fakeClient({ signInResult: { data: { session: { user: USER } }, error: null } }),
-    )
+    setSupabaseClient(fakeClient())
 
-    await useSessionStore.getState().signIn(' peder@example.com ', 'hemmelig')
+    const outcome = await useSessionStore.getState().requestCode(' Peder@Example.com ')
 
-    const state = useSessionStore.getState()
-    expect(state.status).toBe('signed-in')
-    expect(state.signingIn).toBe(false)
-    expect(state.signInError).toBeNull()
+    expect(outcome).toEqual({ ok: true })
+    expect(otpCalls).toEqual([
+      { email: 'peder@example.com', options: { shouldCreateUser: false } },
+    ])
+    // Å be om en kode logger ingen inn.
+    expect(useSessionStore.getState().userId).toBeNull()
   })
 
-  it('sier fra om feil passord uten å slippe brukeren inn', async () => {
+  it('sier forståelig fra om en adresse uten konto', async () => {
     configure()
     setSupabaseClient(
       fakeClient({
-        signInResult: {
-          data: { session: null },
-          error: { name: 'AuthApiError', status: 400, message: 'Invalid login credentials' },
+        requestError: {
+          name: 'AuthApiError',
+          status: 422,
+          code: 'otp_disabled',
+          message: 'Signups not allowed for otp',
         },
       }),
     )
 
-    await useSessionStore.getState().signIn('peder@example.com', 'feil')
+    const outcome = await useSessionStore.getState().requestCode('ukjent@example.com')
 
-    const state = useSessionStore.getState()
-    expect(state.status).not.toBe('signed-in')
-    expect(state.signInError).toBe('Feil e-post eller passord.')
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) {
+      expect(outcome.failure.kind).toBe('unknown-email')
+      expect(outcome.failure.message).toMatch(/administrator/)
+    }
   })
 
-  it('skiller nettverksfeil fra feil passord', () => {
-    expect(
-      describeAuthError({ name: 'AuthRetryableFetchError', message: 'x' } as AuthError),
-    ).toMatch(/Fikk ikke kontakt/)
-    expect(
-      describeAuthError({ name: 'AuthApiError', status: 400, message: 'Invalid login credentials' } as AuthError),
-    ).toBe('Feil e-post eller passord.')
+  it('logger inn med koden og slipper inn et aktivt medlem', async () => {
+    configure()
+    setSupabaseClient(fakeClient({ verifyResult: { data: { session: { user: USER } }, error: null } }))
+
+    const outcome = await useSessionStore.getState().verifyCode(' peder@example.com ', '123456', false)
+
+    expect(outcome).toEqual({ ok: true })
+    expect(verifyCalls).toEqual([{ email: 'peder@example.com', token: '123456', type: 'email' }])
+    const state = useSessionStore.getState()
+    expect(state.status).toBe('signed-in')
+    expect(state.access).toBe('member')
+    expect(state.role).toBe('admin')
+  })
+
+  it('velger lagring før økten lagres: enheten når brukeren vil huskes, ellers fanen', async () => {
+    configure()
+    setSupabaseClient(fakeClient({ verifyResult: { data: { session: { user: USER } }, error: null } }))
+
+    await useSessionStore.getState().verifyCode('peder@example.com', '123456', true)
+    expect(authSessionStorage.persistence()).toBe('device')
+
+    await useSessionStore.getState().signOut()
+    // Utlogging glemmer valget, så neste innlogging velger på nytt.
+    expect(authSessionStorage.persistence()).toBeNull()
+
+    await useSessionStore.getState().verifyCode('peder@example.com', '123456', false)
+    expect(authSessionStorage.persistence()).toBe('tab')
+  })
+
+  it('slipper ikke inn på feil eller utløpt kode', async () => {
+    configure()
+    setSupabaseClient(
+      fakeClient({
+        verifyResult: {
+          data: { session: null },
+          error: {
+            name: 'AuthApiError',
+            status: 403,
+            code: 'otp_expired',
+            message: 'Token has expired or is invalid',
+          },
+        },
+      }),
+    )
+
+    const outcome = await useSessionStore.getState().verifyCode('peder@example.com', '000000', false)
+
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.failure.kind).toBe('invalid-code')
+    expect(useSessionStore.getState().status).not.toBe('signed-in')
+  })
+})
+
+describe('flere faner', () => {
+  it('tar ikke over en annen fanes innlogging som ikke ligger i egen lagring', async () => {
+    vi.useFakeTimers()
+    try {
+      configure()
+      // Denne fanen har ingen økt lagret – den andre fanen logget inn uten å
+      // bli husket, altså i sin egen sessionStorage.
+      setSupabaseClient(fakeClient({ session: null }))
+      await useSessionStore.getState().start()
+
+      emitAuthEvent?.('SIGNED_IN', { user: USER })
+      await vi.runAllTimersAsync()
+
+      expect(useSessionStore.getState().status).toBe('signed-out')
+      expect(useSessionStore.getState().userId).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('følger en hendelse når økten faktisk ligger i lagringen', async () => {
+    vi.useFakeTimers()
+    try {
+      configure()
+      const stub: AuthStub = { session: null }
+      setSupabaseClient(fakeClient(stub))
+      await useSessionStore.getState().start()
+
+      // Husket innlogging i en annen fane: økten ligger i den felles lagringen.
+      setSupabaseClient(fakeClient({ session: { user: USER } }))
+      emitAuthEvent?.('SIGNED_IN', { user: USER })
+      await vi.runAllTimersAsync()
+
+      expect(useSessionStore.getState().status).toBe('signed-in')
+      expect(useSessionStore.getState().access).toBe('member')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('tilgangslisten', () => {
+  it('slipper ikke inn en Auth-bruker som ikke står på listen', async () => {
+    configure()
+    setSupabaseClient(fakeClient({ session: { user: USER }, accessRow: null }))
+
+    await useSessionStore.getState().start()
+
+    const state = useSessionStore.getState()
+    expect(state.status).toBe('signed-in')
+    expect(state.access).toBe('no-access')
+    expect(state.role).toBeNull()
+  })
+
+  it('skiller en deaktivert konto fra en som aldri hadde tilgang', async () => {
+    configure()
+    setSupabaseClient(
+      fakeClient({
+        session: { user: USER },
+        accessRow: { user_id: USER.id, role: 'admin', active: false },
+      }),
+    )
+
+    await useSessionStore.getState().start()
+
+    const state = useSessionStore.getState()
+    expect(state.access).toBe('deactivated')
+    // En deaktivert administrator er ikke administrator.
+    expect(state.role).toBeNull()
+  })
+
+  it('oppdager deaktivering i en økt som allerede er åpen', async () => {
+    configure()
+    const row = { user_id: USER.id, role: 'user', active: true }
+    setSupabaseClient(fakeClient({ session: { user: USER }, accessRow: row }))
+    await useSessionStore.getState().start()
+    expect(useSessionStore.getState().access).toBe('member')
+
+    row.active = false
+    await useSessionStore.getState().refreshAccess()
+
+    expect(useSessionStore.getState().access).toBe('deactivated')
+  })
+
+  it('stopper appen hvis den første tilgangssjekken ikke får svar', async () => {
+    configure()
+    setSupabaseClient(fakeClient({ session: { user: USER }, accessError: { message: 'nede' } }))
+
+    await useSessionStore.getState().start()
+
+    const state = useSessionStore.getState()
+    expect(state.status).toBe('unavailable')
+    expect(state.error).toMatch(/tilgang/)
+  })
+
+  it('kaster ikke et medlem ut fordi en ny sjekk ikke fikk svar', async () => {
+    configure()
+    const stub: AuthStub = { session: { user: USER } }
+    setSupabaseClient(fakeClient(stub))
+    await useSessionStore.getState().start()
+
+    stub.accessError = { message: 'nettverksbrudd' }
+    await useSessionStore.getState().refreshAccess()
+
+    const state = useSessionStore.getState()
+    expect(state.status).toBe('signed-in')
+    expect(state.access).toBe('member')
+  })
+
+  it('deler én forespørsel når flere ber om sjekk samtidig', async () => {
+    configure()
+    setSupabaseClient(fakeClient({ session: { user: USER } }))
+    await useSessionStore.getState().start()
+    accessReads = 0
+
+    await Promise.all([
+      useSessionStore.getState().refreshAccess(),
+      useSessionStore.getState().refreshAccess(),
+    ])
+
+    expect(accessReads).toBe(1)
   })
 })
 
@@ -243,7 +464,7 @@ describe('utlogging', () => {
     )
     await useSessionStore.getState().start()
     useEditorStore.getState().setPresentation(createPresentation({ title: 'Hemmelig' }))
-    writePref(LAST_OPEN_PRESENTATION_KEY, 'p1')
+    writePref(lastOpenPresentationKey(USER.id), 'p1')
 
     await useSessionStore.getState().signOut()
 
@@ -255,7 +476,7 @@ describe('utlogging', () => {
     expect(state.userId).toBeNull()
     // Og da må brukerens data være borte fra skjermen, akkurat som ellers.
     expect(useEditorStore.getState().presentation).toBeNull()
-    expect(readPref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)).toBeNull()
+    expect(readPref<string | null>(lastOpenPresentationKey(USER.id), null)).toBeNull()
   })
 
   it('tåler at SIGNED_OUT kommer før signOut-løftet er ferdig', async () => {
@@ -300,7 +521,7 @@ describe('utlogging', () => {
     await useSessionStore.getState().start()
 
     useEditorStore.getState().setPresentation(createPresentation({ title: 'Hemmelig' }))
-    writePref(LAST_OPEN_PRESENTATION_KEY, 'p1')
+    writePref(lastOpenPresentationKey(USER.id), 'p1')
 
     await useSessionStore.getState().signOut()
 
@@ -309,6 +530,13 @@ describe('utlogging', () => {
     expect(state.userId).toBeNull()
     expect(state.email).toBeNull()
     expect(useEditorStore.getState().presentation).toBeNull()
-    expect(readPref<string | null>(LAST_OPEN_PRESENTATION_KEY, null)).toBeNull()
+    expect(readPref<string | null>(lastOpenPresentationKey(USER.id), null)).toBeNull()
+  })
+})
+
+describe('sist åpne presentasjon', () => {
+  it('huskes per bruker, så neste bruker i samme nettleser ikke får den', () => {
+    expect(lastOpenPresentationKey('a')).not.toBe(lastOpenPresentationKey('b'))
+    expect(lastOpenPresentationKey(null)).not.toBe(lastOpenPresentationKey('a'))
   })
 })
