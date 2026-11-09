@@ -31,6 +31,7 @@ import {
   OAUTH_CLIENTS_VAR,
   OAUTH_OWNERS_VAR,
   OAUTH_SCOPES_VAR,
+  OAUTH_SWITCH_VAR,
   authenticateOAuthToken,
   grantedScopes,
   looksLikeJwt,
@@ -38,6 +39,7 @@ import {
   SUPABASE_DEFAULT_AUDIENCE,
   supabaseIssuer,
 } from './oauth'
+import { oauthAuthenticator } from './supabase'
 import type { AuthOutcome } from './tokens'
 import {
   OTHER_OWNER,
@@ -45,6 +47,7 @@ import {
   TEST_ISSUER,
   TEST_OWNER,
   TEST_SUPABASE_URL,
+  testAccessList,
   testAuthorizationServer,
   type TestAuthorizationServer,
   type TokenClaims,
@@ -52,20 +55,25 @@ import {
 
 const NOW = new Date('2026-09-05T12:00:00.000Z')
 
-/** One verification, with everything but the token left at its sane default. */
+/**
+ * One verification, with everything but the token left at its sane default.
+ *
+ * Through `oauthAuthenticator`, as production verifies: the token checks, then
+ * Slaids' access list — where only `TEST_OWNER` is an active user unless a test
+ * passes its own list.
+ */
 async function verify(
   server: TestAuthorizationServer,
   token: string,
   overrides: Parameters<TestAuthorizationServer['config']>[0] = {},
   now: Date = NOW,
+  members = testAccessList(),
 ): Promise<AuthOutcome> {
-  return authenticateOAuthToken({
-    token,
-    config: server.config(overrides),
-    jwks: server.jwks(),
-    now,
-  })
+  return oauthAuthenticator(server.config(overrides), members.lookup, () => now, server.jwks())(token)
 }
+
+/** The switch, as a deployment that offers OAuth sets it. */
+const OAUTH_ON = { [OAUTH_SWITCH_VAR]: 'on' }
 
 /** A token that should be accepted, unless the named claim says otherwise. */
 function claims(overrides: TokenClaims = {}): TokenClaims {
@@ -298,7 +306,7 @@ describe('påstandene i et ellers gyldig token', () => {
     // passed the whole time the setting did nothing.
     const resource = 'https://www.slaids.no/api/agent/v1/mcp'
     const config = readOAuthConfig(
-      { [OAUTH_OWNERS_VAR]: TEST_OWNER, [OAUTH_AUDIENCE_VAR]: resource },
+      { ...OAUTH_ON, [OAUTH_AUDIENCE_VAR]: resource },
       { supabaseUrl: TEST_SUPABASE_URL },
     )
     if (!config) throw new Error('Forventet en OAuth-konfigurasjon.')
@@ -352,15 +360,60 @@ describe('påstandene i et ellers gyldig token', () => {
     )
   })
 
-  it('avviser en ekte bruker av prosjektet som ikke er en Slaids-eier', async () => {
-    // The Supabase project is shared with two other apps, and the API holds a
-    // key that bypasses row level security. Without this the door would be
-    // wider than the browser's, where the tables are pinned to one uuid.
+  it('avviser en ekte bruker av prosjektet som ikke er Slaids-bruker', async () => {
+    // The Supabase project is shared with other apps, and the API holds a key
+    // that bypasses row level security. Without the access list the door would
+    // be wider than the browser's, where row level security asks the same list.
     const server = await testAuthorizationServer()
     const token = await server.sign(claims({ sub: OTHER_OWNER }))
     const outcome = await verify(server, token)
     expect(reasonOf(outcome)).toBe('oauth-unknown-owner')
     // And nothing is attributed: there is no owner here to write a row for.
+    expect(outcome.ok === false && outcome.identified).toBeUndefined()
+  })
+
+  it('slipper inn enhver aktiv Slaids-bruker, som seg selv', async () => {
+    const server = await testAuthorizationServer()
+    const members = testAccessList({ [TEST_OWNER]: true, [OTHER_OWNER]: true })
+    const outcome = await verify(server, await server.sign(claims({ sub: OTHER_OWNER })), {}, NOW, members)
+    expect(outcome.ok && outcome.principal.ownerId).toBe(OTHER_OWNER)
+  })
+
+  it('avviser en deaktivert Slaids-bruker, og skriver det i brukerens logg', async () => {
+    // A grant at the authorization server outlives deactivation — Slaids cannot
+    // revoke it there — so every token it yields has to be refused here.
+    const server = await testAuthorizationServer()
+    const members = testAccessList()
+    const token = await server.sign(claims())
+    expect((await verify(server, token, {}, NOW, members)).ok).toBe(true)
+
+    members.set(TEST_OWNER, false)
+    const outcome = await verify(server, token, {}, NOW, members)
+    expect(reasonOf(outcome)).toBe('owner-inactive')
+    expect(outcome.ok === false && outcome.identified).toEqual({
+      kind: 'oauth',
+      ownerId: TEST_OWNER,
+      clientId: TEST_CLIENT,
+    })
+
+    // Reactivated, the same grant works again: nothing was destroyed.
+    members.set(TEST_OWNER, true)
+    expect((await verify(server, token, {}, NOW, members)).ok).toBe(true)
+  })
+
+  it('avviser når tilgangslisten ikke svarer, uten å slippe noen inn', async () => {
+    const server = await testAuthorizationServer()
+    const down = { lookup: () => Promise.reject(new Error('nede')), set: () => undefined }
+    const outcome = await verify(server, await server.sign(claims()), {}, NOW, down)
+    expect(reasonOf(outcome)).toBe('unavailable')
+  })
+
+  it('skriver ingenting i noens logg for et utløpt token fra en fremmed', async () => {
+    const server = await testAuthorizationServer()
+    const seconds = Math.floor(NOW.getTime() / 1000)
+    const token = await server.sign({ sub: OTHER_OWNER, iat: seconds - 7200, exp: seconds - 1 })
+    const outcome = await verify(server, token)
+    expect(reasonOf(outcome)).toBe('oauth-unknown-owner')
     expect(outcome.ok === false && outcome.identified).toBeUndefined()
   })
 
@@ -545,27 +598,55 @@ describe('scopes', () => {
  * ------------------------------------------------------------------ */
 
 describe('oppsettet', () => {
-  it('tilbyr ingen OAuth uten en eierliste', async () => {
+  it('tilbyr ingen OAuth før noen slår det på', async () => {
     // Merging this must not open a door nobody chose to open.
     expect(readOAuthConfig({}, { supabaseUrl: TEST_SUPABASE_URL })).toBeNull()
     expect(
       readOAuthConfig({ [OAUTH_OWNERS_VAR]: '   ' }, { supabaseUrl: TEST_SUPABASE_URL }),
     ).toBeNull()
+    expect(
+      readOAuthConfig({ [OAUTH_SWITCH_VAR]: 'off' }, { supabaseUrl: TEST_SUPABASE_URL }),
+    ).toBeNull()
+  })
+
+  it('slås på med SLAIDS_AGENT_OAUTH=on', async () => {
+    expect(readOAuthConfig(OAUTH_ON, { supabaseUrl: TEST_SUPABASE_URL })).not.toBeNull()
+    expect(
+      readOAuthConfig({ [OAUTH_SWITCH_VAR]: ' ON ' }, { supabaseUrl: TEST_SUPABASE_URL }),
+    ).not.toBeNull()
+  })
+
+  it('godtar den gamle eierlisten som på-bryter, men ikke som tilgangsliste', async () => {
+    // An existing deployment keeps working without a change. Who gets in is
+    // the access list's decision now, so the ids themselves go unread — a user
+    // missing from the old list is still let in when they are an active Slaids
+    // user, and one on it is refused once deactivated.
+    const config = readOAuthConfig({ [OAUTH_OWNERS_VAR]: TEST_OWNER }, { supabaseUrl: TEST_SUPABASE_URL })
+    if (!config) throw new Error('Forventet en OAuth-konfigurasjon.')
+    expect(config).not.toHaveProperty('owners')
+
+    const server = await testAuthorizationServer()
+    const members = testAccessList({ [TEST_OWNER]: false, [OTHER_OWNER]: true })
+    const authenticate = oauthAuthenticator(config, members.lookup, () => NOW, server.jwks())
+    expect((await authenticate(await server.sign(claims({ sub: OTHER_OWNER })))).ok).toBe(true)
+    expect(reasonOf(await authenticate(await server.sign(claims())))).toBe('owner-inactive')
+
+    // An explicit switch wins over the old variable, in both directions.
+    expect(
+      readOAuthConfig(
+        { [OAUTH_OWNERS_VAR]: TEST_OWNER, [OAUTH_SWITCH_VAR]: 'off' },
+        { supabaseUrl: TEST_SUPABASE_URL },
+      ),
+    ).toBeNull()
   })
 
   it('faller tilbake til Supabases egen mottaker når ingen er navngitt', async () => {
-    const config = readOAuthConfig(
-      { [OAUTH_OWNERS_VAR]: TEST_OWNER },
-      { supabaseUrl: TEST_SUPABASE_URL },
-    )
+    const config = readOAuthConfig(OAUTH_ON, { supabaseUrl: TEST_SUPABASE_URL })
     expect(config?.audiences).toEqual([SUPABASE_DEFAULT_AUDIENCE])
   })
 
   it('utleder utsteder og nøkkelsett av Supabase-URL-en som allerede er satt', async () => {
-    const config = readOAuthConfig(
-      { [OAUTH_OWNERS_VAR]: TEST_OWNER },
-      { supabaseUrl: `${TEST_SUPABASE_URL}/` },
-    )
+    const config = readOAuthConfig(OAUTH_ON, { supabaseUrl: `${TEST_SUPABASE_URL}/` })
     expect(config?.issuer).toBe(supabaseIssuer(TEST_SUPABASE_URL))
     expect(config?.jwksUri).toBe(`${TEST_ISSUER}/.well-known/jwks.json`)
     // Two variables that must agree are a way for them to disagree.
@@ -575,15 +656,14 @@ describe('oppsettet', () => {
   it('leser lister med komma, mellomrom eller linjeskift', async () => {
     const config = readOAuthConfig(
       {
-        [OAUTH_OWNERS_VAR]: `${TEST_OWNER}, ${OTHER_OWNER}\n${TEST_OWNER}`,
-        [OAUTH_CLIENTS_VAR]: `${TEST_CLIENT}`,
+        ...OAUTH_ON,
+        [OAUTH_CLIENTS_VAR]: `${TEST_CLIENT}, ${TEST_CLIENT}\nannen-klient`,
         [OAUTH_SCOPES_VAR]: 'presentations:read tull sharing:write',
         [OAUTH_AUDIENCE_VAR]: 'https://www.slaids.no/api/agent/v1/mcp',
       },
       { supabaseUrl: TEST_SUPABASE_URL },
     )
-    expect([...(config?.owners ?? [])].sort()).toEqual([TEST_OWNER, OTHER_OWNER].sort())
-    expect([...(config?.clients ?? [])]).toEqual([TEST_CLIENT])
+    expect([...(config?.clients ?? [])]).toEqual([TEST_CLIENT, 'annen-klient'])
     // An unknown scope name is never treated as authority.
     expect(config?.defaultScopes).toEqual(['presentations:read', 'sharing:write'])
     // The configured list *is* the list: Supabase's own audience is the

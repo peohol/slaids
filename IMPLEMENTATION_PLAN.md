@@ -4133,8 +4133,8 @@ den ugjettbare lenken.
 Det er også det som holder deling adskilt fra brukerkontoene (§ 43.1): en delt
 lenke gir ingen konto, ingen Auth-bruker og ingen tilgang til noe som helst
 annet – bare lesetilgang til én publisert kopi. Bare eieren kan endre noe.
-Publiseringer fra en deaktivert konto svarer som «ikke aktiv» så lenge kontoen
-er deaktivert, og virker igjen ved reaktivering.
+Publiseringer fra en deaktivert konto svarer den samme generelle 404-en som en
+ukjent lenke så lenge kontoen er deaktivert, og virker igjen ved reaktivering.
 
 ### To dokumenter
 
@@ -4218,7 +4218,11 @@ Det finnes ingen skriveoperasjon, og ingen listeform utover en delt mappes egen
 liste, med mappens eksakte token. Ugyldig token, tilbakekalt
 deling, slettet presentasjon og en fil som ikke er i snapshotet gir alle den
 samme generelle 404-en – ellers ville endepunktet vært en informasjonskanal om
-hvilke tokens som er ekte. Svarene har `Cache-Control: no-store` og
+hvilke tokens som er ekte. Det samme gjelder alt en **deaktivert** konto har
+publisert (§ 43.1): funksjonen leser eierens rad i `slaids_users` ved hvert
+oppslag, og så lenge kontoen ikke er aktiv, svarer lenkene 404. Ingenting
+avpubliseres; ved reaktivering virker de samme lenkene igjen. Eierens id leses
+bare for å stille det spørsmålet og sendes aldri ut. Svarene har `Cache-Control: no-store` og
 `X-Robots-Tag: noindex, nofollow`; en cachet kopi ville overlevd tilbakekallingen
 som skulle fjerne den.
 
@@ -5045,7 +5049,24 @@ sharing:write
 
 Vanlig presentasjonsredigering skal **ikke** automatisk gi rett til å publisere/dele presentasjoner.
 
-Siden Slaids er en énbruker-app, skal agenttokens fortsatt bare gi tilgang til Slaids-eierens data. Tokenmekanismen er en delegasjon fra eieren, ikke et nytt flerbrukersystem.
+Slaids har flere selvstendige brukere (§ 43.1). Et agenttoken er en delegasjon
+fra **én** bruker og gir bare tilgang til den brukerens egne data – aldri til en
+annen brukers, heller ikke for en administrator. Hver bruker lager og
+tilbakekaller sine egne tokens i biblioteket.
+
+**Bare aktive Slaids-brukere.** Etter at legitimasjonen er godkjent – for begge
+familiene under – spør serveren Slaids' tilgangsliste (`slaids_users`, via
+`readUserAccess`) om eieren er en aktiv Slaids-bruker. Det spørres ved hvert
+kall, uten mellomlagring, slik at deaktivering virker på neste kall og
+reaktivering gir tilgangen tilbake uten at noe må lages på nytt. Svaret utad er
+den vanlige `401`; eierens egen logg får `OWNER_INACTIVE`. En eier som ikke står
+på listen i det hele tatt (en bruker av en annen app i samme Supabase-prosjekt),
+får ingen rad i noens logg. Kan listen ikke leses, avvises kallet.
+
+**Administrasjon er ikke en agentoperasjon.** Brukeradministrasjon (§ 43.1)
+finnes verken som REST-operasjon eller MCP-verktøy, og et agenttoken eller
+OAuth-token gir aldri adgang til den – heller ikke for en administrator. Det
+samme gjelder agenttokens: de lages og tilbakekalles bare i appen.
 
 #### Klienter som ikke tar imot et token
 
@@ -5059,8 +5080,8 @@ imellom. Agent-API-et skal derfor ta imot **to legitimasjonsfamilier**:
 Autorisasjonsserveren skal være **Supabase Auth**, det samme prosjektet
 innloggingen allerede bruker. Slaids skal ikke bygge en egen: en andre
 brukerkatalog og en andre samtykkeflyt for de samme personene er nøyaktig det
-énbruker-modellen finnes for å unngå. Slaids er en OAuth *ressursserver* og
-ikke noe mer.
+Supabase Auth-regelen (§ 43.1) finnes for å unngå. Slaids er en OAuth
+*ressursserver* og ikke noe mer.
 
 Kravene til den halvdelen:
 
@@ -5076,11 +5097,18 @@ Kravene til den halvdelen:
   et token skal leses før signaturen er verifisert. Utsteder, mottaker og utløp
   skal sjekkes, og et token uten `client_id` – altså et vanlig
   innloggingstoken fra nettleseren – skal avvises: det er ikke en delegasjon.
-- **Hvem som slipper inn.** Slaids er fortsatt énbruker. Prosjektet deles med
-  andre apper, og API-et holder en nøkkel som går forbi row level security, så
-  hvilke Supabase-brukere som får koble seg på skal være en eksplisitt liste i
-  servermiljøet. Uten den listen tilbyr installasjonen ingen OAuth i det hele
-  tatt.
+- **Hvem som slipper inn.** Prosjektet deles med andre apper, og
+  autorisasjonsserveren utsteder tokens til alle brukerne der. Et gyldig token
+  sier derfor ingenting om Slaids: bare aktive Slaids-brukere i tilgangslisten
+  slipper inn, med samme sjekk som for agenttokens (over). En OAuth-tilgang
+  hos autorisasjonsserveren kan ikke trekkes tilbake derfra av Slaids, men hvert
+  token den gir avvises så lenge kontoen er deaktivert.
+- **På-bryter.** OAuth er av til installasjonen slår det på med
+  `SLAIDS_AGENT_OAUTH=on`. Den eldre `SLAIDS_AGENT_OAUTH_OWNERS` godtas fortsatt
+  som på-bryter, slik at en eksisterende installasjon virker uendret, men
+  innholdet i den leses ikke lenger – det er tilgangslisten som avgjør hvem som
+  slipper inn. En eksplisitt `SLAIDS_AGENT_OAUTH` med en annen verdi enn `on`
+  slår OAuth av.
 - **Scopes.** Samme fire scopes. Navngir tokenet dem, er tokenet det som
   gjelder; navngir det ingen – som er tilfellet så lenge autorisasjonsserveren
   ikke støtter egendefinerte scopes – gjelder installasjonens standard, og den
@@ -5934,9 +5962,10 @@ lagret rad, fordi ingenting her tar imot en. Tabellen har ingen kolonne
 slideinnhold, filbytes eller payloads kan havne i – §44 ber om den
 tilbakeholdenheten, og et skjema uten et sted å putte dem er hvordan den
 overlever at noen har dårlig tid. Et *gjenkjent* token som avvises skrives ned
-med grunnen (`TOKEN_REVOKED`, `TOKEN_EXPIRED`); et token ingen har sett før gjør
-det ikke, siden det ikke er noen å tilskrive raden og en uautentisert skriving
-er en måte å fylle noen andres tabell på.
+med grunnen (`TOKEN_REVOKED`, `TOKEN_EXPIRED`, `OWNER_INACTIVE`); et token ingen
+har sett før gjør det ikke, og heller ikke et token for noen som ikke er
+Slaids-bruker, siden det ikke er noen å tilskrive raden og en uautentisert
+skriving er en måte å fylle noen andres tabell på.
 
 **Binærtransport.** `multipart/form-data` parses av plattformens egen parser
 (kroppen pakkes tilbake i en `Response` og `formData()` gjør jobben – en
@@ -5958,7 +5987,12 @@ gjør `SupabaseSlaidsRepository` to ting når den er pinnet til en eier: `owner_
 kommer fra pinnen i stedet for fra `auth.getSession()`, og hver spørring
 filtreres på den. Filteret RLS ville lagt på må skrives ned når RLS er omgått,
 ikke antas. I nettleseren finnes ingen pin, ingen filter legges til, og RLS er
-fortsatt det eneste som bestemmer.
+fortsatt det eneste som bestemmer. Pinnen er alltid prinsipalets eier, fra en
+verifisert legitimasjon – aldri et felt i forespørselen – og
+`src/server/agent/multiUser.test.ts` kjører hele produksjonskoblingen
+(`wireAgentApi`) mot én felles database med flere brukere og bekrefter at én
+bruker verken kan lese, endre eller slette en annens presentasjoner, mapper eller
+filer over REST eller MCP.
 
 `readAgentApiConfig` nekter å starte hvis nøkkelen også finnes under et
 `VITE_`-navn. Da ligger den allerede i nettleserbundelen, og det eneste riktige

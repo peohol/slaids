@@ -239,7 +239,7 @@ if (resourceMetadata.status !== 200 || !/\bjson\b/i.test(resourceMetadata.type) 
     `${RESOURCE_METADATA_URL} svarte ${resourceMetadata.status}${
       /\bjson\b/i.test(resourceMetadata.type) ? '' : ' med noe som ikke er JSON'
     }.\n` +
-      'Installasjonen tilbyr ingen OAuth. Er SLAIDS_AGENT_OAUTH_OWNERS satt i servermiljøet, og er\n' +
+      'Installasjonen tilbyr ingen OAuth. Er SLAIDS_AGENT_OAUTH=on satt i servermiljøet, og er\n' +
       'deployen kjørt på nytt etterpå?',
   )
 }
@@ -462,7 +462,7 @@ if (call.status !== 200) {
   fail(
     'tools/call med OAuth-tokenet',
     `svarte ${call.status}${challengeHeader ? ` (${challengeHeader})` : ''}. ` +
-      'Er brukeren tokenet ble utstedt til med i SLAIDS_AGENT_OAUTH_OWNERS?',
+      'Er brukeren tokenet ble utstedt til en aktiv Slaids-bruker (Administrasjon → Brukere)?',
   )
 }
 if (call.body?.error) {

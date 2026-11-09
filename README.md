@@ -380,8 +380,11 @@ og `--prune` er et flagg som bare kan gjøre skade her.
 
 Rekkefølgen mellom de to er ikke likegyldig når begge har endret seg: kjør
 migrasjonene **før** funksjonen deployes. `slaids-share` filtrerer på kolonnen
-`deleted_at` (søppelkassen), og en funksjon som spør etter en kolonne som ikke
-finnes ennå svarer 404 på hver eneste delingslenke til migrasjonen er kjørt.
+`deleted_at` (søppelkassen) og leser eierens status i `slaids_users`
+(flerbrukermigrasjonen), og en funksjon som spør etter en kolonne eller tabell
+som ikke finnes ennå svarer 404 på hver eneste delingslenke til migrasjonen er
+kjørt. Så lenge en konto er deaktivert, svarer lenkene den har publisert også
+404; de virker igjen når kontoen reaktiveres.
 
 Supabase-oppsettet er **verifisert mot et ekte prosjekt**: innlogging,
 reload/session-persistens, filer, mapper, import/eksport, sletting, utlogging,
@@ -1299,8 +1302,18 @@ sone; avvisningen sier hvor mange steder filen vises, av hvert slag, og resten
 finner en agent med `list_assets` og `inspect_slide` – som krever
 `presentations:read`.
 
-Et token er en delegasjon fra Slaids-eieren, ikke en ny bruker: raden navngir
-eieren, og det er derfra `owner_id` kommer på hver skriving.
+Et token er en delegasjon fra brukeren som lagde det, ikke en ny bruker: raden
+navngir eieren, og det er derfra `owner_id` kommer på hver skriving. Hver
+Slaids-bruker har sine egne tokens, og et token gir bare tilgang til eierens
+egne presentasjoner, mapper og filer – aldri en annen brukers, heller ikke når
+eieren er administrator.
+
+**Bare aktive brukere.** Ved hvert kall – med agenttoken og med OAuth – sjekker
+serveren at eieren står som aktiv i Slaids' brukerliste (`slaids_users`).
+Deaktiverer en administrator kontoen, slutter alle tokens og OAuth-tilkoblinger
+for den å virke på neste kall; reaktiveres den, virker de samme igjen uten at
+noe må lages på nytt. Brukeradministrasjon er ikke en agentoperasjon og kan ikke
+nås med et agenttoken eller OAuth-token.
 
 ### Audit
 
@@ -1313,8 +1326,10 @@ logg som sier noe usant er verre enn en som sier mindre. Også katalogoppslag (`
 ukjent adresse (`unknown_route`) – et stjålet tokens første trekk er å spørre hva
 det får lov til, og det er det tidligste en eier kunne legge merke til. Tabellen har ingen kolonne slideinnhold, filbytes eller hele
 forespørsler kan havne i. Et tilbakekalt token som brukes igjen skrives også
-ned – det er dét en audit er til for – mens et token ingen har sett før ikke
-gjør det, siden det ikke er noen å tilskrive raden.
+ned – det er dét en audit er til for – og det samme gjør et gyldig token fra en
+deaktivert konto (`OWNER_INACTIVE`). Et token ingen har sett før, eller et token
+fra noen som ikke er Slaids-bruker, gjør det ikke, siden det ikke er noen å
+tilskrive raden.
 
 ### Servermiljø
 
@@ -1330,11 +1345,16 @@ SLAIDS_AGENT_MAX_REQUEST_BYTES=4194304          # valgfri; standard 4 MB
 **OAuth er av med mindre du slår det på**, og bryteren er én variabel:
 
 ```bash
-# Påkrevd for OAuth. Supabase-bruker-ID-ene som får koble seg på Slaids.
-# Er den tom, finnes det ingen autorisasjonsserver: metadatadokumentet svarer
-# 404, utfordringen peker ingen steder, og et JWT avvises som et hvilket som
-# helst annet ukjent token. Ingenting annet i API-et endrer seg.
-SLAIDS_AGENT_OAUTH_OWNERS=<uuid>[,<uuid>…]
+# Påkrevd for OAuth. Uten den finnes det ingen autorisasjonsserver:
+# metadatadokumentet svarer 404, utfordringen peker ingen steder, og et JWT
+# avvises som et hvilket som helst annet ukjent token. Ingenting annet i API-et
+# endrer seg. Hvem som slipper inn, bestemmes av brukerlisten i Slaids
+# (Administrasjon → Brukere) – ikke av en servervariabel.
+SLAIDS_AGENT_OAUTH=on
+
+# Eldre form, fortsatt godtatt som på-bryter så et eksisterende oppsett virker
+# uendret. ID-ene i den leses ikke lenger. Settes SLAIDS_AGENT_OAUTH, vinner den.
+# SLAIDS_AGENT_OAUTH_OWNERS=<uuid>[,<uuid>…]
 
 # Valgfrie.
 SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no  # adressen metadataen navngir
@@ -1612,11 +1632,12 @@ agenttoken: `authorizeOperation` vet ikke hvilken familie kalleren kom fra.
 
 #### Hva som må slås på
 
-OAuth er **av** i en installasjon som ikke har fått en eierliste. Det er med
-vilje: agent-API-et holder en nøkkel som går forbi row level security, og
-«hvilken som helst bruker av prosjektet» ville vært en videre dør enn
-nettleseren har – prosjektet står åpent for registrering, og eierlisten er den
-samme låsen som RLS-policyene bruker.
+OAuth er **av** i en installasjon som ikke har slått det på. Når det er på,
+slipper bare aktive Slaids-brukere inn – den samme brukerlisten
+(`slaids_users`) som RLS-policyene og innloggingen bruker. Det er med vilje:
+agent-API-et holder en nøkkel som går forbi row level security, og «hvilken som
+helst bruker av prosjektet» ville vært en videre dør enn nettleseren har –
+prosjektet står åpent for registrering og deles med andre apper.
 
 Fire ting må være på plass, og ingen av dem skjer av seg selv. Fram til de er
 det, oppfører API-et seg nøyaktig som før: agenttokens virker, discovery er
@@ -1641,10 +1662,11 @@ offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
    `https://www.slaids.no/oauth/consent` til autorisasjonsendepunktet. Se
    «Samtykkesiden ligger på Slaids' eget domene» under.
 4. **Servervariablene i Vercel** (Settings → Environment Variables, for
-   Production), uten `VITE_`-prefiks. `SLAIDS_AGENT_OAUTH_OWNERS` med
-   Supabase-bruker-ID-en som skal få koble seg på – den samme eieren
-   RLS-policyene er festet til, `SLAIDS_OWNER_ID` i `src/supabase/access.ts` –
-   er hele på-knappen. `SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no` er *ikke*
+   Production), uten `VITE_`-prefiks. `SLAIDS_AGENT_OAUTH=on` er hele
+   på-knappen; en installasjon som allerede har `SLAIDS_AGENT_OAUTH_OWNERS`
+   satt, trenger ikke endre noe, fordi den eldre variabelen fortsatt slår OAuth
+   på (ID-ene i den leses ikke lenger). Hvem som får koble seg på, styres i
+   Slaids under Administrasjon → Brukere. `SLAIDS_PUBLIC_ORIGIN=https://www.slaids.no` er *ikke*
    påkrevd – uten den leses adressen av forespørselen – men bør settes i
    produksjon, av grunnen som står under «Servermiljø». **Ikke sett
    `SLAIDS_AGENT_OAUTH_AUDIENCE`:** Supabase utsteder `aud: "authenticated"`,
@@ -1652,12 +1674,19 @@ offentlig, og et JWT avvises som et hvilket som helst annet ukjent token.
    Variabler leses ved oppstart, så deployen må kjøres på nytt etterpå –
    Deployments → ⋯ → Redeploy, eller en ny merge til `main`.
 
-   ID-en finnes i Supabase under Authentication → Users, og skal være den
-   samme som `SLAIDS_OWNER_ID`. Er de ulike, er det ikke eierlisten som er
-   feil: `AuthGate` slipper bare den ene uuid-en inn i arbeidsflaten, og RLS
-   er festet til den samme, så da er editoren allerede stengt for eieren og
-   konstanten er det som skal rettes. Én uuid, tre steder som må være enige –
-   kontrollér den der før du limer den inn i Vercel.
+#### Flere brukere og ChatGPTs Slaids Dev-tilkobling
+
+Overgangen fra én til flere brukere krever **ingen ny konfigurasjon** av en
+eksisterende ChatGPT-tilkobling (Slaids Dev) eller andre agentklienter. MCP-
+adressen, verktøyene, scopene, OAuth-utstederen og samtykkesiden er de samme,
+og Vercel-variabelen som allerede står der, slår fortsatt OAuth på. Tilkoblingen
+handler som den Slaids-brukeren som godkjente den, og ser bare den brukerens
+presentasjoner – for Peder er det det samme biblioteket som før.
+
+Én ting er nytt: en tilkobling slutter å virke hvis kontoen den tilhører blir
+deaktivert, og virker igjen når kontoen reaktiveres. Skal en annen bruker koble
+ChatGPT til sitt eget bibliotek, legger vedkommende til en egen tilkobling og
+logger inn med sin egen konto på samtykkesiden.
 
 #### Samtykkesiden ligger på Slaids' eget domene
 
@@ -1706,11 +1735,12 @@ påloggingen – og ser deretter samtykkeskjermen for den samme
    ```
 
    Den ser forskjell på «OAuth 2.1 Server er ikke slått på i Supabase»,
-   «Dynamic Client Registration er av» og «installasjonen har ingen eierliste».
+   «Dynamic Client Registration er av» og «OAuth er ikke slått på i
+   installasjonen».
 
    **`--expect-oauth` gjør det siste til en rød kjøring i stedet for en
    hoppet-over linje**, og det er verdt å ha på for produksjon: en
-   installasjon uten eierliste svarer glad på hele oppdagelsen – håndtrykket
+   installasjon uten `SLAIDS_AGENT_OAUTH=on` svarer glad på hele oppdagelsen – håndtrykket
    går, verktøylisten kommer – og stopper først når et verktøy faktisk skal
    brukes. En grønn kjøring som hoppet over OAuth ville sagt at ingenting er
    galt. I workflowen er `expect_oauth` på som standard; slå den av for en
@@ -1750,7 +1780,9 @@ påloggingen – og ser deretter samtykkeskjermen for den samme
    `SLAIDS_AGENT_OAUTH_CLIENTS`.
 
 En godkjent app trekkes tilbake fra Supabase (Authentication → brukeren →
-OAuth grants), og et token slutter å virke innen en time uansett.
+OAuth grants), og et token slutter å virke innen en time uansett. Deaktiveres
+brukeren i Slaids (Administrasjon → Brukere), avvises tokenene fra neste kall,
+selv om tilgangen fortsatt står i Supabase.
 
 #### Hele reisen, testet
 
