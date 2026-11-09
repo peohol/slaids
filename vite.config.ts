@@ -26,6 +26,7 @@ export default defineConfig({
       'src/**/*.test.tsx',
       'supabase/functions/**/*.test.ts',
       'scripts/**/*.test.ts',
+      'supabase/tests/**/*.test.ts',
     ],
   },
 })
