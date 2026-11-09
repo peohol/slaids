@@ -12,8 +12,9 @@
  *
  * There is no write, and no listing beyond a shared folder's own. Everything
  * that is not exactly one of those — including a token that does not exist, a
- * share that has been turned off, a deck that is not in the folder, and an
- * asset the published snapshot does not mention — gets the same generic 404,
+ * share that has been turned off, a deck that is not in the folder, an asset
+ * the published snapshot does not mention, and anything published by an
+ * account an administrator has deactivated — gets the same generic 404,
  * so the endpoint cannot be used to learn whether a token or an id is real.
  *
  * It runs with the service role because the tables it reads are closed to
@@ -29,7 +30,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
   NOT_FOUND_BODY,
   NOT_FOUND_STATUS,
+  USERS_TABLE,
   assetHeaders,
+  ownerMayPublish,
   publishedAssetIds,
   publishedAssetMimeType,
   publishedDocument,
@@ -41,6 +44,7 @@ import {
   type DeckAddress,
   type FolderDeckRow,
   type FolderListingRow,
+  type OwnerAccessRow,
   type SharedFolderRow,
   type SharedRow,
 } from './access.ts'
@@ -87,9 +91,27 @@ interface PublishedDeck {
 }
 
 /**
+ * Whether the owner of a publication is an active Slaids user right now.
+ *
+ * Read on every request, so deactivation takes the owner's links down at once
+ * and reactivation brings them back. Any failure to read is "no". See
+ * `ownerMayPublish`.
+ */
+async function ownerIsActive(ownerId: unknown): Promise<boolean> {
+  if (typeof ownerId !== 'string' || ownerId.length === 0) return false
+  const { data, error } = await client
+    .from(USERS_TABLE)
+    .select('active')
+    .eq('user_id', ownerId)
+    .maybeSingle()
+  if (error) return false
+  return ownerMayPublish(data as OwnerAccessRow | null)
+}
+
+/**
  * The shared folder a token names, or `null`. `owner_id` is read so the decks
- * can be looked up as the folder owner's and nobody else's; it is never
- * returned.
+ * can be looked up as the folder owner's and nobody else's, and so a
+ * deactivated owner's folder answers nothing; it is never returned.
  */
 async function folderByToken(folderToken: string): Promise<SharedFolderRow | null> {
   const { data, error } = await client
@@ -99,14 +121,17 @@ async function folderByToken(folderToken: string): Promise<SharedFolderRow | nul
     .eq('is_shared', true)
     .maybeSingle()
   if (error) return null
-  return sharedFolder(data as SharedFolderRow | null)
+  const folder = sharedFolder(data as SharedFolderRow | null)
+  if (!folder || !(await ownerIsActive(folder.owner_id))) return null
+  return folder
 }
 
 /**
  * The published deck an address names, or `null` for every reason it might not.
  *
- * `owner_id`, `document` and `object_path` are not selected at all — what is
- * not fetched cannot be leaked. A presentation in the trash is deleted as far
+ * `document` and `object_path` are not selected at all — what is not fetched
+ * cannot be leaked. `owner_id` is, for one question only: is the owner still an
+ * active Slaids user? It never leaves this function. A presentation in the trash is deleted as far
  * as the public is concerned: its share columns are still on the row, so that
  * a restore brings the link back, but while it is trashed the link is dead.
  * Filtered here *and* checked again by the rules in `access.ts`.
@@ -115,7 +140,7 @@ async function publishedDeck(address: DeckAddress): Promise<PublishedDeck | null
   if (address.kind === 'presentation') {
     const { data, error } = await client
       .from(PRESENTATIONS_TABLE)
-      .select('id, is_shared, shared_document, deleted_at')
+      .select('id, owner_id, is_shared, shared_document, deleted_at')
       .eq('share_token', address.token)
       .eq('is_shared', true)
       .is('deleted_at', null)
@@ -123,7 +148,8 @@ async function publishedDeck(address: DeckAddress): Promise<PublishedDeck | null
     if (error) return null
     const row = data as SharedRow | null
     const document = publishedDocument(row)
-    return row && document ? { id: row.id, document } : null
+    if (!row || !document || !(await ownerIsActive(row.owner_id))) return null
+    return { id: row.id, document }
   }
 
   const folder = await folderByToken(address.folderToken)
