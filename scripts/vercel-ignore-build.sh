@@ -20,9 +20,13 @@
 #
 # Previews always build, and so does a branch's first deployment. Rolling
 # back is unaffected: Vercel's Instant Rollback reuses an existing build and
-# never runs this step. If production ever falls further behind than the
-# clone reaches, set SLAIDS_ALLOW_OLDER_BUILD=1 in the project for one
-# deployment, then remove it.
+# never runs this step.
+#
+# Two cases look the same as "newer" here and are therefore skipped: production
+# more than the clone's depth behind, and a rewritten branch (force-push), whose
+# old deployment is no longer in the history. Neither happens with this repo's
+# squash merges. If one does, set SLAIDS_ALLOW_OLDER_BUILD=1 in the Vercel
+# project for one deployment, then remove it.
 
 [ "$VERCEL_ENV" = "production" ] || exit 1
 [ "$SLAIDS_ALLOW_OLDER_BUILD" = "1" ] && exit 1
@@ -39,9 +43,9 @@ if git cat-file -e "${previous}^{commit}" 2>/dev/null; then
     echo "Skipping: ${head} is older than the last production deployment (${previous})."
     exit 0
   fi
-  # Unrelated histories, such as after a rewrite of the branch: build what was pushed.
+  # Both present but unrelated: build what was pushed.
   exit 1
 fi
 
-echo "Skipping: the last production deployment (${previous}) is not in this commit's history, so it is newer than ${head}."
+echo "Skipping: the last production deployment (${previous}) is not in this commit's history, so it is newer than ${head}. To build anyway (rewritten branch, or production far behind), set SLAIDS_ALLOW_OLDER_BUILD=1 for one deployment."
 exit 0
