@@ -603,6 +603,22 @@
   color: var(--chrome-danger);
 }
 
+/* ------------------------------------------------------------------ *
+ * Administrasjon → Brukere (the list reuses the token cards above)
+ * ------------------------------------------------------------------ */
+
+/* Email, role and the button on one line, wrapping on a narrow screen. */
+.admin-users__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.admin-users__email {
+  flex: 1 1 220px;
+}
+
 /* ----------------------------------------------------------------- *
  * The library on a small screen
  *

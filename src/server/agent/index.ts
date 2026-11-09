@@ -23,6 +23,7 @@
  */
 
 import { SupabaseAgentTokens } from '../../persistence/agentTokens'
+import { sessionUserResolver, supabaseAdminUserStore } from '../admin/supabase'
 import { chromiumSlidePreviewRenderer } from '../../render/preview'
 import { readAgentApiConfig, describeUnavailable, type Env, type AgentApiConfigState } from './config'
 import { handleAgentRequest, type AgentApiDeps } from './handler'
@@ -81,6 +82,7 @@ function depsFor(
       ? { authenticateOAuth: oauthAuthenticator(state.config.oauth, now), oauth: state.config.oauth }
       : {}),
     publicOrigin: state.config.publicOrigin,
+    admin: { sessionUser: sessionUserResolver(client), store: supabaseAdminUserStore(client) },
     contextFor: (principal) => agentContextFor(client, principal, preview),
     audit,
     maxRequestBytes: state.config.maxRequestBytes,

@@ -91,6 +91,7 @@ export type IconName =
   | 'moon'
   | 'sun'
   | 'text-shrunk'
+  | 'users'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -219,6 +220,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   /* The whole presentation: a stack of pages, the front one in full. */
   deck: <path d="M8 4h12v9M5 7h12v9M3 10h11v10H3z" />,
   /* Aids to the work: a wrench. */
+  users: <path d="M9 11a4 4 0 100-8 4 4 0 000 8zM2 20a7 7 0 0114 0M16 3.5a4 4 0 010 7.5M18 13.5a7 7 0 014 6.5" />,
   tools: <path d="M14.7 6.3a4 4 0 015 5l-2.2-2.2-2.3.5-.5 2.3 2.2 2.2a4 4 0 01-5-5zM12.8 11.2L4.5 19.5" />,
   /* Round and back to where it started. */
   reset: <path d="M4 12a8 8 0 108-8 8 8 0 00-6.3 3M4 4v4h4" />,
