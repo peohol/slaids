@@ -290,7 +290,8 @@ reverseres som beskrevet.
    policyene tilbake og fjerner ledger-raden (testet i
    `supabase/tests/access.test.ts`).
 4. **Kontroll** (gjort 2026-11-09, uten avvik): RLS prøvd med simulerte JWT-er i en transaksjon som rulles
-   tilbake (Peder ser alt, en annen Auth-bruker ser ingenting).
+   tilbake (Peder ser alt, en annen Auth-bruker ser ingenting). Lesekontrollen
+   etter migrasjonen står i § 6.1.
 5. **Auth-innstillinger** (gjort 2026-11-09): egen SMTP via Resend
    (`innlogging@slaids.no`, nøkkel som bare kan sende fra slaids.no);
    e-post-OTP-lengde 6; e-postgrense 30 per time; «Magic Link»-malen med koden.
@@ -302,3 +303,27 @@ reverseres som beskrevet.
 8. **Ekte prøve** (gjenstår; avgjør om flerbrukerflyten er produksjonsklar): Peder logger inn med kode og ser biblioteket; Peder oppretter
    den nye brukeren; den nye brukeren logger inn og ser et tomt bibliotek;
    `mcp-smoke` mot produksjon; en eksisterende delingslenke åpnes.
+
+### 6.1 Lesekontroll etter migrasjonen (produksjon, 2026-11-09 ca. 09:50 UTC)
+
+Kontrollen er kjørt med skrivebeskyttede spørringer
+(`/database/query/read-only` i Supabase Management API) mot Slaids' prosjekt.
+Den er avidentifisert og inneholder ingen nøkler eller persondata. Den kan
+gjentas med spørringene i høyre kolonne.
+
+| Kontroll | Resultat | Spørring (forkortet) |
+| --- | --- | --- |
+| (a) Migrasjonsposten | `20261109090000 slaids_multi_user` | `select version, name from public.slaids_migrations where version = '20261109090000'` |
+| (b) Tilgangslisten | 1 rad: `admin`, aktiv | `select role, active, count(*) from public.slaids_users group by 1, 2` |
+| (b) Eksisterende eier er aktiv admin | 1 (raden peker på den eksisterende Auth-brukeren med Peders UUID) | `… join auth.users … where user_id = '<Peders UUID>' and role = 'admin' and active` |
+| Auth-brukere totalt | 1 | `select count(*) from auth.users` |
+| (c) `slaids_*`-policyer i `public` | 22, hvorav 21 med `slaids_is_active_user()` og 0 med fast UUID | `pg_policies`, `qual`/`with_check` |
+| (c) `slaids_*`-policyer i `storage` | 4, alle med `slaids_is_active_user()` og 0 med fast UUID | samme |
+| (c) Policy uten aktivsjekk | bare `slaids_users_select_own`. Det er med vilje: en deaktivert bruker må kunne lese sin egen rad for å få beskjeden «deaktivert». | samme |
+| Stikontroll | `slaids_assets_object_path_check` finnes | `pg_constraint` |
+| Trigger | `slaids_users_keep_admin` på `slaids_users` | `pg_trigger` |
+| Auth-SMTP (ikke-hemmelige felt) | `smtp.resend.com:465`, avsender `Slaids <innlogging@slaids.no>`, passord satt (ikke vist), OTP-lengde 6, e-postgrense 30/t | `GET /v1/projects/<ref>/config/auth` |
+
+Peders beslutning om Resend ligger på et beslutningskort i Claude-prosjektets
+hovedtråd. Tråden er privat og har ingen offentlig lenke, så den etterprøvbare
+bekreftelsen er Peders egen kommentar på PR #126.
