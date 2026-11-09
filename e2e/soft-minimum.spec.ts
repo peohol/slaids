@@ -434,7 +434,7 @@ test.describe('myk minstegrense', () => {
     expect(errors).toEqual([])
   })
 
-  test('tegner en forminsket sone likt i redigering og presentasjon', async ({ page }) => {
+  test('tegner en forminsket sone likt i redigering og presentasjon', { tag: '@pr' }, async ({ page }) => {
     const { errors } = watchForErrors(page)
     // What the editor's fields and the static drawing must agree on: a word
     // longer than the zone is wide is broken, and runs of spaces are kept.
