@@ -41,17 +41,28 @@ const TEXT = 'Dette er en setning med noen helt vanlige ord i seg. '.repeat(9)
 /** Screen pixels per step of a slow drag: fine enough to see the magnet hold. */
 const STEP_PX = 2
 
-/** A row of two zones, the left one holding text that fits it with some room to spare. */
-async function rowWithText(page: Page, title: string): Promise<string> {
+/**
+ * A row of two zones, the left one holding text — by default text that fits it
+ * with some room to spare, in a plain container.
+ */
+async function rowWithText(
+  page: Page,
+  title: string,
+  { kind = 'container', text = TEXT }: { kind?: 'container' | 'titled-card'; text?: string } = {},
+): Promise<string> {
   await createPresentation(page, title)
   await enterZoneMode(page)
   await splitSelected(page, [1, 1], 'x')
   const [left] = await zoneRects(page)
   await enterContentMode(page)
-  await addContentToZone(page, left.id, 'container')
-  const field = zoneLocator(page, left.id).locator('.tiptap').first()
-  await caretInto(field)
-  await page.keyboard.insertText(TEXT)
+  await addContentToZone(page, left.id, kind)
+  if (kind === 'titled-card') {
+    await caretInto(zoneLocator(page, left.id).locator('.card-header .tiptap'))
+    await page.keyboard.insertText('Tittel')
+  }
+  // The body is the zone's last field: a card's header comes before it.
+  await caretInto(zoneLocator(page, left.id).locator('.tiptap').last())
+  await page.keyboard.insertText(text)
   await page.waitForTimeout(300)
   await enterZoneMode(page)
   return left.id
@@ -420,6 +431,29 @@ test.describe('myk minstegrense', () => {
       .first()
       .getAttribute('data-fit-scale')
     expect(Number(presentedScale)).toBeLessThan(1)
+    expect(errors).toEqual([])
+  })
+
+  test('tegner en forminsket sone likt i redigering og presentasjon', async ({ page }) => {
+    const { errors } = watchForErrors(page)
+    // What the editor's fields and the static drawing must agree on: a word
+    // longer than the zone is wide is broken, and runs of spaces are kept.
+    const text = `${'langtordutenmellomrom'.repeat(6)} og  to   mellomrom. ${TEXT}`
+    const left = await rowWithText(page, 'Likt overalt', { kind: 'titled-card', text })
+    await slowDrag(page, left, -400)
+    await expect(zoneLocator(page, left).getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    // Zone mode draws the content statically, content mode with the editor.
+    const drawn = await fitScale(page, left)
+    expect(drawn).toBeLessThan(1)
+    await enterContentMode(page)
+    await expect.poll(() => fitScale(page, left)).toBeCloseTo(drawn, 2)
+
+    await page.getByTestId('present').click()
+    const presented = page.locator(`[data-testid="present-view"] .slide-zone[data-node-id="${left}"] .zone-fit`)
+    await expect(presented).toBeVisible()
+    await expect
+      .poll(async () => Number((await presented.getAttribute('data-fit-scale')) ?? 1))
+      .toBeCloseTo(drawn, 2)
     expect(errors).toEqual([])
   })
 })

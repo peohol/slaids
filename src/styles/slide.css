@@ -299,7 +299,6 @@
 .rich-doc--caption {
   height: auto;
   min-height: 0;
-  white-space: pre-wrap;
 }
 
 .rich-doc--caption.tiptap,
@@ -316,9 +315,24 @@
  * identically — which is what makes offscreen fit measurement trustworthy.
  * ----------------------------------------------------------------- */
 
+/*
+ * How text breaks and spaces, set once for both renderers.
+ *
+ * Tiptap gives its editable field these settings (`.ProseMirror` in its
+ * injected stylesheet). The static drawing — presentation mode, thumbnails,
+ * zone mode, the offscreen measurer — has to set the same ones, or the two lay
+ * the same words out differently: a word longer than the zone is wide would be
+ * broken in the editor but run on in one line everywhere else, and a zone the
+ * person had made small enough to draw it smaller would be drawn tiny there.
+ * Atoms (a citation's pill) are `normal` in the editor, so here too.
+ */
 .rich-doc {
   height: 100%;
   align-content: var(--slaids-flow-align, start);
+  overflow-wrap: break-word;
+  white-space: break-spaces;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0;
 }
 
 .rich-doc.tiptap,
@@ -681,6 +695,7 @@
 
 .rich-doc :is(sup.rd-citation, .rd-citation) {
   display: inline-flex;
+  white-space: normal;
   align-items: center;
   justify-content: center;
   min-width: 1.55em;
