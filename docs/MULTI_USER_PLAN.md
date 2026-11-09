@@ -39,14 +39,30 @@ se § 6).
 
 ### Funn som påvirker planen
 
-1. **Innebygd e-post sender bare til teammedlemmer.** Supabases innebygde
-   e-posttjeneste leverer bare til adresser som er medlemmer av
-   Supabase-organisasjonen (`email_address_not_authorized` ellers), og har en lav
-   timesgrense. Peder er eier og får koder. En ny bruker får ikke koder uten
-   enten egen SMTP eller teammedlemskap (som gir innsyn i databasen). **Peder
-   valgte 2026-11-09 å sende kodene via Resend** (egen SMTP i Supabase, avsender
-   på et domene Peder eier). Koden i Slaids er lik uansett; det er en
-   prosjektinnstilling i Supabase (§ 6 steg 5).
+1. **Innebygd e-post sender bare til teammedlemmer – derfor egen SMTP.**
+   Bestillingen sa opprinnelig at Supabases innebygde e-post skulle brukes og at
+   Resend/SMTP ikke skulle settes opp. Kartleggingen viste at den innebygde
+   tjenesten bare leverer til adresser som er medlemmer av
+   Supabase-organisasjonen (`email_address_not_authorized` ellers; se
+   [Auth SMTP](https://supabase.com/docs/guides/auth/auth-smtp)). En ny
+   Slaids-bruker kan altså ikke få en kode med den innebygde tjenesten, og å
+   gjøre brukeren til medlem av organisasjonen er uakseptabelt fordi det gir
+   innsyn i databasen. Dette ble lagt fram for Peder som et eget valg, og
+   **Peder besluttet uttrykkelig 2026-11-09 kl. 07:46 å sende kodene via
+   Resend**. Det erstatter punktet i den opprinnelige bestillingen. Peder
+   bekreftet beslutningen på nytt kl. 09:21 ved å koble Resend til
+   Vercel-prosjektet.
+   - SMTP er en prosjektinnstilling i Supabase Auth (§ 6 steg 5), med
+     avsenderen `innlogging@slaids.no`.
+   - Ingen etappe inneholder kode for Resend eller SMTP. Slaids kaller bare
+     `signInWithOtp`/`verifyOtp` og er lik uansett hvem som leverer e-posten.
+   - Går man tilbake til innebygd e-post, virker innlogging bare for
+     organisasjonsmedlemmer, altså Peder.
+   - **Åpent til § 6 steg 8 er gjort:** at en kode faktisk kommer fram til en
+     adresse som ikke er medlem av organisasjonen, er ennå ikke prøvd i
+     produksjon. CI prøver innloggingen bare mot en stubbet Supabase.
+     Flerbrukerflyten regnes ikke som produksjonsklar før den ekte prøven
+     (Peder og en ny bruker) er bestått.
 2. **Andre apper i prosjektet.** Kontrollert i produksjon 2026-11-09: den eneste
    Auth-brukeren er Peder, og mdeditz har ingen tilgang for `anon`/
    `authenticated` – den bruker ikke Supabase Auth. Endringer i e-postmal og
@@ -264,12 +280,12 @@ reverseres som beskrevet.
    har (for § 1 funn 2). Avvik stopper utrullingen.
 2. **Sikkerhetskopi** (gjort 2026-11-09): JSON-eksport av alle `slaids_*`-tabeller og listen over
    Storage-objekter, lagret i prosjektmappen. Filene i Storage flyttes ikke.
-3. **Migrasjon (etappe 1)** i én transaksjon sammen med raden i
+3. **Migrasjon (etappe 1)** (gjort 2026-11-09 08:59 UTC fra 851e34d) i én transaksjon sammen med raden i
    `public.slaids_migrations`. Reversering:
    `supabase/rollback/20261109090000_slaids_multi_user.down.sql` setter de gamle
    policyene tilbake og fjerner ledger-raden (testet i
    `supabase/tests/access.test.ts`).
-4. **Kontroll**: RLS prøvd med simulerte JWT-er i en transaksjon som rulles
+4. **Kontroll** (gjort 2026-11-09, uten avvik): RLS prøvd med simulerte JWT-er i en transaksjon som rulles
    tilbake (Peder ser alt, en annen Auth-bruker ser ingenting).
 5. **Auth-innstillinger** (gjort 2026-11-09): egen SMTP via Resend
    (`innlogging@slaids.no`, nøkkel som bare kan sende fra slaids.no);
@@ -279,6 +295,6 @@ reverseres som beskrevet.
 7. **Merge og Vercel**: PR-ene i rekkefølgen over. Ingen nye Vercel-variabler
    kreves; `SLAIDS_AGENT_OAUTH=on` kan erstatte `SLAIDS_AGENT_OAUTH_OWNERS`
    senere.
-8. **Ekte prøve**: Peder logger inn med kode og ser biblioteket; Peder oppretter
+8. **Ekte prøve** (gjenstår; avgjør om flerbrukerflyten er produksjonsklar): Peder logger inn med kode og ser biblioteket; Peder oppretter
    den nye brukeren; den nye brukeren logger inn og ser et tomt bibliotek;
    `mcp-smoke` mot produksjon; en eksisterende delingslenke åpnes.
