@@ -47,11 +47,14 @@ se § 6).
    valgte 2026-11-09 å sende kodene via Resend** (egen SMTP i Supabase, avsender
    på et domene Peder eier). Koden i Slaids er lik uansett; det er en
    prosjektinnstilling i Supabase (§ 6 steg 5).
-2. **Andre apper i prosjektet.** Prosjektet deles med mdeditz, som ifølge
-   `IMPLEMENTATION_PLAN.md` § 43 ikke bruker Supabase Auth. Å legge
-   `{{ .Token }}` inn i «Magic Link»-malen påvirker derfor ingen eksisterende
-   innloggingsflyt; lenken (`{{ .ConfirmationURL }}`) beholdes likevel i malen.
-   Bekreftes mot `auth.users`/`auth.identities` før endring (§ 6).
+2. **Andre apper i prosjektet.** Kontrollert i produksjon 2026-11-09: den eneste
+   Auth-brukeren er Peder, og mdeditz har ingen tilgang for `anon`/
+   `authenticated` – den bruker ikke Supabase Auth. Endringer i e-postmal og
+   SMTP rammer derfor bare Slaids. «Magic Link»-malen inneholder bare koden:
+   lenken er fjernet fordi ingen annen flyt bruker den, og fordi en
+   e-postskanner som åpner lenken ville brukt opp koden. Gammel mal og
+   reverseringsoppskrift ligger i kontrollrapporten
+   (`/mnt/project-files/sikkerhetskopi-2026-11-09/`).
 3. **Global registrering er på** i prosjektet. Det endres ikke. Slaids lukker
    sin egen dør: `shouldCreateUser: false` i klienten, og en Auth-bruker som ikke
    står i Slaids' tilgangsliste får ingenting – verken i appen, i RLS eller i
@@ -255,21 +258,23 @@ produksjonskontrollen i § 6 – én til Peder, én til den nye brukeren.
 Ingen av stegene under gjøres som del av en uverifisert PR. Hvert steg kan
 reverseres som beskrevet.
 
-1. **Les-kontroll**: alle rader i Slaids-tabellene og alle objekter i
+1. **Les-kontroll** (gjort 2026-11-09, uten avvik): alle rader i Slaids-tabellene og alle objekter i
    `slaids-assets` har Peders UUID som eier/første ledd; Peders Auth-bruker har
    e-posten `peder.holman@gmail.com`; hvilke Auth-brukere/identiteter andre apper
    har (for § 1 funn 2). Avvik stopper utrullingen.
-2. **Sikkerhetskopi**: JSON-eksport av alle `slaids_*`-tabeller og listen over
+2. **Sikkerhetskopi** (gjort 2026-11-09): JSON-eksport av alle `slaids_*`-tabeller og listen over
    Storage-objekter, lagret i prosjektmappen. Filene i Storage flyttes ikke.
 3. **Migrasjon (etappe 1)** i én transaksjon sammen med raden i
-   `public.slaids_migrations`. Reversering: en motmigrasjon som setter de gamle
-   policyene tilbake (skrives sammen med migrasjonen, kjøres bare ved behov).
+   `public.slaids_migrations`. Reversering:
+   `supabase/rollback/20261109090000_slaids_multi_user.down.sql` setter de gamle
+   policyene tilbake og fjerner ledger-raden (testet i
+   `supabase/tests/access.test.ts`).
 4. **Kontroll**: RLS prøvd med simulerte JWT-er i en transaksjon som rulles
    tilbake (Peder ser alt, en annen Auth-bruker ser ingenting).
-5. **Auth-innstillinger**: egen SMTP via Resend (avsenderdomene verifisert i
-   Resend); e-post-OTP-lengde 6; «Magic Link»-malen med både `{{ .Token }}` og
-   eksisterende lenke. Gamle verdier lagres før endring, så alt kan settes
-   tilbake.
+5. **Auth-innstillinger** (gjort 2026-11-09): egen SMTP via Resend
+   (`innlogging@slaids.no`, nøkkel som bare kan sende fra slaids.no);
+   e-post-OTP-lengde 6; e-postgrense 30 per time; «Magic Link»-malen med koden.
+   Gamle verdier er lagret, så alt kan settes tilbake.
 6. **Edge Function** (etappe 4) deployes uten `--prune`.
 7. **Merge og Vercel**: PR-ene i rekkefølgen over. Ingen nye Vercel-variabler
    kreves; `SLAIDS_AGENT_OAUTH=on` kan erstatte `SLAIDS_AGENT_OAUTH_OWNERS`
