@@ -1,10 +1,12 @@
 /**
  * `scripts/vercel-ignore-build.sh`, with `git` replaced by a shim.
  *
- * The rule: a production build runs only while its commit is still the tip of
- * its branch, so a late, older build can never replace a newer one on the live
- * domains. Previews always build, and when the tip cannot be read the build
- * runs as it would without the guard.
+ * The rule: a production build runs, and is kept, only while its commit is still
+ * the tip of its branch, so an older build can never replace a newer one on the
+ * live domains. The same check runs before the build (Vercel's ignore step,
+ * where exit 0 means skip) and after it (end of the build command, where a
+ * non-zero exit fails the build). Previews always build, and when the tip
+ * cannot be read the build runs as it would without the guard.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -25,8 +27,15 @@ afterEach(() => {
   workspace = null
 })
 
-/** Runs the guard. `remoteTip` is what `git ls-remote` reports; null = unreachable. */
-function run(env: Record<string, string>, remoteTip: string | null) {
+/**
+ * Runs the guard in one of its two modes and reports whether the build goes
+ * ahead. `remoteTip` is what `git ls-remote` reports; null = unreachable.
+ */
+function run(
+  mode: Mode,
+  env: Record<string, string>,
+  remoteTip: string | null,
+) {
   workspace = mkdtempSync(join(tmpdir(), 'vercel-ignore-'))
   const calls = join(workspace, 'calls')
   const shim = join(workspace, 'git')
@@ -41,7 +50,7 @@ function run(env: Record<string, string>, remoteTip: string | null) {
   chmodSync(shim, 0o755)
   let status = 0
   try {
-    execFileSync('sh', [SCRIPT], {
+    execFileSync('sh', [SCRIPT, ...MODES[mode].args], {
       env: {
         PATH: `${workspace}:${process.env.PATH ?? ''}`,
         VERCEL_GIT_REPO_OWNER: 'peohol',
@@ -60,34 +69,55 @@ function run(env: Record<string, string>, remoteTip: string | null) {
   } catch {
     // git was never called
   }
-  return { build: status !== 0, gitCalls }
+  return { build: MODES[mode].builds(status), gitCalls }
 }
 
-describe('Vercels byggevakt for produksjon', () => {
+/** How each wiring reads the exit code. */
+const MODES = {
+  'før bygget': { args: [] as string[], builds: (status: number) => status !== 0 },
+  'etter bygget': { args: ['--after-build'], builds: (status: number) => status === 0 },
+}
+type Mode = keyof typeof MODES
+
+describe.each(Object.keys(MODES) as Mode[])('Vercels byggevakt for produksjon, %s', (mode) => {
   it('bygger produksjon når committen er tuppen av grenen', () => {
-    const result = run({ VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: TIP }, TIP)
+    const result = run(mode, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: TIP }, TIP)
     expect(result.build).toBe(true)
     expect(result.gitCalls).toContain('ls-remote https://github.com/peohol/slaids.git refs/heads/main')
   })
 
-  it('hopper over et eldre produksjonsbygg som kommer for sent', () => {
-    expect(run({ VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: OLDER }, TIP).build).toBe(false)
+  it('stopper et produksjonsbygg av en commit som ikke lenger er tuppen', () => {
+    expect(run(mode, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: OLDER }, TIP).build).toBe(
+      false,
+    )
   })
 
   it('bygger som før når tuppen ikke kan leses', () => {
-    expect(run({ VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: OLDER }, null).build).toBe(true)
+    expect(run(mode, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: OLDER }, null).build).toBe(
+      true,
+    )
   })
 
   it.each(['preview', 'development'])('bygger alltid %s uten å spørre GitHub', (env) => {
-    const result = run({ VERCEL_ENV: env, VERCEL_GIT_COMMIT_SHA: OLDER }, TIP)
+    const result = run(mode, { VERCEL_ENV: env, VERCEL_GIT_COMMIT_SHA: OLDER }, TIP)
     expect(result.build).toBe(true)
     expect(result.gitCalls).toBe('')
   })
+})
 
-  it('er koblet inn som Vercels ignoreCommand', () => {
-    const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')) as {
-      ignoreCommand?: string
-    }
+describe('koblingen i vercel.json', () => {
+  const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8')) as {
+    ignoreCommand?: string
+    buildCommand?: string
+  }
+
+  it('sjekker før bygget som Vercels ignoreCommand', () => {
     expect(config.ignoreCommand).toBe('sh scripts/vercel-ignore-build.sh')
+  })
+
+  it('sjekker etter bygget, til slutt i byggekommandoen', () => {
+    expect(config.buildCommand).toMatch(
+      /^npm run build && sh scripts\/vercel-ignore-build\.sh --after-build$/,
+    )
   })
 })

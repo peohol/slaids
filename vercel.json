@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "ignoreCommand": "sh scripts/vercel-ignore-build.sh",
+  "buildCommand": "npm run build && sh scripts/vercel-ignore-build.sh --after-build",
   "functions": {
     "api/agent/v1.ts": {
       "excludeFiles": "node_modules/@sparticuz/chromium/bin/**",
