@@ -4104,7 +4104,9 @@ Slaids endrer ikke globale Auth-innstillinger uten å dokumentere konsekvensene
 for de andre appene, og rører aldri deres tabeller, policyer eller buckets.
 E-postmalen, SMTP-oppsettet og kodelengden er prosjektglobale. De ble endret for
 Slaids etter at det var kontrollert at ingen annen app i prosjektet bruker
-Supabase Auth: e-post sendes via Resend fra `innlogging@slaids.no`, og malen
+Supabase Auth: e-post sendes via Resend fra `innlogging@slaids.no` (Peders
+beslutning 2026-11-09; Supabases innebygde e-post leverer bare til medlemmer av
+Supabase-organisasjonen, så en ny Slaids-bruker ville ikke fått koden), og malen
 inneholder bare koden – en innloggingslenke ved siden av ville blitt brukt opp
 av e-postskannere som åpner lenker, og gjort koden ugyldig. Tar en annen app i
 bruk Supabase Auth i dette prosjektet, må malen vurderes på nytt.
