@@ -2,27 +2,49 @@
  * Decides what the app is allowed to show.
  *
  * In Supabase mode nothing — not the library, not the editor — is mounted
- * before there is an allowed session, so no Slaids request is ever made for a
- * different Auth user. In local mode there is no gate at all and the app
- * behaves exactly as it did before Supabase existed.
+ * before the signed-in Auth user is an active Slaids user, so no Slaids
+ * request is ever made for someone outside the access list. The database
+ * enforces the same list on every request; this gate is what lets the app say
+ * so in words instead of showing an empty library. In local mode there is no
+ * gate at all and the app behaves exactly as it did before Supabase existed.
  */
 
-import { useEffect, type ReactNode } from 'react'
-import { useSessionStore, type SessionStatus } from '../../state/session'
-import { SLAIDS_OWNER_ID } from '../../supabase/access'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { useSessionStore, type AccessStatus, type SessionStatus } from '../../state/session'
 import { SignInView } from './SignInView'
 
-export type GateView = 'app' | 'loading' | 'sign-in' | 'unavailable' | 'misconfigured'
+export type GateView =
+  | 'app'
+  | 'loading'
+  | 'sign-in'
+  | 'no-access'
+  | 'deactivated'
+  | 'unavailable'
+  | 'misconfigured'
 
 /**
- * The whole session-state rule, in one place. The personal-user check is kept
- * in the component because local mode deliberately has no user id at all.
+ * How often, at most, coming back to the tab asks the access list again. A
+ * deactivation reaches an open tab this quickly; the database refuses the
+ * account's requests from the moment it happens either way.
  */
-export function gateView(status: SessionStatus): GateView {
+export const ACCESS_RECHECK_INTERVAL_MS = 15_000
+
+/** The whole gate rule, in one place: session status first, then access. */
+export function gateView(status: SessionStatus, access: AccessStatus | null): GateView {
   switch (status) {
     case 'disabled':
-    case 'signed-in':
       return 'app'
+    case 'signed-in':
+      switch (access) {
+        case 'member':
+          return 'app'
+        case 'no-access':
+          return 'no-access'
+        case 'deactivated':
+          return 'deactivated'
+        default:
+          return 'loading'
+      }
     case 'unavailable':
       return 'unavailable'
     case 'misconfigured':
@@ -34,9 +56,70 @@ export function gateView(status: SessionStatus): GateView {
   }
 }
 
+/** Ask the access list again when the person comes back to the tab. */
+function useAccessRecheck(active: boolean): void {
+  const refreshAccess = useSessionStore((state) => state.refreshAccess)
+  const lastCheck = useRef(0)
+  useEffect(() => {
+    if (!active) return
+    lastCheck.current = Date.now()
+    const recheck = (): void => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastCheck.current < ACCESS_RECHECK_INTERVAL_MS) return
+      lastCheck.current = now
+      void refreshAccess()
+    }
+    window.addEventListener('focus', recheck)
+    document.addEventListener('visibilitychange', recheck)
+    return () => {
+      window.removeEventListener('focus', recheck)
+      document.removeEventListener('visibilitychange', recheck)
+    }
+  }, [active, refreshAccess])
+}
+
+/** Signed in, but not let in: who, why, and the two ways out. */
+function AccessRefused({ kind }: { kind: 'no-access' | 'deactivated' }) {
+  const email = useSessionStore((state) => state.email)
+  const signOut = useSessionStore((state) => state.signOut)
+  const refreshAccess = useSessionStore((state) => state.refreshAccess)
+  const who = email ?? 'denne kontoen'
+  return (
+    <div className="auth" data-testid={`auth-${kind}`}>
+      <div className="auth__card">
+        <h1 className="auth__title">
+          {kind === 'deactivated' ? 'Kontoen er deaktivert' : 'Ingen tilgang til Slaids'}
+        </h1>
+        <p className="auth__subtitle">
+          {kind === 'deactivated'
+            ? `Kontoen ${who} er deaktivert og har ikke lenger tilgang til Slaids. Ta kontakt med en administrator hvis du mener dette er feil.`
+            : `Du er logget inn som ${who}, men denne adressen har ikke en Slaids-konto. Kontoer opprettes av en administrator.`}
+        </p>
+        <button
+          type="button"
+          className="btn btn--primary auth__submit"
+          onClick={() => void signOut()}
+          data-testid="auth-sign-out"
+        >
+          Logg ut
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost auth__submit"
+          onClick={() => void refreshAccess()}
+          data-testid="auth-recheck"
+        >
+          Sjekk tilgangen på nytt
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const status = useSessionStore((state) => state.status)
-  const userId = useSessionStore((state) => state.userId)
+  const access = useSessionStore((state) => state.access)
   const error = useSessionStore((state) => state.error)
   const start = useSessionStore((state) => state.start)
 
@@ -44,12 +127,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
     void start()
   }, [start])
 
-  const view = gateView(status)
+  useAccessRecheck(status === 'signed-in')
 
-  if (view === 'app') {
-    if (status === 'signed-in' && userId !== SLAIDS_OWNER_ID) return <SignInView />
-    return <>{children}</>
-  }
+  const view = gateView(status, access)
+
+  if (view === 'app') return <>{children}</>
+
+  if (view === 'no-access' || view === 'deactivated') return <AccessRefused kind={view} />
 
   if (view === 'misconfigured') {
     // No retry: a missing build variable is not something this page can fix.
@@ -93,7 +177,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (view === 'loading') {
     return (
       <div className="auth" data-testid="auth-loading">
-        <p className="hint">Sjekker innlogging …</p>
+        <p className="hint">
+          {status === 'signed-in' ? 'Sjekker tilgang …' : 'Sjekker innlogging …'}
+        </p>
       </div>
     )
   }

@@ -40,20 +40,28 @@ export function familiesFrom(url: string): string[] {
     .map((value) => value.split(':')[0].replace(/\+/g, ' '))
 }
 
+/**
+ * Serve every font request of a page — or of a whole browser context, for a
+ * test that opens contexts of its own — from the local face.
+ */
+export async function routeLocalFonts(target: Pick<Page, 'route'>): Promise<void> {
+  await target.route('https://fonts.googleapis.com/**', async (route) => {
+    const families = familiesFrom(route.request().url())
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      body: families.map(localFaceCss).join('\n'),
+    })
+  })
+  // The preconnect carries no data; letting it out would only make the run
+  // wait for a host that may not be reachable.
+  await target.route('https://fonts.gstatic.com/**', (route) => route.abort())
+}
+
 export const test = base.extend<{ localFonts: void }>({
   localFonts: [
     async ({ page }, use) => {
-      await page.route('https://fonts.googleapis.com/**', async (route) => {
-        const families = familiesFrom(route.request().url())
-        await route.fulfill({
-          status: 200,
-          contentType: 'text/css',
-          body: families.map(localFaceCss).join('\n'),
-        })
-      })
-      // The preconnect carries no data; letting it out would only make the run
-      // wait for a host that may not be reachable.
-      await page.route('https://fonts.gstatic.com/**', (route) => route.abort())
+      await routeLocalFonts(page)
       await use()
     },
     { auto: true },

@@ -4,14 +4,14 @@ Playwright-suiten (`e2e/`, `playwright.config.ts`) kjøres av GitHub Actions i t
 
 | Kjøring | Når | Hva | Tid (målt) |
 | --- | --- | --- | --- |
-| **PR-utvalget** | Hver pull request, og for hånd med `suite: pr` | Testene merket `@pr` (34 kjøringer i fem prosjekter) | ca. 2,5 min testtid, ca. 5 min med bygg og installasjon |
-| **Hele suiten** | Hver natt kl. 02:17 UTC mot `main`, og for hånd fra Actions-fanen (`suite: full`) | Alle tester i alle fem prosjekter, også de visuelle referansebildene (`SLAIDS_VISUAL=1`) | ca. 25 min testtid |
+| **PR-utvalget** | Hver pull request, og for hånd med `suite: pr` | Testene merket `@pr` (51 kjøringer i seks prosjekter) | ca. 2,5 min testtid, ca. 5 min med bygg og installasjon |
+| **Hele suiten** | Hver natt kl. 02:17 UTC mot `main`, og for hånd fra Actions-fanen (`suite: full`) | Alle tester i alle seks prosjekter, også de visuelle referansebildene (`SLAIDS_VISUAL=1`) | ca. 25 min testtid |
 | **Referansebilder** | Bare for hånd fra Actions-fanen (`suite: referansebilder`) | Tar de visuelle referansebildene på nytt og laster dem opp som artefaktet `referansebilder` | ca. 2 min |
 
 ## Regler som gjelder begge
 
 - **Ingen nye forsøk.** `retries: 0`. En test som bare består av og til, er rød og skal synes som rød. Det finnes ingen karantene, og ingen test hoppes over for å få grønn CI. De eneste `test.skip` i suiten er betingelser om miljøet testen gjelder (berøring mot mus, én kolonne mot flere) og de opt-in visuelle testene, som den nattlige kjøringen slår på.
-- **Samme konfigurasjon som lokalt.** CI bruker `playwright.config.ts` uendret, med nettleseren Playwright-versjonen i låsefilen hører til. Appen bygges på nytt for hver kjøring.
+- **Samme konfigurasjon som lokalt.** CI bruker `playwright.config.ts` uendret, med nettleseren Playwright-versjonen i låsefilen hører til. Appen bygges på nytt for hver kjøring – to ganger: i lokal modus for nesten hele suiten, og i Supabase-modus for innloggingstestene (`supabase-auth`), der en stubbet Supabase (`e2e/supabaseStub.ts`) svarer på alle kall. Ingen kjøring når et ekte Supabase-prosjekt eller sender e-post.
 - **Lesbare feil.** Med `CI` satt rapporterer Playwright også som `github` (feilmeldingen står som merknad på linjen i testfilen) og som HTML. Ved feil lastes artefaktet `playwright-rapport-pr` eller `playwright-rapport-full` opp i 14 dager: HTML-rapporten (`index.html`) med skjermbilde, konsoll og Playwright-spor (trace) for hver feilet test, og `test-results/` med de rå filene, også bildeforskjellene fra en visuell test. Jobbsammendraget forklarer hvor de ligger. Et spor åpnes med `npx playwright show-trace trace.zip` eller på <https://trace.playwright.dev>.
 
 ## Hva PR-utvalget dekker
@@ -33,6 +33,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `split-flow.spec.ts` | Delingsdialogen fjerner soner med nøstet innhold: sier hvilke soner og hvor mye innhold, redder det til sandkassen, og angre/gjør om tar hele endringen i ett steg |
 | `zone-consistency.spec.ts` | Hver vei inn i delingsdialogen (inspektør, ikonrad, sonemeny, forholdstallmeny) viser samme sone, sti og handling, og fokus går tilbake til det som åpnet den, men tar ikke fokus fra noe som allerede har fått det |
 | `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
+| `auth.spec.ts` | Innlogging med engangskode (sifrene sender inn selv), feil kode med nytt forsøk, «Hold meg innlogget» overlever at nettleseren lukkes og ellers ikke, ut og inn uten at en lagret presentasjon går tapt, deaktivering stenger en åpen økt |
 | `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
 | `workspace.spec.ts` | Modus, ulagret redigering og angrehistorikk overlever bytte mellom desktop og kompakt |
 | `accessibility.spec.ts` | axe-revisjonen (WCAG 2.2 A/AA) av bibliotek og editorens tilstander, i mørkt og lyst utseende |

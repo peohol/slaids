@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { SUPABASE_E2E_KEY, SUPABASE_E2E_URL } from './e2e/supabaseStub'
 
 /**
  * Sandboxes and CI images sometimes ship a pre-installed Chromium that does not
@@ -46,6 +47,18 @@ const frameReachableLaunch = {
 const HOST = '127.0.0.1'
 const PORT = 4173
 const APP_URL = `http://${HOST}:${PORT}`
+
+/**
+ * The sign-in suite needs the app in Supabase mode, which is a build-time
+ * choice (§ 18): the same source, built a second time with both Supabase
+ * variables set — to a host that does not exist, so every request is answered
+ * by `e2e/supabaseStub.ts` and none can reach a real project. It is served
+ * next to the local-mode build and only the specs matched here use it.
+ */
+const SUPABASE_SPECS = /auth\.spec\.ts$/
+const SUPABASE_PORT = PORT + 1
+const SUPABASE_APP_URL = `http://${HOST}:${SUPABASE_PORT}`
+const SUPABASE_OUT_DIR = 'dist-e2e-supabase'
 
 /**
  * A modern phone, in both orientations.
@@ -101,7 +114,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [INTERACTIVE_SPECS, COMPACT_SPECS],
+      testIgnore: [INTERACTIVE_SPECS, COMPACT_SPECS, SUPABASE_SPECS],
+    },
+    {
+      name: 'supabase-auth',
+      testMatch: SUPABASE_SPECS,
+      use: { ...devices['Desktop Chrome'], baseURL: SUPABASE_APP_URL },
     },
     {
       name: 'chromium-interactive',
@@ -157,11 +175,22 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: `npm run build && npm run preview -- --host ${HOST} --port ${PORT}`,
-    url: APP_URL,
-    // Always build: reusing a server would silently test a stale bundle.
-    reuseExistingServer: false,
-    timeout: 180_000,
-  },
+  webServer: [
+    {
+      command: `npm run build && npm run preview -- --host ${HOST} --port ${PORT}`,
+      url: APP_URL,
+      // Always build: reusing a server would silently test a stale bundle.
+      reuseExistingServer: false,
+      timeout: 180_000,
+    },
+    {
+      // Only the app bundle: the type check and the agent bundle are the first
+      // server's, and they do not depend on these variables.
+      command: `npx vite build --outDir ${SUPABASE_OUT_DIR} && npx vite preview --outDir ${SUPABASE_OUT_DIR} --host ${HOST} --port ${SUPABASE_PORT}`,
+      url: SUPABASE_APP_URL,
+      env: { VITE_SUPABASE_URL: SUPABASE_E2E_URL, VITE_SUPABASE_PUBLISHABLE_KEY: SUPABASE_E2E_KEY },
+      reuseExistingServer: false,
+      timeout: 180_000,
+    },
+  ],
 })
