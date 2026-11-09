@@ -53,13 +53,14 @@
  *     issuer and the same audience — has none, so it cannot be replayed here.
  *     Without this check, every signed-in tab would be an MCP credential.
  *  6. **`exp` has not passed**, with no leeway. Expired is expired.
- *  7. **`sub` is an owner this deployment lets in.** The API holds a key that
- *     bypasses row level security, so "any user of the project" would be a much
- *     wider door than the browser has, where `restrict_slaids_to_owner` pins the
- *     tables to one uuid. The allowlist is the same pin, written where the
- *     server can read it — and it stays required rather than defaulted, because
- *     a default of "everyone who can sign up" is exactly the door that pin
- *     exists to close.
+ *  7. **`sub` is an active Slaids user.** Not here: the token is the
+ *     authorization server's, and the authorization server is shared with
+ *     every other app in the Supabase project, so a perfectly valid token says
+ *     nothing about Slaids. The access list (`slaids_users`) decides, read on
+ *     every request by `admitActiveOwner` in `tokens.ts` — the same check an
+ *     agent token passes, composed in `oauthAuthenticator`. A token whose `sub`
+ *     is not on the list is refused, and one whose owner has been deactivated
+ *     stops working on its next call, however long it has left to live.
  *
  * Every one of those failures answers the same 401 with the same sentence. The
  * difference between them lives in the owner's log, exactly as it does for an
@@ -89,16 +90,26 @@ import type { AgentPrincipal, AuthOutcome } from './tokens'
  * ------------------------------------------------------------------ */
 
 /**
- * The users this deployment lets in over OAuth, and the switch that turns the
- * whole family on.
+ * The switch that turns OAuth on: `SLAIDS_AGENT_OAUTH=on`.
  *
- * Required rather than defaulted, and the reason is in the migration that
- * created the tables: the agent API holds a secret key that bypasses row level
- * security, and the browser is pinned to a single owner uuid. Defaulting to
- * "every user of the project" would open a door the browser does not have —
- * quietly, on merge, without anyone choosing it. Unset means OAuth is simply
- * not offered: no metadata document, no challenge pointing at an authorization
- * server, and the endpoint behaves exactly as it did before.
+ * Off unless someone turns it on, so merging OAuth support never opened a door
+ * nobody chose to open. *Who* gets through the door is not configured here at
+ * all — that is Slaids' access list, the same one the editor and row level
+ * security read (see step 7 above). An explicit value other than `on` turns it
+ * off, whatever else is set.
+ */
+export const OAUTH_SWITCH_VAR = 'SLAIDS_AGENT_OAUTH'
+
+/** The value of `SLAIDS_AGENT_OAUTH` that turns OAuth on. */
+export const OAUTH_SWITCH_ON = 'on'
+
+/**
+ * The single-user era's switch, still honoured as one.
+ *
+ * It used to be both the switch and the list of who may come in. The access
+ * list has taken over the second job; a deployment that still sets this (to
+ * anything) has OAuth on, so an existing setup keeps working without a change.
+ * The ids in it are no longer read. `SLAIDS_AGENT_OAUTH`, when set, wins.
  */
 export const OAUTH_OWNERS_VAR = 'SLAIDS_AGENT_OAUTH_OWNERS'
 
@@ -166,8 +177,6 @@ export interface OAuthResourceConfig {
   jwksUri: string
   /** `aud` values this resource accepts. */
   audiences: readonly string[]
-  /** Supabase user ids allowed to reach Slaids over OAuth. Never empty. */
-  owners: ReadonlySet<string>
   /** `client_id`s allowed to act, or `null` for any client of the project. */
   clients: ReadonlySet<string> | null
   /** What a token that names no Slaids scopes is granted. */
@@ -202,15 +211,15 @@ export function supabaseIssuer(supabaseUrl: string): string {
  * The OAuth half of this deployment, or `null` when it is not configured.
  *
  * Everything is derived from the Supabase URL the API already has, except the
- * three deliberate choices: who may come in, which clients may act for them,
- * and what a token that names no Slaids scopes is worth.
+ * deliberate choices: whether OAuth is offered at all, which clients may act,
+ * and what a token that names no Slaids scopes is worth. Who may act is not one
+ * of them — that is the access list.
  */
 export function readOAuthConfig(
   env: OAuthEnv,
   input: { supabaseUrl: string },
 ): OAuthResourceConfig | null {
-  const owners = list(env[OAUTH_OWNERS_VAR])
-  if (owners.length === 0) return null
+  if (!oauthSwitchedOn(env)) return null
 
   const issuer = supabaseIssuer(input.supabaseUrl)
   const clients = list(env[OAUTH_CLIENTS_VAR])
@@ -225,10 +234,16 @@ export function readOAuthConfig(
     // `OAUTH_AUDIENCE_VAR`: a narrower audience that the broader one still
     // satisfies is not a narrower audience.
     audiences: configuredAudiences.length > 0 ? configuredAudiences : [SUPABASE_DEFAULT_AUDIENCE],
-    owners: new Set(owners),
     clients: clients.length > 0 ? new Set(clients) : null,
     defaultScopes: scopes.length > 0 ? scopes : DEFAULT_OAUTH_SCOPES,
   }
+}
+
+/** Whether this deployment offers OAuth. See `OAUTH_SWITCH_VAR`. */
+function oauthSwitchedOn(env: OAuthEnv): boolean {
+  const switched = env[OAUTH_SWITCH_VAR]?.trim()
+  if (switched) return switched.toLowerCase() === OAUTH_SWITCH_ON
+  return list(env[OAUTH_OWNERS_VAR]).length > 0
 }
 
 /* ------------------------------------------------------------------ *
@@ -473,6 +488,10 @@ function scopesIn(claims: Record<string, unknown>): string[] {
  * Never throws: a key set that could not be fetched, a signature that does not
  * verify and a claim that is wrong are all outcomes, because the caller has to
  * answer all three with the same 401 and record which one it was.
+ *
+ * The token only, not the person: whether its subject may use Slaids is the
+ * access list's question, asked by `admitActiveOwner`. Nothing calls this
+ * without that — production composes the two in `oauthAuthenticator`.
  */
 export async function authenticateOAuthToken(input: {
   token: string
@@ -568,12 +587,9 @@ export async function authenticateOAuthToken(input: {
     return { ok: false, reason: 'oauth-not-delegated' }
   }
 
-  // Step 7. Who this is allowed to be. Checked before expiry so that an expired
-  // token belonging to an owner can still be *attributed* in the audit below,
-  // and one belonging to a stranger never is.
-  if (!config.owners.has(subject)) return { ok: false, reason: 'oauth-unknown-owner' }
-
-  // Step 6. Expiry, with no leeway.
+  // Step 6. Expiry, with no leeway. The subject is named so the refusal can be
+  // attributed — but only once `admitActiveOwner` has confirmed it is a Slaids
+  // user; a stranger's expired token is never written to anybody's log.
   if (expiry === null || expiry * 1000 <= now.getTime()) {
     return {
       ok: false,

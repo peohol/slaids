@@ -76,7 +76,7 @@ export interface AgentApiConfig {
    *
    * `null` is not a degraded mode: it is a deployment that accepts agent tokens
    * and nothing else, exactly as Slaids did before OAuth existed. Turning it on
-   * is a deliberate act — see `OAUTH_OWNERS_VAR` — because the API holds a key
+   * is a deliberate act — see `OAUTH_SWITCH_VAR` — because the API holds a key
    * that bypasses row level security and the Supabase project is shared.
    */
   oauth: OAuthResourceConfig | null

@@ -17,11 +17,11 @@ import {
 } from './supabaseRepository'
 import {
   TEST_OWNER_ID,
+  createFakeDatabase,
   createFakeSupabase,
+  type FakeRow,
   type FakeSupabaseOptions,
-  type QueryOutcome,
   type QueryRecord,
-  type QueryResolver,
 } from './supabaseTestClient'
 import { contentAt } from '../domain/testDecks'
 
@@ -848,11 +848,9 @@ describe('SupabaseSlaidsRepository – pinnet til én eier', () => {
 /**
  * Two owners, one table.
  *
- * The claims here are about *stored state*, so the resolver below is a small
- * stand-in for Postgres rather than a recorder: it has a primary key on `id`,
- * it raises `23505` when one is taken, and filters actually filter. A test that
- * only asserted "the right method was called" could not tell an upsert that
- * takes a row over from an insert that refuses to.
+ * The claims here are about *stored state*, so the resolver is a small
+ * stand-in for Postgres rather than a recorder — `createFakeDatabase`, shared
+ * with the agent API's own isolation tests.
  *
  * A server-side client holds a secret key and therefore has no row level
  * security narrowing anything. What stops it reaching the other owner's rows is
@@ -862,119 +860,7 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
   const OURS = '99999999-8888-4777-8666-555555555555'
   const THEIRS = '00000000-1111-4222-8333-444444444444'
 
-  type Row = Record<string, unknown>
-
-  function matches(row: Row, filters: QueryRecord['filters']): boolean {
-    return filters.every((filter) => {
-      const stored = row[filter.column]
-      // `is null` is true of a column that was never set, as it is in Postgres.
-      if (filter.operator === 'is') return (stored ?? null) === filter.value
-      if (filter.operator === 'not.is') return (stored ?? null) !== filter.value
-      // Timestamps compare as instants, whatever precision either side wrote.
-      if (filter.operator === 'gte') return timestamp(stored) >= timestamp(filter.value)
-      if (filter.operator === 'lt') return timestamp(stored) < timestamp(filter.value)
-      return Array.isArray(filter.value) ? filter.value.includes(stored) : stored === filter.value
-    })
-  }
-
-  function timestamp(value: unknown): number {
-    return typeof value === 'string' ? Date.parse(value) : Number.NaN
-  }
-
-  function numberish(value: unknown): number {
-    return typeof value === 'number' ? value : 0
-  }
-
-  /** One `id` primary key per table, and a unique violation when it is taken. */
-  function fakeDatabase(seed: Record<string, Row[]>) {
-    const tables: Record<string, Row[]> = {}
-    for (const [table, rows] of Object.entries(seed)) tables[table] = rows.map((row) => ({ ...row }))
-
-    const resolve: QueryResolver = (record) => {
-      const rows = (tables[record.table] ??= [])
-      const hit = rows.filter((row) => matches(row, record.filters))
-
-      switch (record.op) {
-        case 'select':
-          return { data: record.single === 'none' ? hit : (hit[0] ?? null) }
-        case 'insert': {
-          const incoming = (Array.isArray(record.values) ? record.values : [record.values]) as Row[]
-          for (const row of incoming) {
-            if (rows.some((existing) => existing.id === row.id)) {
-              return {
-                error: { message: 'duplicate key value violates unique constraint', code: '23505' },
-              }
-            }
-          }
-          rows.push(...incoming.map((row) => ({ ...row })))
-          return { data: record.single === 'none' ? incoming : incoming[0] }
-        }
-        case 'update': {
-          for (const row of hit) Object.assign(row, record.values as Row)
-          return { data: hit }
-        }
-        case 'upsert': {
-          // Never reached by the paths under test — asserted below — but honest
-          // about what it would do if one came back: take the row over.
-          const incoming = (Array.isArray(record.values) ? record.values : [record.values]) as Row[]
-          for (const row of incoming) {
-            const existing = rows.find((entry) => entry.id === row.id)
-            if (existing) Object.assign(existing, row)
-            else rows.push({ ...row })
-          }
-          return { data: incoming }
-        }
-        case 'delete':
-          for (const row of hit) rows.splice(rows.indexOf(row), 1)
-          return { data: hit }
-        case 'rpc':
-          return callFunction(record)
-      }
-    }
-
-    /**
-     * The database functions, modelled.
-     *
-     * A stand-in and not a proof: what Postgres actually does is in
-     * `supabase/migrations/`, and `slaids_delete_folder.sql` is checked
-     * separately for the properties this model assumes. What it *is* good for is
-     * the half a resolver can answer — that the repository sends the right call
-     * with the right arguments, and that the library ends up in the state the
-     * contract promises — which is the coverage that would otherwise have been
-     * lost by moving the work into SQL.
-     */
-    function callFunction(record: QueryRecord): QueryOutcome {
-      if (record.table !== DELETE_FOLDER_FUNCTION) {
-        return { error: { message: `could not find the function ${record.table}`, code: 'PGRST202' } }
-      }
-      const { p_folder_id: folderId, p_owner_id: owner } = record.values as {
-        p_folder_id: string
-        p_owner_id: string
-      }
-      const presentations = (tables[PRESENTATIONS_TABLE] ??= [])
-      const folders = (tables[FOLDERS_TABLE] ??= [])
-
-      // Both places the folder is named, cleared together — and only for rows
-      // this owner may touch, which is what the function's own filter does.
-      const moved: Row[] = []
-      for (const row of presentations) {
-        if (row.folder_id !== folderId || row.owner_id !== owner) continue
-        row.folder_id = null
-        row.document = { ...(row.document as object), folderId: null }
-        row.version = numberish(row.version) + 1
-        moved.push({ presentation_id: row.id, version: row.version })
-      }
-
-      for (const folder of [...folders]) {
-        if (folder.id === folderId && folder.owner_id === owner) {
-          folders.splice(folders.indexOf(folder), 1)
-        }
-      }
-      return { data: moved }
-    }
-
-    return { tables, resolve }
-  }
+  type Row = FakeRow
 
   function theirFolder(): Row {
     return { id: 'fl_delt', owner_id: THEIRS, name: 'Deres mappe', created_at: EARLIER }
@@ -993,7 +879,7 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
   const EARLIER = '2026-08-01T09:00:00.000Z'
 
   function pinned(seed: Record<string, Row[]>) {
-    const database = fakeDatabase(seed)
+    const database = createFakeDatabase(seed)
     const fake = createFakeSupabase({ session: null, resolve: database.resolve })
     return {
       repository: new SupabaseSlaidsRepository(() => fake.client, OURS),
@@ -1296,7 +1182,7 @@ describe('SupabaseSlaidsRepository – to eiere, én tabell', () => {
     // Without a pin there is no filter to add, and row level security is what
     // decides — exactly as before. The write shape may have changed; the
     // browser's authorization has not.
-    const database = fakeDatabase({})
+    const database = createFakeDatabase({})
     const fake = createFakeSupabase({ resolve: database.resolve })
     const repository = new SupabaseSlaidsRepository(() => fake.client)
 

@@ -32,17 +32,18 @@ import {
 } from '../../routing'
 import { runOperation } from '../../agent/registry'
 import { handleAgentRequest } from '../agent/handler'
-import { authenticateOAuthToken, type OAuthResourceConfig } from '../agent/oauth'
+import type { OAuthResourceConfig } from '../agent/oauth'
+import { oauthAuthenticator } from '../agent/supabase'
 import {
   OTHER_OWNER,
   TEST_CLIENT,
   TEST_ISSUER,
   TEST_OWNER,
+  testAccessList,
   testAuthorizationServer,
   type TestAuthorizationServer,
   type TokenClaims,
 } from '../agent/testOAuth'
-import type { AuthOutcome } from '../agent/tokens'
 import {
   DEFAULT_OWNER,
   ORIGIN,
@@ -68,22 +69,25 @@ const ANONYMOUS = { token: null } as const
 /**
  * A deployment with an authorization server behind it.
  *
- * Wired exactly as `index.ts` wires production: the same `authenticateOAuthToken`,
+ * Wired exactly as `index.ts` wires production: the same `oauthAuthenticator`,
  * the same config object, the same key cache. Only the key set is served from
- * memory rather than from Supabase.
+ * memory rather than from Supabase, and the access list from a map rather than
+ * from `slaids_users`; `members` says who is on it (`TEST_OWNER` by default).
  */
 async function oauthHarness(
-  options: HarnessOptions & { config?: Partial<OAuthResourceConfig> } = {},
+  options: HarnessOptions & {
+    config?: Partial<OAuthResourceConfig>
+    members?: Record<string, boolean>
+  } = {},
 ): Promise<{ harnessed: Harness; server: TestAuthorizationServer; config: OAuthResourceConfig }> {
   const server = await testAuthorizationServer()
   const config = server.config(options.config)
-  const jwks = server.jwks()
+  const members = testAccessList(options.members)
   const harnessed = harness({
     ...options,
     oauth: config,
     publicOrigin: PUBLIC_ORIGIN,
-    authenticateOAuth: (token): Promise<AuthOutcome> =>
-      authenticateOAuthToken({ token, config, jwks, now: new Date() }),
+    authenticateOAuth: oauthAuthenticator(config, members.lookup, () => new Date(), server.jwks()),
   })
   return { harnessed, server, config }
 }
@@ -293,7 +297,7 @@ describe('et OAuth-token på MCP', () => {
     // builds one from the principal, pinned to its owner. Two owners, two
     // stores, and a read that names nothing still only names one of them.
     const { harnessed, server } = await oauthHarness({
-      config: { owners: new Set([TEST_OWNER, OTHER_OWNER]) },
+      members: { [TEST_OWNER]: true, [OTHER_OWNER]: true },
     })
     const seeded = await runOperation(harnessed.contextOf(OTHER_OWNER), 'create_presentation', {
       title: 'Den andres dekk',

@@ -22,11 +22,21 @@
  * `boundary.test.ts` keeps it to this file.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { SlidePreviewRenderer } from '../../agent/preview'
 import { SupabaseAgentTokens } from '../../persistence/agentTokens'
-import { sessionUserResolver, supabaseAdminUserStore } from '../admin/supabase'
+import { readUserAccess } from '../../persistence/slaidsUsers'
 import { chromiumSlidePreviewRenderer } from '../../render/preview'
-import { readAgentApiConfig, describeUnavailable, type Env, type AgentApiConfigState } from './config'
+import { sessionUserResolver, supabaseAdminUserStore } from '../admin/supabase'
+import {
+  readAgentApiConfig,
+  describeUnavailable,
+  type AgentApiConfig,
+  type Env,
+  type AgentApiConfigState,
+} from './config'
 import { handleAgentRequest, type AgentApiDeps } from './handler'
+import type { JwksCache } from './oauth'
 import { errorResponse } from './protocol'
 import {
   agentContextFor,
@@ -57,37 +67,64 @@ export * from './tokens'
  */
 export * from '../mcp/tools'
 
+/**
+ * The deployment's dependencies, from a Supabase client.
+ *
+ * Exported so the tests can wire a deployment exactly as production does —
+ * every lookup, the access-list check, the repository pinning and the audit —
+ * against a stand-in for the database instead of a real one. `depsFor` below is
+ * the only production caller, and it only adds the real client and renderer.
+ */
+export function wireAgentApi(input: {
+  client: SupabaseClient
+  config: AgentApiConfig
+  preview?: SlidePreviewRenderer
+  now?: () => Date
+  /** The OAuth key cache; built from `config.oauth` when not given. */
+  jwks?: JwksCache
+}): AgentApiDeps {
+  const { client, config, preview } = input
+  const now = input.now ?? ((): Date => new Date())
+  const tokens = new SupabaseAgentTokens(() => client)
+  const audit = supabaseAuditSink(client)
+  // Slaids' access list, asked on every request for the owner a verified
+  // credential names — never for an id the request supplies.
+  const ownerAccess = (ownerId: string) => readUserAccess(client, ownerId)
+
+  return {
+    authenticate: (presented) => authenticateAgentToken(tokens, ownerAccess, presented, now()),
+    // Present only when this deployment has an authorization server, so "does
+    // Slaids take OAuth here?" is one question with one answer: the presence of
+    // this function, the metadata document and the `resource_metadata` in the
+    // challenge all come from the same `config.oauth`.
+    ...(config.oauth
+      ? {
+          authenticateOAuth: oauthAuthenticator(config.oauth, ownerAccess, now, input.jwks),
+          oauth: config.oauth,
+        }
+      : {}),
+    publicOrigin: config.publicOrigin,
+    admin: { sessionUser: sessionUserResolver(client), store: supabaseAdminUserStore(client) },
+    contextFor: (principal) => agentContextFor(client, principal, preview),
+    audit,
+    maxRequestBytes: config.maxRequestBytes,
+    now,
+  }
+}
+
 /** The dependencies for a configured deployment. Built once, reused warm. */
 function depsFor(
   state: Extract<AgentApiConfigState, { kind: 'configured' }>,
   env: Env,
 ): AgentApiDeps {
-  const client = createServerClient(state.config)
-  const tokens = new SupabaseAgentTokens(() => client)
-  const audit = supabaseAuditSink(client)
-  // One renderer for the instance: it owns a browser, and starting one per
-  // request would be most of the request. It holds no caller state, so there is
-  // nothing to leak between two tokens.
-  const preview = chromiumSlidePreviewRenderer({ env })
-
-  const now = (): Date => new Date()
-
-  return {
-    authenticate: (presented) => authenticateAgentToken(tokens, presented, now()),
-    // Present only when this deployment has an authorization server, so "does
-    // Slaids take OAuth here?" is one question with one answer: the presence of
-    // this function, the metadata document and the `resource_metadata` in the
-    // challenge all come from the same `config.oauth`.
-    ...(state.config.oauth
-      ? { authenticateOAuth: oauthAuthenticator(state.config.oauth, now), oauth: state.config.oauth }
-      : {}),
-    publicOrigin: state.config.publicOrigin,
-    admin: { sessionUser: sessionUserResolver(client), store: supabaseAdminUserStore(client) },
-    contextFor: (principal) => agentContextFor(client, principal, preview),
-    audit,
-    maxRequestBytes: state.config.maxRequestBytes,
-    now,
-  }
+  return wireAgentApi({
+    client: createServerClient(state.config),
+    config: state.config,
+    // One renderer for the instance: it owns a browser, and starting one per
+    // request would be most of the request. It holds no caller state, so there
+    // is nothing to leak between two tokens.
+    preview: chromiumSlidePreviewRenderer({ env }),
+  })
 }
 
 let cached: { deps: AgentApiDeps } | null = null

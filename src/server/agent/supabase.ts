@@ -8,7 +8,8 @@
  *    security, which is exactly why the repository it feeds is pinned to the
  *    token's owner and filters every query on it. Nothing here ever takes an
  *    owner from a caller.
- *  - looking a presented token up by its hash and marking it used;
+ *  - looking a presented token up by its hash, checking that its owner is an
+ *    active Slaids user, and marking it used;
  *  - writing one audit row per call.
  *
  * The client is memoised at module scope so a warm serverless instance reuses
@@ -28,7 +29,13 @@ import { SupabaseSlaidsRepository } from '../../persistence/supabaseRepository'
 import type { AgentAuditRecord, AgentAuditSink } from './audit'
 import type { AgentApiConfig } from './config'
 import { JwksCache, authenticateOAuthToken, type OAuthResourceConfig } from './oauth'
-import { tokenValidity, type AgentPrincipal, type AuthOutcome } from './tokens'
+import {
+  admitActiveOwner,
+  tokenValidity,
+  type AgentPrincipal,
+  type AuthOutcome,
+  type OwnerAccessLookup,
+} from './tokens'
 
 export function createServerClient(config: AgentApiConfig): SupabaseClient {
   return createClient(config.supabaseUrl, config.secretKey, {
@@ -45,12 +52,18 @@ export function createServerClient(config: AgentApiConfig): SupabaseClient {
  * this is a single indexed equality: nothing compares two secrets in
  * JavaScript, so there is no timing signal to read.
  *
+ * A token that is valid is still only as good as its owner's place on the
+ * access list: a deactivated owner's tokens stop on the next call, without the
+ * owner — or an administrator — having to revoke them one by one. Reactivation
+ * brings them back, exactly as they were.
+ *
  * `last_used_at` is written only for a token that was accepted, and a failure to
  * write it is swallowed: the owner losing a timestamp is a smaller problem than
  * an agent losing a request over bookkeeping.
  */
 export async function authenticateAgentToken(
   tokens: SupabaseAgentTokens,
+  ownerAccess: OwnerAccessLookup,
   presentedToken: string,
   now: Date,
 ): Promise<AuthOutcome> {
@@ -64,6 +77,7 @@ export async function authenticateAgentToken(
     console.error('slaids-agent: kunne ikke slå opp agenttokenet', error)
     return { ok: false, reason: 'unavailable' }
   }
+  outcome = await admitActiveOwner(outcome, ownerAccess)
 
   if (outcome.ok && outcome.principal.kind === 'agent_token') {
     try {
@@ -85,17 +99,28 @@ export async function authenticateAgentToken(
  * one fetch per warm instance — the verification itself is local, so a token
  * costs no network at all in the ordinary case.
  *
+ * The owner check is the same one an agent token passes, and it is what makes
+ * OAuth safe to offer on a Supabase project other apps share: the
+ * authorization server will mint a token for any of its users, and only the
+ * access list says which of them are Slaids users, and active ones. A
+ * deactivated owner's grant is not revoked at the authorization server — Slaids
+ * cannot reach it — but every token it yields is refused here.
+ *
  * There is no `touch` counterpart. An OAuth token is the authorization server's
  * to account for, it expires on its own within the hour, and Slaids has no row
  * for it to update.
  */
 export function oauthAuthenticator(
   config: OAuthResourceConfig,
+  ownerAccess: OwnerAccessLookup,
   now: () => Date,
+  jwks: JwksCache = new JwksCache(config.jwksUri),
 ): (presentedToken: string) => Promise<AuthOutcome> {
-  const jwks = new JwksCache(config.jwksUri)
-  return (presentedToken) =>
-    authenticateOAuthToken({ token: presentedToken, config, jwks, now: now() })
+  return async (presentedToken) =>
+    admitActiveOwner(
+      await authenticateOAuthToken({ token: presentedToken, config, jwks, now: now() }),
+      ownerAccess,
+    )
 }
 
 /**

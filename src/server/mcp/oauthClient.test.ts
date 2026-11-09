@@ -27,9 +27,14 @@ import type { AddressInfo } from 'node:net'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { AGENT_MCP_PATH } from '../../routing'
-import { authenticateOAuthToken, type OAuthResourceConfig } from '../agent/oauth'
-import { TEST_OWNER, testAuthorizationServer, type TestAuthorizationServer } from '../agent/testOAuth'
-import type { AuthOutcome } from '../agent/tokens'
+import type { OAuthResourceConfig } from '../agent/oauth'
+import { oauthAuthenticator } from '../agent/supabase'
+import {
+  TEST_OWNER,
+  testAccessList,
+  testAuthorizationServer,
+  type TestAuthorizationServer,
+} from '../agent/testOAuth'
 import { closeHarnessDatabases, harness, type Harness } from './testHarness'
 import { listenHarness, type ServedHarness } from './testServer'
 
@@ -304,13 +309,11 @@ beforeAll(async () => {
   keys = await testAuthorizationServer()
   authorizationServer = await fakeAuthorizationServer(keys)
   config = keys.config({ issuer: authorizationServer.issuer })
-  const jwks = keys.jwks()
   // `publicOrigin` is filled in once the socket is listening: the resource the
   // metadata names has to be the address the client will post to.
   deployment = harness({
     oauth: config,
-    authenticateOAuth: (token): Promise<AuthOutcome> =>
-      authenticateOAuthToken({ token, config, jwks, now: new Date() }),
+    authenticateOAuth: oauthAuthenticator(config, testAccessList().lookup, () => new Date(), keys.jwks()),
   })
   served = await listenHarness(deployment)
   baseUrl = served.address.origin
@@ -625,7 +628,7 @@ describe('scripts/mcp-oauth-client.mjs', () => {
       const code = await new Promise<number | null>((resolve) => child.on('close', resolve))
 
       expect(err).toContain('ingen OAuth')
-      expect(err).toContain('SLAIDS_AGENT_OAUTH_OWNERS')
+      expect(err).toContain('SLAIDS_AGENT_OAUTH=on')
       expect(code).toBe(2)
     } finally {
       await servedPlain.close()

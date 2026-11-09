@@ -102,7 +102,7 @@ describe('scripts/mcp-smoke.mjs', () => {
     // nothing is wrong.
     const { code, out } = await smoke(['--expect-oauth'])
 
-    expect(out).toContain('SLAIDS_AGENT_OAUTH_OWNERS')
+    expect(out).toContain('SLAIDS_AGENT_OAUTH=on')
     expect(out).toContain('FEIL')
     expect(code).toBe(1)
   }, 30_000)

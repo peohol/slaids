@@ -90,8 +90,12 @@ const expectTools = Number(flag('expect-tools') ?? '0')
  */
 const expectOAuth = ARGS.includes('--expect-oauth')
 
-/** The variable that turns OAuth on, named where the refusal can point at it. */
-const OAUTH_OWNERS_VAR = 'SLAIDS_AGENT_OAUTH_OWNERS'
+/**
+ * The switch that turns OAuth on, named where the refusal can point at it.
+ * `SLAIDS_AGENT_OAUTH` in `src/server/agent/oauth.ts`; who may sign in is
+ * Slaids' access list (Administrasjon → Brukere), not a server variable.
+ */
+const OAUTH_SWITCH_VAR = 'SLAIDS_AGENT_OAUTH'
 
 /** Headers for the layer in front of the deployment. Never `Authorization`. */
 const extraHeaders = {}
@@ -422,9 +426,9 @@ await check('protected resource metadata', async () => {
       !expectOAuth,
       `${RESOURCE_METADATA_URL} svarer ikke med et metadatadokument, så installasjonen tilbyr\n` +
         'ingen OAuth-autorisasjonsserver. En ChatGPT-tilkobling kommer ikke forbi pålogging uten.\n' +
-        `Sett servervariabelen ${OAUTH_OWNERS_VAR} i Vercel (Production) til Supabase-bruker-ID-en\n` +
-        'som skal slippe inn, og kjør deployen på nytt. Kjør uten --expect-oauth for en\n' +
-        'installasjon som med vilje bare tar agenttokens.',
+        `Sett servervariabelen ${OAUTH_SWITCH_VAR}=on i Vercel (Production) og kjør deployen på nytt.\n` +
+        'Hvem som slipper inn, bestemmes av Slaids-brukerlisten (Administrasjon → Brukere), ikke av\n' +
+        'en servervariabel. Kjør uten --expect-oauth for en installasjon som med vilje bare tar agenttokens.',
     )
     return 'ingen OAuth i denne installasjonen – resten av OAuth-sjekkene hopper over'
   }

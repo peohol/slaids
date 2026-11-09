@@ -291,7 +291,6 @@ function deployment(options: { preview?: SlidePreviewRenderer; oauth?: boolean }
               issuer: OAUTH_ISSUER,
               jwksUri: `${OAUTH_ISSUER}/.well-known/jwks.json`,
               audiences: ['authenticated'],
-              owners: new Set(['owner-1']),
               clients: null,
               defaultScopes: ['presentations:read'],
             },
