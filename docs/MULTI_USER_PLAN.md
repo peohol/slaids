@@ -300,7 +300,7 @@ reverseres som beskrevet.
 7. **Merge og Vercel**: PR-ene i rekkefølgen over. Ingen nye Vercel-variabler
    kreves; `SLAIDS_AGENT_OAUTH=on` kan erstatte `SLAIDS_AGENT_OAUTH_OWNERS`
    senere.
-8. **Ekte prøve** (gjenstår; avgjør om flerbrukerflyten er produksjonsklar): Peder logger inn med kode og ser biblioteket; Peder oppretter
+8. **Ekte prøve** (avgjør om flerbrukerflyten er produksjonsklar; innlogging og ny bruker bestått 2026-11-09 på forhåndsvisningen av #128 mot produksjonsdatabasen, se § 6.2; `mcp-smoke` og delingslenken gjenstår til etter merge): Peder logger inn med kode og ser biblioteket; Peder oppretter
    den nye brukeren; den nye brukeren logger inn og ser et tomt bibliotek;
    `mcp-smoke` mot produksjon; en eksisterende delingslenke åpnes.
 
@@ -327,3 +327,21 @@ gjentas med spørringene i høyre kolonne.
 Peders beslutning om Resend ligger på et beslutningskort i Claude-prosjektets
 hovedtråd. Tråden er privat og har ingen offentlig lenke, så den etterprøvbare
 bekreftelsen er Peders egen kommentar på PR #126.
+
+### 6.2 Ekte prøve av innlogging og ny bruker (2026-11-09)
+
+Prøven ble gjort på forhåndsvisningen av PR #128, som har alle fire etappene og
+bruker produksjonsdatabasen. Ekte koder ble sendt via Resend. Peder bekreftet
+at alt virket, og resultatet ble kontrollert skrivebeskyttet i databasen
+etterpå:
+
+| Kontroll | Resultat |
+| --- | --- |
+| Peder logget inn med kode | ja, 09:56 UTC; `admin`, aktiv |
+| Ny bruker opprettet fra Administrasjon → Brukere | ja; `user`, aktiv, `created_by` satt |
+| Ny bruker (adresse utenfor Supabase-organisasjonen) logget inn med kode | ja, 09:59 UTC; koden kom fram via Resend |
+| Den nye brukerens bibliotek | tomt; alle 8 presentasjoner har fortsatt Peder som eier |
+| Peders filer i Storage | 85, uendret |
+
+Gjenstår etter merge: `mcp-smoke` mot produksjon og åpning av en eksisterende
+delingslenke (etter at Edge Function fra #127 er deployet).
