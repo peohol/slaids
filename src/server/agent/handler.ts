@@ -101,6 +101,7 @@ import {
 import { parseOperationInput, readBody } from './body'
 import { authorizeOperation, performOperation } from './invoke'
 import { handleMcpRequest } from '../mcp/endpoint'
+import { ADMIN_USERS_SUBPATH, handleAdminRequest, type AdminApiDeps } from '../admin/handler'
 import type { OAuthResourceConfig } from './oauth'
 import {
   challengeFor,
@@ -147,6 +148,13 @@ export interface AgentApiDeps extends AgentTokenLookup {
   oauth?: OAuthResourceConfig
   /** The origin OAuth metadata speaks about, when the deployment pins one. */
   publicOrigin?: string | null
+  /**
+   * Administration → Brukere. Lives in this function only because it needs the
+   * same server key and the same deployment; it is not part of the agent API.
+   * It authenticates the browser session itself, never an agent credential,
+   * and is absent from the catalogue and from MCP. See `../admin/handler.ts`.
+   */
+  admin?: AdminApiDeps
 }
 
 /**
@@ -227,6 +235,15 @@ async function route(deps: AgentApiDeps, request: Request): Promise<Response> {
   // It is also the one address a caller learns nothing from: it is published, so
   // there is no 404-versus-405 to map with.
   if (path === MCP_SUBPATH) return handleMcpRequest(deps, request)
+
+  // Administration authenticates the browser session itself and refuses every
+  // agent credential, so it is handed over before agent authentication rather
+  // than after it.
+  if (path === ADMIN_USERS_SUBPATH || path.startsWith(`${ADMIN_USERS_SUBPATH}/`)) {
+    return deps.admin
+      ? handleAdminRequest(deps.admin, request, path)
+      : errorResponse({ code: 'NOT_FOUND', message: 'Ukjent adresse.' })
+  }
 
   // Authentication comes before routing anything further, so an unauthenticated
   // caller cannot use 404 versus 405 to map the surface.

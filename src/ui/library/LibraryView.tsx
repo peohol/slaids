@@ -46,6 +46,7 @@ import { MenuButton } from '../components/MenuButton'
 import { APPEARANCE_TITLE, appearanceEntries } from '../components/appearanceMenu'
 import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
+import { AdminUsersModal } from './AdminUsersModal'
 import { AgentTokensModal } from './AgentTokensModal'
 import { FolderSelect } from './FolderSelect'
 import { FolderShareButton } from './FolderShareButton'
@@ -86,11 +87,16 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const [persisted, setPersisted] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [managingTokens, setManagingTokens] = useState(false)
+  const [managingUsers, setManagingUsers] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const mode = storageMode()
   const sessionEmail = useSessionStore((state) => state.email)
   const signOut = useSessionStore((state) => state.signOut)
+  const sessionUserId = useSessionStore((state) => state.userId)
+  const refreshAccess = useSessionStore((state) => state.refreshAccess)
+  // Only a convenience: the server checks the role again on every call.
+  const isAdmin = useSessionStore((state) => state.role === 'admin') && mode === 'supabase'
 
   const [reloadToken, setReloadToken] = useState(0)
   const refresh = useCallback(() => setReloadToken((token) => token + 1), [])
@@ -376,6 +382,27 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
                 <Icon name="code" size={15} /> Agenttokens
               </button>
             </Tooltip>
+          )}
+          {isAdmin && (
+            <MenuButton
+              id="library-administration"
+              label="Administrasjon"
+              title="Administrasjon"
+              tooltip="Brukere og tilgang til Slaids"
+              icon="users"
+              className="btn--ghost"
+              testId="library-administration"
+              entries={() => [
+                {
+                  kind: 'action',
+                  id: 'admin-users',
+                  label: 'Brukere',
+                  icon: 'users',
+                  testId: 'open-admin-users',
+                  onSelect: () => setManagingUsers(true),
+                },
+              ]}
+            />
           )}
           {mode === 'supabase' && (
             <Tooltip label={sessionEmail ? `Logget inn som ${sessionEmail}` : 'Logg ut'}>
@@ -676,6 +703,14 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
       {/* Mounted only while open: closing is what drops a freshly created
           token out of memory, rather than an effect that clears it. */}
       {managingTokens && <AgentTokensModal open onOpenChange={setManagingTokens} />}
+      {isAdmin && managingUsers && (
+        <AdminUsersModal
+          open
+          onOpenChange={setManagingUsers}
+          currentUserId={sessionUserId}
+          onOwnAccessChanged={() => void refreshAccess()}
+        />
+      )}
 
       <NewPresentationModal
         open={creating}

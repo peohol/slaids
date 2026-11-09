@@ -192,7 +192,7 @@ håndtert før agentruteren og aldri listet i agentkatalogen eller som MCP-verkt
   `client_id` (OAuth-delegasjoner) og alt som ikke er et JWT (agenttokens), og
   krever `slaids_users.role = 'admin' and active` for kalleren.
 - Feilkoder i samme format som agent-API-et: `UNAUTHENTICATED` (401),
-  `FORBIDDEN` (403), `VALIDATION_FAILED` (400), `ALREADY_MEMBER` (409),
+  `FORBIDDEN` (403), `INVALID_INPUT` (400), `ALREADY_MEMBER` (409),
   `LAST_ACTIVE_ADMIN` (409, fra triggeren), `NOT_FOUND` (404).
 - Opprettelse: finn Auth-bruker med `slaids_auth_user_id_by_email`; finnes den
   ikke, `auth.admin.createUser({ email, email_confirm: true })` (ingen e-post

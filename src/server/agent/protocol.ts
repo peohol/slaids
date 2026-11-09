@@ -33,6 +33,12 @@ export type TransportErrorCode =
   | 'MALFORMED_BODY'
   /** The deployment has no Supabase to act on; see `config.ts`. */
   | 'SERVER_NOT_CONFIGURED'
+  /** Administration: a signed-in caller who is not an active administrator. */
+  | 'FORBIDDEN'
+  /** Administration: the address is already a Slaids user. */
+  | 'ALREADY_MEMBER'
+  /** Administration: the change would leave Slaids without an active administrator. */
+  | 'LAST_ACTIVE_ADMIN'
 
 export type ApiErrorCode = AgentErrorCode | TransportErrorCode
 
@@ -82,6 +88,9 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   REQUEST_TOO_LARGE: 413,
   MALFORMED_BODY: 400,
   SERVER_NOT_CONFIGURED: 503,
+  FORBIDDEN: 403,
+  ALREADY_MEMBER: 409,
+  LAST_ACTIVE_ADMIN: 409,
 
   // Agent Core
   UNKNOWN_OPERATION: 404,
@@ -174,7 +183,7 @@ export function statusFor(code: ApiErrorCode): number {
 export function agentApiHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     // `mcp-*` are the Streamable HTTP transport's own headers. A browser MCP
     // client sends them, so a preflight that did not name them would fail before
     // the request the endpoint would have answered with a plain `405`.

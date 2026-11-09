@@ -353,6 +353,31 @@ koden er seks sifre (Email OTP length), og e-postmalen for «Magic Link»
 inneholder `{{ .Token }}`. Uten `{{ .Token }}` sender Supabase bare en lenke, og
 lenken logger ikke inn i Slaids.
 
+### Brukeradministrasjon
+
+En administrator finner **Administrasjon → Brukere** i biblioteket. Der kan man se
+alle Slaids-brukere med e-post, rolle og status, legge til en bruker (vanlig
+bruker eller administrator), gi og fjerne administratorrollen, og deaktivere
+eller reaktivere en konto. En ny bruker får ingen invitasjon – personen åpner
+Slaids, skriver e-postadressen sin og får en kode. Biblioteket er tomt fra start.
+
+Knappen vises bare for administratorer, men sikkerheten ligger på serveren:
+hver handling går til `/api/agent/v1/admin/users` i den samme serverfunksjonen
+som agent-API-et, og serveren
+
+- verifiserer den vanlige innloggingen mot Supabase Auth,
+- avviser agenttokens og OAuth-tokens (administrasjon er aldri en
+  agentoperasjon og finnes ikke som MCP-verktøy),
+- krever at kalleren er aktiv administrator i `slaids_users`.
+
+Databasen nekter å fjerne eller deaktivere den siste aktive administratoren,
+uansett hvilken vei forespørselen kommer. Deaktivering stenger kontoen med én
+gang, også på enheter der personen allerede er innlogget, og agenttokens slutter
+å virke. Presentasjonene blir liggende og kommer tilbake ved reaktivering.
+
+En administrator ser andres e-post, rolle og status, men aldri presentasjonene
+deres.
+
 ### Deploye Slaids-migrasjoner
 
 **Ikke bruk `supabase db push` herfra.** Slaids og mdeditz bor i det samme

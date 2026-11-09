@@ -58,6 +58,17 @@ export const AGENT_API_BASE_PATH = `/api/agent/${AGENT_API_VERSION}`
 export const AGENT_MCP_PATH = `${AGENT_API_BASE_PATH}/mcp`
 
 /**
+ * Administration → Brukere, on the server.
+ *
+ * Under the agent API's prefix only because it is served by the same function
+ * with the same server key; it is not an agent operation, is absent from the
+ * catalogue and from MCP, and accepts nothing but the browser's own session.
+ * Written here for the reason every address is: the browser that calls it and
+ * the server that answers it read one string. See `src/server/admin/handler.ts`.
+ */
+export const ADMIN_USERS_PATH = `${AGENT_API_BASE_PATH}/admin/users`
+
+/**
  * The query parameter the host hands the rest of the path over in.
  *
  * The API is one static function at `AGENT_API_BASE_PATH`, and everything

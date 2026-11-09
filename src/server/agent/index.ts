@@ -27,6 +27,7 @@ import type { SlidePreviewRenderer } from '../../agent/preview'
 import { SupabaseAgentTokens } from '../../persistence/agentTokens'
 import { readUserAccess } from '../../persistence/slaidsUsers'
 import { chromiumSlidePreviewRenderer } from '../../render/preview'
+import { sessionUserResolver, supabaseAdminUserStore } from '../admin/supabase'
 import {
   readAgentApiConfig,
   describeUnavailable,
@@ -103,6 +104,7 @@ export function wireAgentApi(input: {
         }
       : {}),
     publicOrigin: config.publicOrigin,
+    admin: { sessionUser: sessionUserResolver(client), store: supabaseAdminUserStore(client) },
     contextFor: (principal) => agentContextFor(client, principal, preview),
     audit,
     maxRequestBytes: config.maxRequestBytes,
