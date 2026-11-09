@@ -17,6 +17,9 @@
  */
 
 import type { BrowserContext, Route } from '@playwright/test'
+import type { AdminUser, MemberChange } from '../src/persistence/adminUsers'
+import type { SlaidsRole } from '../src/persistence/slaidsUsers'
+import { ADMIN_USERS_PATH } from '../src/routing'
 
 export const SUPABASE_E2E_URL = 'https://e2e-stub.supabase.invalid'
 export const SUPABASE_E2E_KEY = 'sb_publishable_e2e_stub'
@@ -152,7 +155,7 @@ export class SupabaseStub {
   /** Every code «emailed», oldest first. */
   readonly outbox: SentCode[] = []
   /** `public.slaids_users`, keyed by user id. */
-  readonly access = new Map<string, { role: 'user' | 'admin'; active: boolean }>()
+  readonly access = new Map<string, { role: SlaidsRole; active: boolean }>()
   /** Supabase's minimum interval between two codes to one address. */
   cooldownSeconds = 60
   private readonly tables = new Map<string, Row[]>()
@@ -160,7 +163,7 @@ export class SupabaseStub {
   /** An Auth user, and — unless `member` is false — a Slaids user too. */
   addUser(
     email: string,
-    { role = 'user', active = true, member = true }: { role?: 'user' | 'admin'; active?: boolean; member?: boolean } = {},
+    { role = 'user', active = true, member = true }: { role?: SlaidsRole; active?: boolean; member?: boolean } = {},
   ): StubUser {
     const user = { id: crypto.randomUUID(), email }
     this.users.push(user)
@@ -194,6 +197,48 @@ export class SupabaseStub {
 
   async install(context: BrowserContext): Promise<void> {
     await context.route(`${SUPABASE_E2E_URL}/**`, (route) => this.handle(route))
+    await context.route((url) => url.pathname.startsWith(ADMIN_USERS_PATH), (route) => this.admin(route))
+  }
+
+  /**
+   * Slaids' own administration server, over the same users: what
+   * `src/server/admin/handler.ts` answers, in its envelope. Like the server it
+   * lets only an active administrator in; the finer rules (the last
+   * administrator, input checks) are the server's and the database's tests.
+   */
+  private async admin(route: Route): Promise<void> {
+    const request = route.request()
+    const ok = (data: unknown) => json(route, 200, { ok: true, data })
+    const refuse = (status: number, code: string, message: string) =>
+      json(route, status, { ok: false, error: { code, message } })
+
+    const caller = this.access.get(subjectOf(request.headers().authorization) ?? '')
+    if (!caller?.active || caller.role !== 'admin') {
+      return refuse(403, 'FORBIDDEN', 'Bare aktive administratorer kan administrere brukere.')
+    }
+
+    const rest = new URL(request.url()).pathname.slice(ADMIN_USERS_PATH.length)
+    if (rest === '' && request.method() === 'GET') {
+      return ok({ users: this.users.filter((user) => this.access.has(user.id)).map((user) => this.adminUser(user)) })
+    }
+    if (rest === '' && request.method() === 'POST') {
+      const { email, role } = request.postDataJSON() as { email: string; role: SlaidsRole }
+      const user = this.users.find((entry) => entry.email === email) ?? this.addUser(email, { member: false })
+      if (this.access.has(user.id)) return refuse(409, 'ALREADY_MEMBER', `${email} har allerede tilgang.`)
+      this.access.set(user.id, { role, active: true })
+      return ok({ user: this.adminUser(user) })
+    }
+    const target = this.users.find((user) => `/${user.id}` === rest && this.access.has(user.id))
+    if (target && request.method() === 'PATCH') {
+      Object.assign(this.access.get(target.id)!, request.postDataJSON() as MemberChange)
+      return ok({ user: this.adminUser(target) })
+    }
+    return refuse(404, 'NOT_FOUND', 'Fant ikke brukeren.')
+  }
+
+  private adminUser(user: StubUser): AdminUser {
+    const { role, active } = this.access.get(user.id)!
+    return { userId: user.id, email: user.email, role, active, createdAt: new Date(0).toISOString(), lastSignInAt: null }
   }
 
   private isActiveMember(userId: string | null): boolean {

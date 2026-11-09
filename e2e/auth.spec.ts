@@ -313,3 +313,54 @@ async function signInWithoutLibrary(page: Page, supabase: SupabaseStub, email: s
   await page.getByTestId('sign-in-code').fill(supabase.latestCode(email))
   await expect(page.getByTestId('sign-in')).toHaveCount(0)
 }
+
+test.describe('administrasjon', () => {
+  test('en administrator legger til en bruker som får sitt eget, tomme bibliotek', { tag: '@pr' }, async ({ page, supabase, peder }) => {
+    const guard = watchForErrors(page)
+    await page.goto('/')
+    await signIn(page, supabase, peder.email)
+    await page.getByTestId('new-presentation').click()
+    await page.getByTestId('presentation-title-input').fill('Bare min')
+    await page.getByTestId('create-presentation').click()
+    await waitForSaved(page)
+    await page.getByTestId('back-to-library').click()
+
+    await page.getByTestId('library-administration').click()
+    await page.getByTestId('open-admin-users').click()
+    const modal = page.getByTestId('admin-users-modal')
+    await expect(modal.getByTestId('admin-user-row')).toHaveCount(1)
+    await expect(modal.getByTestId('admin-user-row')).toContainText(`${peder.email} (deg)`)
+
+    await modal.getByTestId('admin-user-email').fill('ny@example.com')
+    await modal.getByTestId('admin-user-add').click()
+    await expect(modal.getByTestId('admin-user-row')).toHaveCount(2)
+    await expect(modal.getByTestId('admin-user-row').filter({ hasText: 'ny@example.com' })).toContainText('Bruker')
+    await modal.getByRole('button', { name: 'Lukk' }).click()
+
+    await page.getByTestId('sign-out').click()
+    supabase.cooldownSeconds = 0
+    await signIn(page, supabase, 'ny@example.com')
+    await expect(page.getByTestId('presentation-card')).toHaveCount(0)
+    // Bare administratorer ser menyen.
+    await expect(page.getByTestId('library-administration')).toHaveCount(0)
+    expect(guard.errors).toEqual([])
+  })
+
+  test('gir administratorrollen og deaktiverer etter bekreftelse', async ({ page, supabase, peder }) => {
+    const anna = supabase.addUser('anna@example.com')
+    await page.goto('/')
+    await signIn(page, supabase, peder.email)
+    await page.getByTestId('library-administration').click()
+    await page.getByTestId('open-admin-users').click()
+    const row = page.getByTestId('admin-users-modal').getByTestId('admin-user-row').filter({ hasText: anna.email })
+
+    await row.getByTestId('admin-user-promote').click()
+    await expect(row).toContainText('Administrator')
+    expect(supabase.access.get(anna.id)?.role).toBe('admin')
+
+    await row.getByTestId('admin-user-deactivate').click()
+    await page.getByTestId('confirm-dialog').getByTestId('confirm-accept').click()
+    await expect(row).toContainText('Deaktivert')
+    expect(supabase.access.get(anna.id)?.active).toBe(false)
+  })
+})
