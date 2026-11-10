@@ -1982,11 +1982,6 @@ export function EditorView({
         presentation={presentation}
         derived={derived}
         viewingDerivedId={viewedDerivedPage?.id ?? null}
-        onSelectDerived={(pageId) =>
-          setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
-        }
-        onSelectAuthored={() => setDerivedView(null)}
-        onRequestDelete={setDeletingSlide}
         onMoveToSandbox={(slideId) => {
           const moved = run('move-slide-to-sandbox', (current) =>
             moveSlideToSandbox(current, slideId, domFitCheckers),
@@ -1995,6 +1990,11 @@ export function EditorView({
             setSandboxOpen(true)
           }
         }}
+        onSelectDerived={(pageId) =>
+          setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
+        }
+        onSelectAuthored={() => setDerivedView(null)}
+        onRequestDelete={setDeletingSlide}
         onRequestNewPage={setNewPage}
         // On a compact workspace the strip is the whole slide overview rather
         // than a column beside the stage, so its pages are drawn as big as the

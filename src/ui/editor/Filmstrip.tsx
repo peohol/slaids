@@ -370,9 +370,9 @@ export function Filmstrip({
   onSelectDerived,
   onSelectAuthored,
   onRequestDelete,
-  onMoveToSandbox,
   onRequestNewPage,
   overview = false,
+  onMoveToSandbox,
 }: {
   presentation: Presentation
   /**
@@ -386,7 +386,6 @@ export function Filmstrip({
   /** Selecting an authored slide closes the derived view for good. */
   onSelectAuthored: () => void
   onRequestDelete: (slide: Slide) => void
-  onMoveToSandbox: (slideId: string) => void
   /** Ask for a new page: where the author pointed, or after the current slide. */
   onRequestNewPage: (request: NewPageRequest) => void
   /**
@@ -398,6 +397,7 @@ export function Filmstrip({
    * a fixed width to work with; an overview has the screen.
    */
   overview?: boolean
+  onMoveToSandbox: (slideId: string) => void
 }) {
   const listRef = useRef<HTMLDivElement>(null)
   /*
