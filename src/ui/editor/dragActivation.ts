@@ -21,8 +21,11 @@
 
 import {
   PointerSensor,
+  useSensor,
   type PointerActivationConstraint,
+  type PointerSensorOptions,
   type PointerSensorProps,
+  type SensorDescriptor,
 } from '@dnd-kit/core'
 import { DRAG_THRESHOLDS } from '../components/reorderDrag'
 
@@ -87,4 +90,16 @@ export class SurfacePointerSensor extends PointerSensor {
         : props,
     )
   }
+}
+
+/**
+ * The pointer sensor every sortable surface uses, configured once.
+ *
+ * Its default is a handle's (`immediate`); a surface that also answers a click
+ * asks for more on its own element. A list that wants keys as well adds the
+ * keyboard sensor beside it.
+ */
+export function useSurfacePointerSensor(): SensorDescriptor<PointerSensorOptions> {
+  const options: PointerSensorOptions = { activationConstraint: DRAG_ACTIVATION.immediate.pointer }
+  return useSensor(SurfacePointerSensor, options)
 }

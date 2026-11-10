@@ -2728,6 +2728,14 @@ to mellomrom → ett, `--` → `–`, `–-` → `—`, `->` → `→`, `–>` �
 av `normalizeAutocorrectRules` ved hver lesing og skriving
 (`src/domain/autocorrect.ts`).
 
+Rekkefølgen i lista er også brukerens: en regel flyttes ved å dra i grepet
+foran den – samme dnd-kit-sortering og samme pekersensor som filmstripen –
+eller med tastaturet (mellomrom løfter, pilene flytter, Escape legger tilbake),
+og lista lagres i den rekkefølgen den står. Rekkefølgen er bare for oversikten
+og avgjør ikke hvilken regel som treffer. Det finnes ingen knapp som setter
+lista tilbake til standardreglene; standardlista er bare utgangspunktet for en
+bruker som aldri har lagret.
+
 Reglene gjelder overalt hvor noen skriver tekst: innholdsfelt, slidetittel,
 korttittel, en seksjons to linjer, en bildetekst – og de helt vanlige
 `<input>`-feltene som også ender opp på en slide (ny seksjon, og referansens
