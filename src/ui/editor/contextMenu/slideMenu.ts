@@ -26,6 +26,7 @@ export interface SlideMenuHandlers {
   duplicate: () => void
   /** Ask to delete the page; the question itself is the caller's. */
   remove: () => void
+  toSandbox: () => void
   /** Ask for a new page of this kind, right after this one. */
   insertAfter: (kind: PageKind) => void
 }
@@ -36,6 +37,7 @@ export const SLIDE_ACTIONS = {
   moveDown: { label: 'Flytt ned', icon: 'arrow-down' },
   duplicate: { label: 'Dupliser', icon: 'duplicate' },
   insertAfter: { label: 'Sett inn etter denne', icon: 'plus' },
+  toSandbox: { label: 'Flytt sliden til sandkassen', icon: 'sandbox' },
   remove: { label: 'Slett …', icon: 'trash' },
 } as const
 
@@ -94,16 +96,25 @@ export function slideMenu(presentation: Presentation, index: number, handlers: S
       ...SLIDE_ACTIONS.insertAfter,
       entries: newPageEntries(handlers.insertAfter, 'insert-after'),
     },
-    {
-      kind: 'action',
-      id: 'slide-delete',
-      ...SLIDE_ACTIONS.remove,
-      danger: true,
-      disabled: !removal.ok,
-      reason: removal.ok ? null : describeError(removal.error),
-      testId: 'delete-slide',
-      onSelect: handlers.remove,
-    },
   ]
+  if (slide.kind === 'content') {
+    entries.push({
+      kind: 'action',
+      id: 'slide-to-sandbox',
+      ...SLIDE_ACTIONS.toSandbox,
+      testId: 'move-slide-to-sandbox',
+      onSelect: handlers.toSandbox,
+    })
+  }
+  entries.push({
+    kind: 'action',
+    id: 'slide-delete',
+    ...SLIDE_ACTIONS.remove,
+    danger: true,
+    disabled: !removal.ok,
+    reason: removal.ok ? null : describeError(removal.error),
+    testId: 'delete-slide',
+    onSelect: handlers.remove,
+  })
   return { title: pageName(slide.kind, index), entries }
 }

@@ -14,6 +14,7 @@ import {
   REFERENCE_MAX_COLUMNS,
 } from './constants'
 import { contentCitationIds } from './content'
+import { sandboxContent } from './docs'
 import { collectContent } from './layout'
 import { collectCitationIds } from './richdoc'
 import type { DeckSource, Presentation, Reference } from './types'
@@ -74,8 +75,11 @@ export function citedReferenceIds(presentation: Presentation): Set<string> {
 /** Reference ids cited only from sandbox content. */
 export function sandboxCitedReferenceIds(presentation: Presentation): Set<string> {
   const ids = new Set<string>()
-  for (const item of presentation.sandbox) {
-    for (const id of contentCitationIds(item.content)) ids.add(id)
+  for (const slide of presentation.sandboxSlides ?? []) {
+    for (const id of collectCitationIds(slide.title)) ids.add(id)
+  }
+  for (const content of sandboxContent(presentation)) {
+    for (const id of contentCitationIds(content)) ids.add(id)
   }
   return ids
 }

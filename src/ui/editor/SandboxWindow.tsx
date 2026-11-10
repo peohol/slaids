@@ -8,12 +8,14 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { contentLabel } from '../../domain/content'
 import { deleteSandboxItem, duplicateSandboxItem } from '../../domain/commands'
 import { sectionGoverning } from '../../domain/presentation'
+import { docToPlainText } from '../../domain/richdoc'
 import { useEditorStore } from '../../state/store'
 import { DEFAULT_SANDBOX_GEOMETRY } from '../../state/prefs'
-import type { SandboxItem } from '../../domain/types'
+import type { ContentSlide, SandboxItem } from '../../domain/types'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { ZoneContentView } from '../slide/ZoneContentView'
-import { pillTokenStyle } from '../slide/SlideView'
+import { pillTokenStyle, SlideView } from '../slide/SlideView'
+import { SlideRenderProvider, useSlideRender } from '../slide/SlideRenderContext'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 
@@ -114,10 +116,63 @@ function SandboxItemCard({
   )
 }
 
+function SandboxSlideCard({
+  slide,
+  onRestore,
+}: {
+  slide: ContentSlide
+  onRestore: (slideId: string) => void
+}) {
+  const render = useSlideRender()
+  const colors = useEditorStore((state) =>
+    state.presentation && state.currentSlideId
+      ? sectionGoverning(state.presentation, state.currentSlideId)
+      : null,
+  )
+  const sectionColors = new Map(render.sectionColors)
+  if (colors) {
+    sectionColors.set(slide.id, { accent: colors.accentColor, background: colors.backgroundColor })
+  }
+  const scale = PREVIEW_WIDTH / SLIDE_WIDTH
+  const label = docToPlainText(slide.title).trim() || 'Slide uten tittel'
+
+  return (
+    <article className="sandbox-item" data-testid="sandbox-slide">
+      <div
+        className="sandbox-item__preview"
+        style={{ width: PREVIEW_WIDTH, height: SLIDE_HEIGHT * scale }}
+        aria-hidden="true"
+        inert
+      >
+        <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+          <SlideRenderProvider value={{ ...render, sectionColors, isStatic: true }}>
+            <SlideView slide={slide} />
+          </SlideRenderProvider>
+        </div>
+      </div>
+      <div className="sandbox-item__meta">
+        <span className="sandbox-item__label">{label}</span>
+        <div className="sandbox-item__tools">
+          <button
+            type="button"
+            className="btn btn--sm"
+            data-testid="sandbox-restore-slide"
+            aria-label={`Sett tilbake ${label}`}
+            onClick={() => onRestore(slide.id)}
+          >
+            Sett tilbake
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
 export function SandboxWindow({
   open,
   onClose,
   onPlace,
+  onRestoreSlide,
 }: {
   open: boolean
   onClose: () => void
@@ -128,28 +183,35 @@ export function SandboxWindow({
    * and both end in `placeSandboxItem` with the same fit validation.
    */
   onPlace: (item: SandboxItem) => void
+  onRestoreSlide: (slideId: string) => void
 }) {
-  const items = useEditorStore((state) => state.presentation?.sandbox ?? [])
+  const presentation = useEditorStore((state) => state.presentation)
+  const items = presentation?.sandbox ?? []
+  const slides = presentation?.sandboxSlides ?? []
+  const count = items.length + slides.length
 
   return (
     <FloatingWindow
       prefKey="sandbox"
-      title={`Sandkassen (${items.length})`}
+      title={`Sandkassen (${count})`}
       icon="sandbox"
       open={open}
       onClose={onClose}
       defaults={DEFAULT_SANDBOX_GEOMETRY}
       testId="sandbox-window"
     >
-      {items.length === 0 ? (
+      {count === 0 ? (
         <p className="hint">
           Tomt. Innhold havner her når du flytter det ut av en sone, eller når en strukturendring
-          ikke har plass til det.
+          ikke har plass til det. Hele innholdsslider kan flyttes hit fra slideoversikten.
         </p>
       ) : (
         <div className="sandbox-list">
           {items.map((item) => (
             <SandboxItemCard key={item.id} item={item} onPlace={onPlace} />
+          ))}
+          {slides.map((slide) => (
+            <SandboxSlideCard key={slide.id} slide={slide} onRestore={onRestoreSlide} />
           ))}
         </div>
       )}

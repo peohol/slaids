@@ -31,10 +31,12 @@ import {
   deleteSlide,
   duplicateLayoutNode,
   moveSlide,
+  moveSlideToSandbox,
   moveZoneContent,
   moveZoneContentToSandbox,
   placeSandboxItem,
   reorderLayoutNode,
+  restoreSandboxSlide,
   setContentKind,
   setPresentationTitle,
   setSlideHasTitle,
@@ -1926,7 +1928,7 @@ export function EditorView({
       selectionHasContent: Boolean(selectedLeaf?.content),
       selectedKind: viewedDerivedPage === null ? (selectedLeaf?.content?.kind ?? null) : null,
       canEditZones: viewedDerivedPage === null && contentSlide !== null,
-      sandboxCount: presentation.sandbox.length,
+      sandboxCount: presentation.sandbox.length + (presentation.sandboxSlides?.length ?? 0),
       onBack: () => void handleBack(),
       backPending: leaving,
       onRename: () => {
@@ -1985,6 +1987,14 @@ export function EditorView({
         }
         onSelectAuthored={() => setDerivedView(null)}
         onRequestDelete={setDeletingSlide}
+        onMoveToSandbox={(slideId) => {
+          const moved = run('move-slide-to-sandbox', (current) =>
+            moveSlideToSandbox(current, slideId, domFitCheckers),
+          )
+          if (moved || useEditorStore.getState().pendingDepositBreak?.label === 'move-slide-to-sandbox') {
+            setSandboxOpen(true)
+          }
+        }}
         onRequestNewPage={setNewPage}
         // On a compact workspace the strip is the whole slide overview rather
         // than a column beside the stage, so its pages are drawn as big as the
@@ -2002,6 +2012,12 @@ export function EditorView({
       <SandboxWindow
         open={sandboxOpen}
         onClose={() => setSandboxOpen(false)}
+        onRestoreSlide={(slideId) => {
+          const restored = insertPage('restore-sandbox-slide', {}, (current, index) =>
+            restoreSandboxSlide(current, { slideId, index, ...domFitCheckers }),
+          )
+          if (restored) setSandboxOpen(false)
+        }}
         onPlace={(item) => {
           // The sheet is the whole screen on a phone; the zone to press is
           // underneath it.

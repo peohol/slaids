@@ -704,6 +704,9 @@ const migrate17to18: MigrationFn = (data) => {
   return { ...data, schemaVersion: 18, theme: { ...theme, ...cardLookOf(theme) } }
 }
 
+// Eldre klienter må avvise et dekk de ellers kan lagre uten parkerte slides.
+const migrate18to19: MigrationFn = (data) => ({ ...data, schemaVersion: 19 })
+
 /**
  * De to utseendevalgene et tema lagrer, slik et lagret tema har dem – eller
  * slik alle dekk før dem så ut, der en verdi mangler eller er ukjent for
@@ -738,6 +741,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   15: migrate15to16,
   16: migrate16to17,
   17: migrate17to18,
+  18: migrate18to19,
 }
 
 /**
