@@ -4,9 +4,11 @@
  */
 
 import { useDraggable } from '@dnd-kit/core'
+import type { CSSProperties } from 'react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { contentLabel } from '../../domain/content'
 import { deleteSandboxItem, duplicateSandboxItem } from '../../domain/commands'
+import { sectionColorsOf } from '../../domain/pages'
 import { sectionGoverning } from '../../domain/presentation'
 import { useEditorStore } from '../../state/store'
 import { DEFAULT_SANDBOX_GEOMETRY } from '../../state/prefs'
@@ -14,6 +16,7 @@ import type { SandboxItem } from '../../domain/types'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { pillTokenStyle } from '../slide/SlideView'
+import { DEFAULT_SECTION_COLORS, PageColorsProvider } from '../slide/SlideRenderContext'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
 
@@ -29,14 +32,12 @@ function SandboxItemCard({
   onPlace: (item: SandboxItem) => void
 }) {
   const run = useEditorStore((state) => state.run)
-  // The preview is outside the slide, so the accent has to be handed to it: a
-  // parked heading is the same heading it will be on a slide, and the section
-  // it would land under is the one the editor is currently in.
-  const pillColor = useEditorStore((state) =>
+  const section = useEditorStore((state) =>
     state.presentation && state.currentSlideId
-      ? sectionGoverning(state.presentation, state.currentSlideId).accentColor
-      : undefined,
+      ? sectionGoverning(state.presentation, state.currentSlideId)
+      : null,
   )
+  const colors = section ? sectionColorsOf(section) : DEFAULT_SECTION_COLORS
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `sandbox:${item.id}`,
     data: { kind: 'sandbox-item', itemId: item.id },
@@ -47,7 +48,13 @@ function SandboxItemCard({
     <article className="sandbox-item" data-testid="sandbox-item" style={{ opacity: isDragging ? 0.4 : 1 }}>
       <div
         className="sandbox-item__preview"
-        style={{ width: PREVIEW_WIDTH, height: PREVIEW_RECT.height * scale }}
+        style={
+          {
+            width: PREVIEW_WIDTH,
+            height: PREVIEW_RECT.height * scale,
+            '--sandbox-preview-background': colors.background,
+          } as CSSProperties
+        }
       >
         <div
           style={{
@@ -56,10 +63,12 @@ function SandboxItemCard({
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
             pointerEvents: 'none',
-            ...(pillColor ? pillTokenStyle(pillColor) : null),
+            ...pillTokenStyle(colors.accent),
           }}
         >
-          <ZoneContentView content={item.content} />
+          <PageColorsProvider colors={colors}>
+            <ZoneContentView content={item.content} />
+          </PageColorsProvider>
         </div>
       </div>
       <div className="sandbox-item__meta">

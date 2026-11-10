@@ -1971,6 +1971,11 @@
   background: var(--chrome-bg-hover);
 }
 
+/* Seksjonsbakgrunnen gir teksten i gjennomsiktige soner riktig kontrast. */
+.sandbox-item:is(:hover, :has(:focus-visible)) .sandbox-item__preview {
+  background: var(--sandbox-preview-background, var(--chrome-bg-hover));
+}
+
 .sandbox-item__meta {
   display: flex;
   flex-direction: column;
