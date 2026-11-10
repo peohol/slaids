@@ -92,7 +92,9 @@ function SortableRule({ id, children }: { id: string; children: ReactNode }) {
     >
       <span
         ref={setActivatorNodeRef}
-        className="autocorrect-rule__grip"
+        // The only part of the row that lifts it, so on a touch screen it is
+        // as big as any other target there.
+        className="autocorrect-rule__grip touch-target"
         aria-label="Flytt regelen"
         data-drag-activation="immediate"
         data-testid="autocorrect-grip"
