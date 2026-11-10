@@ -722,6 +722,11 @@
   box-decoration-break: clone;
 }
 
+/* Tiptap gir omslaget rundt atomnoden sin egen linjebryting. Tittelen har én linje. */
+.rich-doc--title .node-citation[contenteditable="false"] {
+  white-space: inherit;
+}
+
 .rich-doc :is(table, .rd-table) {
   border-collapse: collapse;
   width: 100%;

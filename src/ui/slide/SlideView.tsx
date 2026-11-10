@@ -107,7 +107,7 @@ export function SlideView({
   const titleColor = bestTextColor(colors.background)
   const titleRect = geometry.titleRect
   const titlePosition: React.CSSProperties | undefined = titleRect
-    ? authorYearLabels ? { position: 'absolute', inset: 0 } : absoluteStyle(titleRect)
+    ? authorYearLabels ? { width: '100%', height: '100%' } : absoluteStyle(titleRect)
     : undefined
   const title = titlePosition && (renderTitle ? renderTitle(titlePosition) : (
     <div

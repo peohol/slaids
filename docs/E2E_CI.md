@@ -34,6 +34,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `split-flow.spec.ts` | Delingsdialogen fjerner soner med nøstet innhold: sier hvilke soner og hvor mye innhold, redder det til sandkassen, og angre/gjør om tar hele endringen i ett steg |
 | `zone-consistency.spec.ts` | Hver vei inn i delingsdialogen (inspektør, ikonrad, sonemeny, forholdstallmeny) viser samme sone, sti og handling, og fokus går tilbake til det som åpnet den, men tar ikke fokus fra noe som allerede har fått det |
 | `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
+| `derived-navigation.spec.ts` | Forfatter og år i eksisterende slideoverskrifter, presentasjonsmodus og referanseslides, med forminsking når overskriften trenger det |
 | `auth.spec.ts` | Innlogging med engangskode (sifrene sender inn selv), feil kode med nytt forsøk, «Hold meg innlogget» overlever at nettleseren lukkes og ellers ikke, ut og inn uten at en lagret presentasjon går tapt, deaktivering stenger en åpen økt |
 | `card-look.spec.ts` | Skygger slås av og på og huskes; en for lang korttittel forminskes alene, med lik luft på begge sider, likt i redigering og presentasjon |
 | `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
