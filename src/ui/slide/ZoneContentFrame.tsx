@@ -165,9 +165,7 @@ export function titledCardStyles(
       ...titleBox,
       height,
       padding,
-      // Like mye luft på skjermen uansett hvor lite sonen tegnes: delt på
-      // sonens egen skala (`drawZoneFit`), som er 1 alle andre steder.
-      marginBottom: `calc(${tokens.cardBodyOffset - height}px / var(--slaids-zone-fit, 1))`,
+      marginBottom: tokens.cardBodyOffset - height,
       borderRadius: CARD_RADIUS,
     },
     body: bodyCard,
@@ -395,7 +393,9 @@ export function ZoneContentFrame({
           className="card-body card-body--image"
           style={{ position: look.body.position, zIndex: look.body.zIndex }}
         >
-          {renderImage(titled.image, look.bodyIsCard ? 'card' : 'body')}
+          <div className="fit-region" data-fit-region="">
+            {renderImage(titled.image, look.bodyIsCard ? 'card' : 'body')}
+          </div>
         </div>
       ) : (
         <div
@@ -407,13 +407,19 @@ export function ZoneContentFrame({
             color: '#000',
           }}
         >
-          <SubfieldStack
-            body={titled.body}
-            dividerColor={CARD_DIVIDER_COLOR}
-            gap={tokens.subfieldGap}
-            renderField={renderField}
-            renderDivider={renderDivider}
-          />
+          {/*
+            Innholdet er sitt eget område for forminsking (`ZoneFitBox`): tekst
+            som ikke får plass her, tegnes mindre uten at tittelen gjør det.
+          */}
+          <div className="fit-region" data-fit-region="">
+            <SubfieldStack
+              body={titled.body}
+              dividerColor={CARD_DIVIDER_COLOR}
+              gap={tokens.subfieldGap}
+              renderField={renderField}
+              renderDivider={renderDivider}
+            />
+          </div>
         </div>
       )}
     </div>

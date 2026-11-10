@@ -819,7 +819,7 @@ export function EditorStage({
                     width={rect.width}
                     height={rect.height}
                     onScale={(fit) => reportScale(leaf.id, fit)}
-                    marker={<ShrunkZoneMarker stageScale={scale || 1} width={rect.width} height={rect.height} />}
+                    marker={(box) => <ShrunkZoneMarker stageScale={scale || 1} width={box.width} height={box.height} />}
                   >
                     {mode === 'zone' ? (
                       /* Zone mode draws content statically — there is no

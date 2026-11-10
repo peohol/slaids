@@ -95,6 +95,13 @@
   transform-origin: 0 0;
 }
 
+/* Boksen merket for et forminsket felt tegnes i (`ZoneFitBox`): hele sonen, eller ett felt i et kort. */
+.zone-fit__mark {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
 .zone-content--container {
   min-height: 0;
 }
@@ -138,6 +145,31 @@
   min-height: 0;
   display: flex;
   overflow: hidden;
+}
+
+/*
+ * Innholdet i et kort med tittel, som et eget område for forminsking
+ * (`ZoneFitBox`, `fitTarget`). I normal størrelse fyller det kortets innhold
+ * nøyaktig som før; forminsket legges det ut `1/s` ganger større og tegnes
+ * skalert fra øvre venstre hjørne, akkurat som en hel sone.
+ */
+.fit-region {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  transform-origin: 0 0;
+}
+
+/* Klippet en forminsket sone får, uten margen: innholdet ligger inne i kortet. */
+.card-body.zone-fit__clip--scaled {
+  overflow: clip;
+  overflow-clip-margin: 0;
+}
+
+/* Bildet viser beskjæringens skjulte deler utenfor seg i editoren. */
+.card-body--image.zone-fit__clip--scaled {
+  overflow: visible;
 }
 
 .subfields {
