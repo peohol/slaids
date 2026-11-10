@@ -16,9 +16,9 @@ import type { SandboxItem } from '../../domain/types'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { pillTokenStyle } from '../slide/SlideView'
-import { DEFAULT_SECTION_COLORS, PageColorsProvider } from '../slide/SlideRenderContext'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
+import { DEFAULT_SECTION_COLORS, PageColorsProvider } from '../slide/SlideRenderContext'
 
 const PREVIEW_WIDTH = 150
 const PREVIEW_RECT = { width: SLIDE_WIDTH / 3, height: SLIDE_HEIGHT / 3 }
