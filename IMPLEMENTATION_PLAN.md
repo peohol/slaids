@@ -2818,9 +2818,19 @@ innholdet forminsket, slik at alt fortsatt er synlig innenfor sonen
 (`src/ui/slide/ZoneFitBox.tsx`). Innholdet legges ut i en boks `1/s` ganger
 sonen og tegnes skalert ned med `s`, der `s` er den største skalaen der alt får
 plass (`fitScale` i `softSize.ts`, presisjon 0,5 %). Alt i sonen krymper
-sammen — skrift, avstander, lister, tabeller, referanser, korttittel, padding,
-bildetekst — fordi det er tegningen som skaleres, ikke en liste over størrelser.
+sammen — skrift, avstander, lister, tabeller, referanser, padding, bildetekst —
+fordi det er tegningen som skaleres, ikke en liste over størrelser.
 Det finnes ingen nedre skriftgrense ut over den harde minstegrensen for sonen.
+
+- Unntaket er tittelen på et kort med tittel. Den er én linje i en header med
+  fast høyde, så den kan få plass alene: en for lang tittel settes i mindre
+  skrift for seg (`fitCardTitles`), innenfor headerens polstring så luften er
+  lik på begge sider, og resten av sonen beholder sin størrelse. Skalaen for
+  resten av sonen regnes uten tittelen; tittelen tilpasses etterpå i boksen
+  sonen faktisk tegnes i.
+- Gapet under en svevende korttittel er et layoutgap, ikke innhold, og er like
+  stort på skjermen uansett hvor mye sonen er forminsket
+  (`--slaids-zone-fit`).
 
 - Lagret skriftstørrelse og tema endres ikke. Skalaen er ikke lagret; den
   avledes av innhold og geometri hver gang, og forsvinner av seg selv når sonen
@@ -2833,8 +2843,8 @@ Det finnes ingen nedre skriftgrense ut over den harde minstegrensen for sonen.
   tegner innholdet *uten* boksen, så en forminsket sone aldri leses som en sone
   som får plass. Agentens PNG-forhåndsvisning (`src/render/`) er statisk markup
   uten effekter; rasteriseringen kjører derfor det samme søket i siden før
-  skjermbildet (`fitShrunkZones`, med appens egen `measureOverflowParts` og
-  `drawZoneFit`), så agenten ser sonen slik personen ser den. Forhåndsvisningen
+  skjermbildet (`fitShrunkZones`, med appens egen `measureOverflowParts`,
+  `drawZoneFit` og `fitCardTitles`), så agenten ser sonen slik personen ser den. Forhåndsvisningen
   er bare et bilde: `inspect_slide`/`validate_slide` svarer fortsatt fra
   normal størrelse og melder at innholdet ikke får plass.
 - I redigeringsmodusene (sone og innhold) markeres sonen med en diskret oransje

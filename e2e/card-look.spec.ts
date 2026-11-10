@@ -13,7 +13,6 @@ import {
   caretInto,
   chooseFromToolbarMenu,
   createPresentation,
-  drawnSmaller,
   enterContentMode,
   enterZoneMode,
   splitSelected,
@@ -106,6 +105,31 @@ async function cardParts(page: Page, nodeId: string): Promise<CardParts> {
   })
 }
 
+/** How much smaller than normal the zone's card title is set, on its own. */
+async function titleFit(page: Page, nodeId: string): Promise<number> {
+  const value = await zone(page, nodeId).locator('.zone-fit').first().getAttribute('data-title-fit')
+  return value === null ? 1 : Number(value)
+}
+
+async function bodyFontSize(page: Page, nodeId: string): Promise<string> {
+  return zone(page, nodeId)
+    .locator('.card-body p')
+    .first()
+    .evaluate((element) => getComputedStyle(element).fontSize)
+}
+
+/** The air between the title's text and its header's edges, left and right. */
+async function titleAir(page: Page, nodeId: string): Promise<{ left: number; right: number }> {
+  return zone(page, nodeId).evaluate((element) => {
+    const header = element.querySelector('.card-header') as HTMLElement
+    const text = document.createRange()
+    text.selectNodeContents(header.querySelector('p') as HTMLElement)
+    const glyphs = text.getBoundingClientRect()
+    const box = header.getBoundingClientRect()
+    return { left: glyphs.left - box.left, right: box.right - glyphs.right }
+  })
+}
+
 async function fitScale(page: Page, nodeId: string): Promise<number> {
   const value = await zone(page, nodeId).locator('.zone-fit').first().getAttribute('data-fit-scale')
   return value === null ? 1 : Number(value)
@@ -176,39 +200,34 @@ test.describe('kort med tittel og skygger', () => {
   })
 
   test(
-    'forminsker en tittel fanen ikke har plass til, likt i redigering og presentasjon',
+    'forminsker bare tittelen når den er for lang, med lik luft på begge sider, likt i presentasjon',
     { tag: '@pr' },
     async ({ page }) => {
       const { errors } = watchForErrors(page)
       const card = await titledCardDeck(page, 'Lang tittel', 'Tittel')
-      // Fill the title to what a joined header holds at normal size: a tab is
-      // one corner radius narrower, so the same title no longer fits in it.
+      const bodyBefore = await bodyFontSize(page, card)
+      // A title far longer than any header: typed or pasted, it is all taken.
       const title = zone(page, card).locator('.card-header .tiptap')
       await caretInto(title)
       await page.keyboard.press('End')
-      // Wide glyphs to get there, then narrow ones, so the slack left behind is
-      // less than the corner radius a tab gives up.
-      for (const glyph of ['m', 'i']) {
-        for (let i = 0; i < 400; i += 1) {
-          await page.keyboard.insertText(glyph)
-          if (await drawnSmaller(title)) {
-            await page.keyboard.press('Backspace')
-            await expect.poll(() => drawnSmaller(title)).toBe(false)
-            break
-          }
-        }
+      await page.keyboard.insertText(' med en svært lang tittel som ikke får plass på én linje')
+
+      for (const look of ['joined', 'tab', 'floating'] as const) {
+        await chooseLook(page, look)
+        await expect.poll(() => titleFit(page, card), look).toBeLessThan(1)
+        // Only the title: the zone is drawn at normal size and its body text
+        // keeps its size.
+        expect(await fitScale(page, card), look).toBe(1)
+        expect(await bodyFontSize(page, card), look).toBe(bodyBefore)
+        // The title fits inside the header's padding, the same air either side.
+        const air = await titleAir(page, card)
+        expect(Math.abs(air.left - air.right), look).toBeLessThanOrEqual(1.5)
+        expect(air.right, look).toBeGreaterThan(0)
       }
 
-      await chooseLook(page, 'tab')
-      await expect.poll(() => fitScale(page, card)).toBeLessThan(1)
-      const tab = await cardParts(page, card)
-      // Laid out in the zone's larger box, the title fits, and the tab stops
-      // one corner radius short of the body's width.
-      expect(tab.titleOverflow).toBeLessThanOrEqual(1)
-      expect(tab.header.width).toBeLessThanOrEqual(tab.body.width - CARD_RADIUS + 1)
       await enterZoneMode(page)
       await expect(zone(page, card).getByTestId('zone-shrunk-marker')).toHaveCount(1)
-      const drawn = await fitScale(page, card)
+      const drawn = await titleFit(page, card)
 
       await page.getByTestId('present').click()
       const presented = page.locator(
@@ -216,10 +235,29 @@ test.describe('kort med tittel og skygger', () => {
       )
       await expect(presented).toBeVisible()
       await expect
-        .poll(async () => Number((await presented.getAttribute('data-fit-scale')) ?? 1))
+        .poll(async () => Number((await presented.getAttribute('data-title-fit')) ?? 1))
         .toBeCloseTo(drawn, 2)
       await expect(page.locator('[data-testid="present-view"] [data-testid="zone-shrunk-marker"]')).toHaveCount(0)
       expect(errors).toEqual([])
     },
   )
+
+  test('holder luften under en svevende tittel lik når innholdet forminskes', async ({ page }) => {
+    const card = await titledCardDeck(page, 'Fullt kort', 'Tittel')
+    await chooseLook(page, 'floating')
+    const field = zone(page, card).locator('.tiptap').last()
+    await caretInto(field)
+    await page.keyboard.press('End')
+    await page.keyboard.insertText(' Mye tekst som ikke får plass.'.repeat(40))
+    await expect.poll(() => fitScale(page, card)).toBeLessThan(1)
+    // Measured on screen, in slide units: the zone's own scale does not count.
+    const gap = await zone(page, card).evaluate((element) => {
+      const slide = element.closest('.slide') as HTMLElement
+      const scale = slide.getBoundingClientRect().width / 1600
+      const header = element.querySelector('.card-header') as HTMLElement
+      const body = element.querySelector('.card-body') as HTMLElement
+      return (body.getBoundingClientRect().top - header.getBoundingClientRect().bottom) / scale
+    })
+    expect(gap).toBeCloseTo(G, 0)
+  })
 })

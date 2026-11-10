@@ -60,10 +60,10 @@ describe('titledCardStyles', () => {
     expect(tab.body.zIndex).toBe(1)
   })
 
-  it('keeps a floating header one global gap above the body, and lets it be as wide', () => {
+  it('keeps a floating header one global gap above the body at any zone scale, and lets it be as wide', () => {
     const tokens = themeMetrics({ titledCardStyle: 'floating' })
     const floating = look('floating')
-    expect(floating.header.marginBottom).toBe(tokens.gap)
+    expect(floating.header.marginBottom).toBe(`calc(${tokens.gap}px / var(--slaids-zone-fit, 1))`)
     expect(floating.header.maxWidth).toBe('calc(100% - 0px)')
   })
 

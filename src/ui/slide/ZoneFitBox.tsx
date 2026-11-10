@@ -34,9 +34,11 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react'
 import { FIT_TOLERANCE } from '../../domain/constants'
+import { CARD_TITLE_PART } from '../../domain/fit'
 import { fitScale } from '../../domain/softSize'
 import { measureOverflowParts } from './overflowParts'
 import { useSlideRender } from './SlideRenderContext'
@@ -52,6 +54,12 @@ export function isZoneFitScaled(scale: number): boolean {
 /**
  * Lay the content box out for a zone of `width × height` drawn at `scale`.
  *
+ * `layoutScale` is the scale the box is being laid out *for*, which is `scale`
+ * except while the search tries a size without drawing it. It is handed to the
+ * content as `--slaids-zone-fit`, so the few distances that must stay the same
+ * on screen however small the text is drawn — the gap under a floating card
+ * title — can divide themselves by it.
+ *
  * Self-contained on purpose — no reference outside its own parameters — so
  * the preview rasteriser can hand this very function to the page it
  * screenshots (`render/chromium.ts`) and the preview draws a small zone the
@@ -63,11 +71,51 @@ export function drawZoneFit(
   height: number,
   scale: number,
   scaled: boolean,
+  layoutScale: number = scale,
 ): void {
   element.style.width = `${width / scale}px`
   element.style.height = `${height / scale}px`
   element.style.transform = scaled ? `scale(${scale})` : ''
+  element.style.setProperty('--slaids-zone-fit', String(layoutScale))
   element.parentElement?.classList.toggle('zone-fit__clip--scaled', scaled)
+}
+
+/**
+ * Set every card title inside `element` in smaller type until it fits its
+ * header, and say how small the smallest one had to go (`1` when all fit).
+ *
+ * A title is one line in a box of fixed height, so it is the one part of a
+ * zone that can be made to fit on its own: its type shrinks and nothing else
+ * does — not the body under it, not the header's height or padding. The room
+ * is the header's content box, padding excluded, so a shrunk title keeps the
+ * same air on both sides and stays centred. The shrink is the custom property
+ * `--slaids-title-fit`, which the header's font size is multiplied by.
+ *
+ * Self-contained, like `drawZoneFit`, so the preview rasteriser can hand it to
+ * the page it draws.
+ */
+export function fitCardTitles(element: HTMLElement): number {
+  let smallest = 1
+  for (const header of element.querySelectorAll<HTMLElement>('.card-header')) {
+    header.style.removeProperty('--slaids-title-fit')
+    const line = header.querySelector<HTMLElement>('p')
+    if (!line) continue
+    const style = getComputedStyle(header)
+    const room = header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    let fit = 1
+    // Type does not scale perfectly linearly with its size, so the first
+    // guess is checked and tightened; it settles in a step or two.
+    for (let step = 0; step < 6 && room > 0; step += 1) {
+      // The line's own width where it is laid out at its text's width, its
+      // scroll width where the editor's flex row has squeezed it to the header.
+      const needed = Math.max(line.offsetWidth, line.scrollWidth)
+      if (needed <= room + 0.5) break
+      fit *= room / needed
+      header.style.setProperty('--slaids-title-fit', String(fit))
+    }
+    smallest = Math.min(smallest, fit)
+  }
+  return smallest
 }
 
 export interface ZoneFitBoxProps {
@@ -80,8 +128,26 @@ export interface ZoneFitBoxProps {
   children: ReactNode
 }
 
+/**
+ * The worst overflow in the zone's body. A card title is left out: it fits
+ * itself (`fitCardTitles`), so a long title never makes the rest of the zone
+ * smaller.
+ */
 function worstOverflow(element: HTMLElement): number {
-  return Object.values(measureOverflowParts(element)).reduce((worst, value) => Math.max(worst, value), 0)
+  return Object.entries(measureOverflowParts(element)).reduce(
+    (worst, [part, value]) => (part === CARD_TITLE_PART ? worst : Math.max(worst, value)),
+    0,
+  )
+}
+
+/** A style change on a card header is `fitCardTitles` at work, not new content. */
+function isTitleFit(record: MutationRecord): boolean {
+  return (
+    record.type === 'attributes' &&
+    record.attributeName === 'style' &&
+    record.target instanceof HTMLElement &&
+    record.target.classList.contains('card-header')
+  )
 }
 
 export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFitBoxProps) {
@@ -89,6 +155,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
   const innerRef = useRef<HTMLDivElement>(null)
   const scaleRef = useRef(1)
   const [scale, setScale] = useState(1)
+  const [titleScale, setTitleScale] = useState(1)
   const onScaleRef = useRef(onScale)
   useEffect(() => {
     onScaleRef.current = onScale
@@ -102,7 +169,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
     if (!element) return
     const found = fitScale(
       (w, h) => {
-        drawZoneFit(element, w, h, 1, false)
+        drawZoneFit(element, w, h, 1, false, width / w)
         return worstOverflow(element) <= FIT_TOLERANCE
       },
       width,
@@ -111,11 +178,17 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
     )
     const next = isZoneFitScaled(found) ? found : 1
     drawZoneFit(element, width, height, next, next !== 1)
+    // The titles last, in the box the zone is drawn in: a zone drawn smaller
+    // gives its title more room, and only what still does not fit shrinks.
+    const titleFit = fitCardTitles(element)
+    const title = isZoneFitScaled(titleFit) ? titleFit : 1
     if (next !== scaleRef.current) {
       scaleRef.current = next
       setScale(next)
     }
-    onScaleRef.current?.(next)
+    setTitleScale(title)
+    // The smallest type anywhere in the zone is what the editor reports.
+    onScaleRef.current?.(next * title)
   }, [width, height])
 
   // The geometry, the theme and the numbering: re-fitted before the change is
@@ -149,7 +222,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
     // The box's own size and transform are this component's doing, not the
     // content's.
     const observer = new MutationObserver((records) => {
-      if (records.some((record) => record.target !== element)) schedule()
+      if (records.some((record) => record.target !== element && !isTitleFit(record))) schedule()
     })
     observer.observe(element, { subtree: true, childList: true, characterData: true, attributes: true })
     element.addEventListener('load', schedule, true)
@@ -164,8 +237,13 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
   }, [refit])
 
   const scaled = isZoneFitScaled(scale)
+  const titleScaled = isZoneFitScaled(titleScale)
   return (
-    <div className="zone-fit" data-fit-scale={scaled ? scale.toFixed(3) : undefined}>
+    <div
+      className="zone-fit"
+      data-fit-scale={scaled ? scale.toFixed(3) : undefined}
+      data-title-fit={titleScaled ? titleScale.toFixed(3) : undefined}
+    >
       <div className={scaled ? 'zone-fit__clip zone-fit__clip--scaled' : 'zone-fit__clip'}>
         <div
           className="zone-fit__inner"
@@ -174,12 +252,13 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
             width: width / scale,
             height: height / scale,
             transform: scaled ? `scale(${scale})` : undefined,
-          }}
+            '--slaids-zone-fit': scale,
+          } as CSSProperties}
         >
           {children}
         </div>
       </div>
-      {scaled && marker}
+      {(scaled || titleScaled) && marker}
     </div>
   )
 }

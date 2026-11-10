@@ -116,7 +116,8 @@
   flex: 0 0 auto;
   overflow: hidden;
   white-space: nowrap;
-  font-size: var(--slaids-card-header-font-size);
+  /* A title too long for its header is set smaller on its own (`fitCardTitles`). */
+  font-size: calc(var(--slaids-card-header-font-size) * var(--slaids-title-fit, 1));
   font-weight: 600;
 }
 

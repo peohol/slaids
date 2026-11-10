@@ -159,7 +159,9 @@ export function titledCardStyles(
       ...titleBox,
       height,
       padding,
-      marginBottom: tokens.cardBodyOffset - height,
+      // The same air on screen however small the zone is drawn: divided by the
+      // zone's own scale (`drawZoneFit`), which is 1 everywhere else.
+      marginBottom: `calc(${tokens.cardBodyOffset - height}px / var(--slaids-zone-fit, 1))`,
       borderRadius: CARD_RADIUS,
     },
     body: bodyCard,

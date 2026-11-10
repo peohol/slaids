@@ -39,9 +39,10 @@ import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import serverlessChromium from '@sparticuz/chromium'
 import { SYMBOL_FALLBACK_WEB_FONT, webFontWeights } from '../domain/fonts'
 import { FIT_TOLERANCE } from '../domain/constants'
+import { CARD_TITLE_PART } from '../domain/fit'
 import { fitScaleAsync } from '../domain/softSize'
 import { measureOverflowParts } from '../ui/slide/overflowParts'
-import { drawZoneFit, isZoneFitScaled } from '../ui/slide/ZoneFitBox'
+import { drawZoneFit, fitCardTitles, isZoneFitScaled } from '../ui/slide/ZoneFitBox'
 import type { RasterImage, RasterRequest, SlideRasterizer } from './rasterize'
 import { pngPixelSize } from './rasterize'
 
@@ -268,6 +269,7 @@ async function settleImages(page: Page): Promise<void> {
 interface ZoneFitHelpers {
   measure: typeof measureOverflowParts
   draw: typeof drawZoneFit
+  titles: typeof fitCardTitles
 }
 
 /**
@@ -278,8 +280,9 @@ interface ZoneFitHelpers {
  * which a static preview document has none of. So the rasteriser does it, in
  * the page, before the picture is taken: the same search (`fitScaleAsync` is
  * `fitScale` with its measurements awaited), the same reading of the clipping
- * boxes (`measureOverflowParts`) and the same drawing (`drawZoneFit`), the
- * last two handed to the page as the functions themselves rather than copies.
+ * boxes (`measureOverflowParts`) and the same drawing (`drawZoneFit`, then
+ * `fitCardTitles` for a card title too long for its header), all handed to
+ * the page as the functions themselves rather than copies.
  * A zone at normal size costs one measurement and is left as it is.
  *
  * Only the picture changes. Whether a zone's content fits is still answered at
@@ -297,16 +300,30 @@ export async function fitShrunkZones(page: Page): Promise<void> {
   )
   if (zones.length === 0) return
   await page.addScriptTag({
-    content: `window.__slaidsZoneFit = { measure: ${measureOverflowParts.toString()}, draw: ${drawZoneFit.toString()} }`,
+    content: `window.__slaidsZoneFit = { measure: ${measureOverflowParts.toString()}, draw: ${drawZoneFit.toString()}, titles: ${fitCardTitles.toString()} }`,
   })
   for (const [index, zone] of zones.entries()) {
     const at = (scale: number, scaled: boolean, tolerance: number | null) =>
       page.evaluate(
-        (i: number, width: number, height: number, s: number, isScaled: boolean, limit: number | null) => {
+        (
+          i: number,
+          width: number,
+          height: number,
+          s: number,
+          isScaled: boolean,
+          limit: number | null,
+          titlePart: string,
+        ) => {
           const helpers = (window as unknown as { __slaidsZoneFit: ZoneFitHelpers }).__slaidsZoneFit
           const inner = document.querySelectorAll<HTMLElement>('.zone-fit__inner')[i]
           helpers.draw(inner, width, height, s, isScaled)
-          return limit === null || Object.values(helpers.measure(inner)).every((overflow) => overflow <= limit)
+          // A card title fits itself afterwards, as in the app.
+          return (
+            limit === null ||
+            Object.entries(helpers.measure(inner)).every(
+              ([part, overflow]) => part === titlePart || overflow <= limit,
+            )
+          )
         },
         index,
         zone.width,
@@ -314,6 +331,7 @@ export async function fitShrunkZones(page: Page): Promise<void> {
         scale,
         scaled,
         tolerance,
+        CARD_TITLE_PART,
       )
     const scale = await fitScaleAsync(
       // A box `width` wide is the zone laid out for a scale of `zone.width / width`.
@@ -322,6 +340,10 @@ export async function fitShrunkZones(page: Page): Promise<void> {
       zone.height,
     )
     if (isZoneFitScaled(scale)) await at(scale, true, null)
+    await page.evaluate((i: number) => {
+      const helpers = (window as unknown as { __slaidsZoneFit: ZoneFitHelpers }).__slaidsZoneFit
+      helpers.titles(document.querySelectorAll<HTMLElement>('.zone-fit__inner')[i])
+    }, index)
   }
 }
 
