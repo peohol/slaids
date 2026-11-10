@@ -19,7 +19,6 @@ import {
   DragOverlay,
   closestCenter,
   pointerWithin,
-  useSensor,
   useSensors,
 } from '@dnd-kit/core'
 import type { CollisionDetection, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
@@ -151,7 +150,7 @@ import { ImageDepositIntroModal } from './ImageDepositIntroModal'
 import { ImageDepositModal } from './ImageDepositModal'
 import { ThemeModal } from './ThemeModal'
 import { PresentView } from '../present/PresentView'
-import { DRAG_ACTIVATION, SurfacePointerSensor } from './dragActivation'
+import { useSurfacePointerSensor } from './dragActivation'
 import type { ZoneAction } from './ZoneOverlay'
 import { useWorkspace } from '../workspace/WorkspaceContext'
 import { CompactEditorShell } from './shell/CompactEditorShell'
@@ -978,9 +977,7 @@ export function EditorView({
    * A slide in the strip is both a link and a drag handle and asks for
    * `surface` instead — see `dragActivation.ts`.
    */
-  const sensors = useSensors(
-    useSensor(SurfacePointerSensor, { activationConstraint: DRAG_ACTIVATION.immediate.pointer }),
-  )
+  const sensors = useSensors(useSurfacePointerSensor())
 
   const handleDragStart = (event: DragStartEvent): void => {
     const data = event.active.data.current

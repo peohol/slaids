@@ -753,7 +753,9 @@
   --strip-row: var(--touch-target);
 }
 
-.filmstrip__grip {
+/* A grip is the part of a row that moves it, wherever a list can be sorted. */
+.filmstrip__grip,
+.autocorrect-rule__grip {
   margin-left: auto;
   color: var(--chrome-text-dim);
   cursor: grab;
@@ -2449,10 +2451,35 @@
 }
 
 .autocorrect-rule {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.autocorrect-rule__grip {
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--chrome-text-dim);
+}
+
+.autocorrect-rule__grip:hover,
+.autocorrect-rule--dragging .autocorrect-rule__grip {
+  color: var(--chrome-text);
+}
+
+/* The rule in the air sits over the ones stepping aside for it. */
+.autocorrect-rule--dragging {
+  z-index: 1;
+  background: var(--chrome-bg-raised);
+  box-shadow: 0 8px 24px var(--chrome-shadow-strong);
+}
+
+.autocorrect-rule--dragging .autocorrect-rule__grip {
+  cursor: grabbing;
 }
 
 .autocorrect-rule .input {

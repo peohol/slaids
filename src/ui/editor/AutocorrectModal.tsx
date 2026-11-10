@@ -7,13 +7,36 @@
  * when the list is read out. The list is repaired by
  * `normalizeAutocorrectRules` on the way to the store, so an empty row or a
  * duplicate is simply dropped rather than refused.
+ *
+ * The rules are put in order the way slides are: by their grip, with the same
+ * dnd-kit sort and the same sensor as the filmstrip — or from the keyboard,
+ * with the grip focused, space to lift and the arrows to move. The order is
+ * saved as it stands.
  */
 
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react'
+import {
+  DndContext,
+  KeyboardSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type DragEndEvent,
+  type Modifier,
+  type UniqueIdentifier,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
   MAX_AUTOCORRECT_RULES,
   MAX_AUTOCORRECT_RULE_LENGTH,
-  defaultAutocorrectRules,
   type AutocorrectRule,
 } from '../../domain/autocorrect'
 import {
@@ -25,18 +48,77 @@ import {
 import { notify } from '../../state/toast'
 import { Icon } from '../components/Icon'
 import { Modal } from '../components/Modal'
+import { useSurfacePointerSensor } from './dragActivation'
 
 const VISIBLE_SPACE = '␣'
 const showSpaces = (text: string): string => text.replace(/[ \u00A0]/g, VISIBLE_SPACE)
 const readSpaces = (text: string): string => text.replaceAll(VISIBLE_SPACE, ' ')
 
 interface Row extends AutocorrectRule {
-  key: number
+  /** The row's name for React and for the sort; a string, since dnd-kit reads 0 as no id. */
+  key: string
 }
 
 let nextKey = 0
 const toRows = (rules: readonly AutocorrectRule[]): Row[] =>
-  rules.map((rule) => ({ key: nextKey++, from: showSpaces(rule.from), to: showSpaces(rule.to) }))
+  rules.map((rule) => ({ key: `rule-${nextKey++}`, from: showSpaces(rule.from), to: showSpaces(rule.to) }))
+
+/**
+ * A rule moves only up and down, and only as far as the list goes: it stops at
+ * the first place and the last instead of being carried on past them — below
+ * the list, where it would make the dialog scroll on for ever, or up under the
+ * dialog's heading. The bounds are the list's own (`ul`, the row's parent), and
+ * both rectangles are measured at the lift, so scrolling the dialog changes
+ * neither side of the comparison.
+ */
+const withinTheList: Modifier = ({ transform, draggingNodeRect, containerNodeRect }) => {
+  if (!draggingNodeRect || !containerNodeRect) return { ...transform, x: 0 }
+  const highest = containerNodeRect.top - draggingNodeRect.top
+  const lowest = containerNodeRect.bottom - draggingNodeRect.bottom
+  return { ...transform, x: 0, y: Math.min(Math.max(transform.y, highest), lowest) }
+}
+
+const LIFT_INSTRUCTIONS =
+  'Trykk mellomrom for å løfte regelen, flytt den med pil opp og ned, og trykk mellomrom igjen for å slippe den. Escape legger den tilbake.'
+
+/** What a screen reader hears while a rule is moved, by its place in the list. */
+function announcements(place: (id: UniqueIdentifier) => number): Announcements {
+  return {
+    onDragStart: ({ active }) => `Regel ${place(active.id)} er løftet.`,
+    onDragOver: ({ over }) => (over ? `Over plass ${place(over.id)}.` : undefined),
+    onDragEnd: ({ over }) => (over ? `Regelen er sluppet på plass ${place(over.id)}.` : 'Regelen er sluppet.'),
+    onDragCancel: () => 'Flyttingen er avbrutt. Regelen er på samme plass.',
+  }
+}
+
+/** One rule in the list: a grip to move it by, and whatever the row holds. */
+function SortableRule({ id, children }: { id: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id })
+  return (
+    <li
+      ref={setNodeRef}
+      className={isDragging ? 'autocorrect-rule autocorrect-rule--dragging' : 'autocorrect-rule'}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      data-testid="autocorrect-rule"
+    >
+      <span
+        ref={setActivatorNodeRef}
+        // The only part of the row that lifts it, so on a touch screen it is
+        // as big as any other target there.
+        className="autocorrect-rule__grip touch-target"
+        aria-label="Flytt regelen"
+        data-drag-activation="immediate"
+        data-testid="autocorrect-grip"
+        {...attributes}
+        {...listeners}
+      >
+        <Icon name="handle" size={18} />
+      </span>
+      {children}
+    </li>
+  )
+}
 
 export function AutocorrectModal({
   open,
@@ -51,8 +133,20 @@ export function AutocorrectModal({
   /** Whether `rows` holds the stored list yet; nothing can be saved before it does. */
   const [seeded, setSeeded] = useState(false)
   /** The row «Ny regel» just added, whose first field takes the focus. */
-  const [added, setAdded] = useState<number | null>(null)
+  const [added, setAdded] = useState<string | null>(null)
+  /** Whether a rule is in the air: Escape then puts it back instead of closing. */
+  const [moving, setMoving] = useState(false)
   const loaded = useAutocorrect((state) => state.loaded)
+  const sensors = useSensors(
+    useSurfacePointerSensor(),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  /*
+   * The same array for as long as the rows are: a fresh one on every render
+   * would tell the sort the list had changed, and it would then skip the
+   * animation of every rule stepping aside — see the filmstrip.
+   */
+  const ids = useMemo(() => rows.map((row) => row.key), [rows])
 
   // A fresh copy of the stored list every time the dialog opens, so «Avbryt»
   // and closing both leave what is stored as it was. Never a copy of a list
@@ -71,7 +165,7 @@ export function AutocorrectModal({
     if (open && !loaded) void loadAutocorrect()
   }, [open, loaded])
 
-  const edit = (key: number, side: 'from' | 'to') => (event: ChangeEvent<HTMLInputElement>) => {
+  const edit = (key: string, side: 'from' | 'to') => (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.target
     const caret = input.selectionStart
     const value = showSpaces(input.value)
@@ -81,6 +175,16 @@ export function AutocorrectModal({
       if (caret !== null) input.setSelectionRange(caret, caret)
     }
     setRows((current) => current.map((row) => (row.key === key ? { ...row, [side]: value } : row)))
+  }
+
+  const drop = ({ active, over }: DragEndEvent): void => {
+    setMoving(false)
+    if (!over || active.id === over.id) return
+    setRows((current) => {
+      const from = current.findIndex((row) => row.key === active.id)
+      const to = current.findIndex((row) => row.key === over.id)
+      return from < 0 || to < 0 ? current : arrayMove(current, from, to)
+    })
   }
 
   const save = async (): Promise<void> => {
@@ -119,9 +223,16 @@ export function AutocorrectModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Autoerstatt"
-      description={`Det du skriver til venstre byttes ut med det til høyre, i alle presentasjonene dine. ${VISIBLE_SPACE} er et mellomrom.`}
+      description={
+        <>
+          Reglene gjelder på tvers av presentasjoner.
+          <br />
+          {VISIBLE_SPACE} er mellomrom (space).
+        </>
+      }
       testId="autocorrect-modal"
       width={520}
+      holdEscape={moving}
       footer={
         <>
           <button type="button" className="btn" onClick={() => onOpenChange(false)}>
@@ -140,26 +251,41 @@ export function AutocorrectModal({
       }
     >
       {!seeded && <p className="hint">Henter reglene dine …</p>}
-      <ul className="autocorrect-rules">
-        {rows.map((row) => (
-          <li className="autocorrect-rule" key={row.key} data-testid="autocorrect-rule">
-            {field(row, 'from', 'Når du skriver')}
-            <span className="autocorrect-rule__arrow" aria-hidden="true">
-              →
-            </span>
-            {field(row, 'to', 'Blir det')}
-            <button
-              type="button"
-              className="btn btn--sm btn--icon btn--ghost"
-              aria-label="Fjern regelen"
-              data-testid="autocorrect-remove"
-              onClick={() => setRows((current) => current.filter((other) => other.key !== row.key))}
-            >
-              <Icon name="close" size={14} />
-            </button>
-          </li>
-        ))}
-      </ul>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[withinTheList]}
+        accessibility={{
+          screenReaderInstructions: { draggable: LIFT_INSTRUCTIONS },
+          announcements: announcements((id) => ids.indexOf(String(id)) + 1),
+        }}
+        onDragStart={() => setMoving(true)}
+        onDragEnd={drop}
+        onDragCancel={() => setMoving(false)}
+      >
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          <ul className="autocorrect-rules">
+            {rows.map((row) => (
+              <SortableRule key={row.key} id={row.key}>
+                {field(row, 'from', 'Når du skriver')}
+                <span className="autocorrect-rule__arrow" aria-hidden="true">
+                  →
+                </span>
+                {field(row, 'to', 'Blir det')}
+                <button
+                  type="button"
+                  className="btn btn--sm btn--icon btn--ghost"
+                  aria-label="Fjern regelen"
+                  data-testid="autocorrect-remove"
+                  onClick={() => setRows((current) => current.filter((other) => other.key !== row.key))}
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              </SortableRule>
+            ))}
+          </ul>
+        </SortableContext>
+      </DndContext>
       <div className="autocorrect-tools">
         <button
           type="button"
@@ -173,15 +299,6 @@ export function AutocorrectModal({
           }}
         >
           <Icon name="plus" size={14} /> Ny regel
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          data-testid="autocorrect-defaults"
-          disabled={!seeded}
-          onClick={() => setRows(toRows(defaultAutocorrectRules()))}
-        >
-          <Icon name="reset" size={14} /> Standardregler
         </button>
       </div>
     </Modal>

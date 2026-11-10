@@ -57,6 +57,7 @@ export type IconName =
   | 'upload'
   | 'close'
   | 'grip'
+  | 'handle'
   | 'palette'
   | 'zones'
   | 'text'
@@ -169,6 +170,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
   upload: <path d="M12 20V10M8 13l4-4 4 4M4 5h16" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
   grip: <path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01" />,
+  /* The grip as solid dots (⠿): a row that is moved only by it has to show it plainly. */
+  handle: (
+    <g fill="currentColor" stroke="none">
+      {[6, 12, 18].flatMap((y) => [9, 15].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r={1.9} />))}
+    </g>
+  ),
   palette: <path d="M12 3a9 9 0 100 18c1.5 0 2-1 1.4-2-.7-1.2.2-2.5 1.6-2.5H18a3 3 0 003-3A9 9 0 0012 3zM7.5 10.5h.01M11 7.5h.01M15.5 9h.01" />,
   zones: <path d="M4 4h16v16H4zM4 12h16M12 4v8" />,
   text: <path d="M5 6h14M12 6v13M9 19h6" />,
