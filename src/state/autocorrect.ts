@@ -49,6 +49,11 @@ export async function loadAutocorrect(): Promise<void> {
  * refused it, leaving the list in memory as it was.
  */
 export async function saveAutocorrect(raw: readonly AutocorrectRule[]): Promise<boolean> {
+  // The list is written whole, so one edited from anything but the stored
+  // list would silently replace rules the user never saw.
+  if (!useAutocorrect.getState().loaded) {
+    throw new Error('Autoerstatt-reglene er ikke hentet ennå. Prøv igjen om et øyeblikk.')
+  }
   const rules = normalizeAutocorrectRules(raw)
   if (sameAutocorrectRules(rules, currentAutocorrectRules())) return false
   await repository.saveAutocorrectRules(rules)

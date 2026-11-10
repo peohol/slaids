@@ -9,14 +9,19 @@
  * duplicate is simply dropped rather than refused.
  */
 
-import { useState, type ChangeEvent } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import {
   MAX_AUTOCORRECT_RULES,
   MAX_AUTOCORRECT_RULE_LENGTH,
   defaultAutocorrectRules,
   type AutocorrectRule,
 } from '../../domain/autocorrect'
-import { currentAutocorrectRules, saveAutocorrect } from '../../state/autocorrect'
+import {
+  currentAutocorrectRules,
+  loadAutocorrect,
+  saveAutocorrect,
+  useAutocorrect,
+} from '../../state/autocorrect'
 import { notify } from '../../state/toast'
 import { Icon } from '../components/Icon'
 import { Modal } from '../components/Modal'
@@ -43,15 +48,28 @@ export function AutocorrectModal({
   const [rows, setRows] = useState<Row[]>([])
   const [saving, setSaving] = useState(false)
   const [opened, setOpened] = useState(false)
+  /** Whether `rows` holds the stored list yet; nothing can be saved before it does. */
+  const [seeded, setSeeded] = useState(false)
   /** The row «Ny regel» just added, whose first field takes the focus. */
   const [added, setAdded] = useState<number | null>(null)
+  const loaded = useAutocorrect((state) => state.loaded)
 
   // A fresh copy of the stored list every time the dialog opens, so «Avbryt»
-  // and closing both leave what is stored as it was.
+  // and closing both leave what is stored as it was. Never a copy of a list
+  // that has not arrived: saving that would replace the stored rules with it.
   if (open !== opened) {
     setOpened(open)
-    if (open) setRows(toRows(currentAutocorrectRules()))
+    setSeeded(false)
+    setRows([])
+  } else if (open && loaded && !seeded) {
+    setSeeded(true)
+    setRows(toRows(currentAutocorrectRules()))
   }
+
+  // A load that failed when the workspace opened is tried again here.
+  useEffect(() => {
+    if (open && !loaded) void loadAutocorrect()
+  }, [open, loaded])
 
   const edit = (key: number, side: 'from' | 'to') => (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.target
@@ -112,7 +130,7 @@ export function AutocorrectModal({
           <button
             type="button"
             className="btn btn--primary"
-            disabled={saving}
+            disabled={saving || !seeded}
             onClick={() => void save()}
             data-testid="autocorrect-save"
           >
@@ -121,6 +139,7 @@ export function AutocorrectModal({
         </>
       }
     >
+      {!seeded && <p className="hint">Henter reglene dine …</p>}
       <ul className="autocorrect-rules">
         {rows.map((row) => (
           <li className="autocorrect-rule" key={row.key} data-testid="autocorrect-rule">
@@ -145,7 +164,7 @@ export function AutocorrectModal({
         <button
           type="button"
           className="btn btn--ghost"
-          disabled={rows.length >= MAX_AUTOCORRECT_RULES}
+          disabled={!seeded || rows.length >= MAX_AUTOCORRECT_RULES}
           data-testid="autocorrect-add"
           onClick={() => {
             const [row] = toRows([{ from: '', to: '' }])
@@ -159,6 +178,7 @@ export function AutocorrectModal({
           type="button"
           className="btn btn--ghost"
           data-testid="autocorrect-defaults"
+          disabled={!seeded}
           onClick={() => setRows(toRows(defaultAutocorrectRules()))}
         >
           <Icon name="reset" size={14} /> Standardregler
