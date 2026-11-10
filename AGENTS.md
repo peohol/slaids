@@ -4,7 +4,7 @@ Slaids er en nettleserbasert presentasjonseditor med matematisk sonelayout. Diss
 
 ## Før hver oppgave
 
-- **Bruk alltid siste versjon av `AGENTS.md` og `README.md` i repoet før en ny oppgave.** Hent dem fra oppdatert `main`, ikke fra tidligere samtaler. Les hele `AGENTS.md`. For den lange `README.md`: gå gjennom overskriftene og les relevante seksjoner grundig, ikke hele filen uten behov. Sjekk også arbeidsgrenens versjoner ved avvik.
+- **Før hver repooppgave:** Kontroller at du bruker siste versjon av `AGENTS.md`, og les hele filen. Bruk `README.md` som oppslagsverk, og les bare delene som er relevante for oppgaven. Hvis du allerede har den nødvendige teksten og filens Git-blob-hash (SHA) i konteksten, kan du gjenbruke teksten etter å ha kontrollert at hashen er uendret. Hvis den har endret seg, eller teksten eller hashen mangler, må du hente innholdet på nytt. Kontroller mot gjeldende arbeidsgren og eventuelle nyere instruksjoner på `main`.
 - Les berørt kode før du foreslår eller gjør endringer. Ikke gjett om kode du ikke har åpnet.
 - `IMPLEMENTATION_PLAN.md` er **eneste normative produkt- og arkitekturspesifikasjon**. Les relevante deler før strukturelle endringer. `README.md` beskriver dagens løsning; `VISION.md` er bare en peker.
 - Ved miniapper: les `docs/INTERACTIVE_MINIAPPS.md` og bruk `examples/interactive-miniapps/starter.html`. Verifiser funksjon og utseende i nettleseren, ikke bare bygg.
