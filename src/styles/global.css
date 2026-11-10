@@ -891,9 +891,11 @@ textarea {
  * ----------------------------------------------------------------- */
 
 .palette {
+  --palette-gap: 3px;
+  --palette-swatch-max: 28px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--palette-gap);
 }
 
 .palette__row {
@@ -914,30 +916,29 @@ textarea {
 }
 
 /*
- * A swatch is at least 28 px square with any pointer: the swatches share the
- * row's width, and a row that cannot hold its twelve at 28 px breaks into two
- * with the same order and the same colours — so a phone's panel gets one row
- * of twelve and the desktop's and a tablet's narrow inspector two rows of six.
- *
- * Twelve 22 px swatches did not fit the inspector either: they were squeezed
- * to 20 px wide, under WCAG 2.2's 24 px minimum (2.5.8), and twelve to a row
- * there cannot reach it at any spacing.
+ * The grid keeps its columns: a row holds two hues, each from darkest to
+ * lightest, and breaking a row would split a hue from its relatives. Every row
+ * shares one set of columns, so the black, white and custom swatches line up
+ * under the hues. The swatches share the width they get, square, up to 28 px
+ * with a mouse — in the inspector that is a little under 28 px, which the
+ * hue grouping is worth.
  */
 .palette__row:not(.palette__row--inherited) {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(var(--palette-columns), minmax(0, var(--palette-swatch-max)));
+  gap: var(--palette-gap);
 }
 
 button.palette__swatch {
-  flex: 1 1 28px;
-  width: auto;
-  max-width: 28px;
+  width: 100%;
   height: auto;
   aspect-ratio: 1;
 }
 
 /* On a finger-driven screen they grow towards a full touch target. */
-:root[data-coarse='true'] button.palette__swatch {
-  max-width: var(--touch-target);
+:root[data-coarse='true'] .palette {
+  --palette-gap: 4px;
+  --palette-swatch-max: var(--touch-target);
 }
 
 :root[data-coarse='true'] .palette__inherited {
@@ -977,6 +978,31 @@ button.palette__swatch {
 
 .palette__inherited--active {
   border-color: var(--chrome-accent);
+}
+
+/*
+ * The face of the swatch that opens the system's colour picker: a plus inside
+ * the colour wheel, or the colour picked there.
+ */
+.custom-color-mark {
+  width: 56%;
+  height: 56%;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--chrome-bg-raised);
+  color: var(--chrome-text);
+}
+
+/* Moved over the swatch that opens it, so the picker opens there; never seen. */
+.system-color-field {
+  position: fixed;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .color-trigger__chip {

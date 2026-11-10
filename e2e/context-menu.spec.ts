@@ -17,6 +17,7 @@ import {
   enterSubmenu,
   createPresentation,
   enterZoneMode,
+  pickSystemColor,
   selectionTaken,
   slidePoint,
   splitSelected,
@@ -420,6 +421,17 @@ test.describe('context menu on a section page', () => {
     await page.getByTestId('menu-section-background-content').locator('[data-color="#4d4d80"]').click()
     await expect.poll(background).toBe('rgb(77, 77, 128)')
     await page.keyboard.press('Escape')
+
+    // Any colour at all, from the system's picker beside black and white.
+    await page.mouse.click(box.x + 24, box.y + 24, { button: 'right' })
+    await page.getByTestId('menu-section-background').click()
+    await pickSystemColor(
+      page,
+      page.getByTestId('menu-section-background-content').getByTestId('menu-custom-color'),
+      '#123456',
+    )
+    await expect.poll(background).toBe('rgb(18, 52, 86)')
+    await expect(menu(page)).toHaveCount(0)
 
     // The margin around the page is not the page: no menu of ours there.
     const viewport = await page.locator('.stage-viewport', { has: stage(page) }).boundingBox()

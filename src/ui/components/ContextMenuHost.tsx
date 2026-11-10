@@ -22,6 +22,13 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { Icon } from './Icon'
 import { useContextMenu, type MenuAction, type MenuEntry } from './contextMenu'
 import { focusIsLost } from './focusKeeping'
+import {
+  CUSTOM_COLOR_LABEL,
+  CUSTOM_COLOR_WHEEL,
+  CustomColorMark,
+  isCustomColor,
+  openSystemColorPicker,
+} from './customColor'
 
 /** Space kept between a menu and the edge of the window. */
 const VIEWPORT_MARGIN = 8
@@ -83,6 +90,23 @@ function Entries({
                         </DropdownMenu.ItemIndicator>
                       </DropdownMenu.RadioItem>
                     ))}
+                    {rowIndex === entry.rows.length - 1 && (
+                      <DropdownMenu.Item
+                        className="context-menu__swatch"
+                        style={{ background: CUSTOM_COLOR_WHEEL }}
+                        aria-label={CUSTOM_COLOR_LABEL}
+                        title={CUSTOM_COLOR_LABEL}
+                        textValue={CUSTOM_COLOR_LABEL}
+                        data-testid="menu-custom-color"
+                        onSelect={(event) => {
+                          // Where the swatch was, measured before the menu goes.
+                          const anchor = (event.target as Element).getBoundingClientRect()
+                          afterClose(() => openSystemColorPicker(anchor, entry.value, entry.onSelect))()
+                        }}
+                      >
+                        <CustomColorMark color={isCustomColor(entry.value) ? entry.value : null} />
+                      </DropdownMenu.Item>
+                    )}
                   </div>
                 ))}
               </DropdownMenu.RadioGroup>

@@ -2487,7 +2487,9 @@ Forslag fra visjonen:
 - lightness: `20%, 40%, 60%, 80%`;
 - samt svart og hvitt.
 
-Tekst på bakgrunn velges mellom svart og hvitt ut fra bakgrunnens lyshet (HSL-lightness) alene: under 50 % gir hvit tekst, ellers svart. Alle farger på samme palettrad har samme lyshet og får derfor samme tekstfarge – rad 1–2 hvit, rad 3–4 svart. Bare hvis det gir under 3:1 i kontrast – mulig for sterkt mettede farger utenfor paletten, som ren blå – brukes den andre.
+Editorens rutenett grupperer fargene etter fargetone: hver rad har to fargetoner, hver fra mørkest til lysest (åtte ruter), og siste rad har svart, hvitt og en rute som åpner systemets fargevelger. Paletten er en måte å klikke en farge på, ikke en begrensning – enhver gyldig hex-farge kan velges.
+
+Tekst på bakgrunn velges mellom svart og hvitt ut fra bakgrunnens lyshet (HSL-lightness) alene: under 50 % gir hvit tekst, ellers svart. Alle palettfarger på samme lyshetstrinn får derfor samme tekstfarge – 20 % og 40 % hvit, 60 % og 80 % svart. Bare hvis det gir under 3:1 i kontrast – mulig for sterkt mettede farger utenfor paletten, som ren blå – brukes den andre.
 
 Tekstskygge kan brukes dekorativt på mørke bakgrunner, men skal ikke være forutsetningen for lesbarhet.
 

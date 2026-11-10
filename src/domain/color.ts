@@ -3,13 +3,17 @@
  *
  * The palette is intentionally small: 12 hues x 4 lightness steps at a fixed
  * saturation, plus black and white. Text colour is never chosen by hand — it is
- * derived from the background's lightness, so every swatch in a palette row
- * gets the same text colour.
+ * derived from the background's lightness, so every swatch of the same
+ * lightness gets the same text colour. The palette is a way to click a colour,
+ * not a limit: any hex colour is valid, and the editor offers the system's own
+ * colour picker beside it.
  */
 
 export const PALETTE_HUES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
 export const PALETTE_LIGHTNESS = [20, 40, 60, 80]
 export const PALETTE_SATURATION = 25
+/** Hues side by side in one palette row, each as its own run from dark to light. */
+export const PALETTE_HUES_PER_ROW = 2
 
 export const WHITE = '#ffffff'
 export const BLACK = '#000000'
@@ -37,16 +41,47 @@ export function hslToHex(h: number, s: number, l: number): string {
   return `#${componentToHex((r + m) * 255)}${componentToHex((g + m) * 255)}${componentToHex((b + m) * 255)}`
 }
 
-/** The full swatch grid: 4 rows of 12 hues, then a final row with black and white. */
+/** The palette colour of one hue at one lightness step. */
+export function paletteColor(hue: number, lightness: number): string {
+  return hslToHex(hue, PALETTE_SATURATION, lightness)
+}
+
+/** Every palette hue at one lightness, in hue order. */
+export function paletteShade(lightness: number): string[] {
+  return PALETTE_HUES.map((hue) => paletteColor(hue, lightness))
+}
+
+/**
+ * The full swatch grid, grouped by hue: each row holds
+ * {@link PALETTE_HUES_PER_ROW} hues, each running from darkest to lightest, so
+ * a colour's lighter and darker relatives sit right beside it. A final row
+ * holds black and white.
+ */
 export function buildPalette(): string[][] {
-  const rows = PALETTE_LIGHTNESS.map((l) =>
-    PALETTE_HUES.map((h) => hslToHex(h, PALETTE_SATURATION, l)),
-  )
+  const rows: string[][] = []
+  for (let start = 0; start < PALETTE_HUES.length; start += PALETTE_HUES_PER_ROW) {
+    rows.push(
+      PALETTE_HUES.slice(start, start + PALETTE_HUES_PER_ROW).flatMap((hue) =>
+        PALETTE_LIGHTNESS.map((lightness) => paletteColor(hue, lightness)),
+      ),
+    )
+  }
   rows.push([BLACK, WHITE])
   return rows
 }
 
 export const PALETTE = buildPalette()
+
+/** Swatches in the widest palette row — the grid's column count. */
+export const PALETTE_COLUMNS = Math.max(...PALETTE.map((row) => row.length))
+
+const PALETTE_SET = new Set(PALETTE.flat())
+
+/** Whether a colour is one of the palette's own swatches, in any hex spelling. */
+export function isPaletteColor(color: string): boolean {
+  const normalized = normalizeHex(color)
+  return normalized !== null && PALETTE_SET.has(normalized)
+}
 
 export function normalizeHex(input: string): string | null {
   const value = input.trim().toLowerCase()
@@ -108,8 +143,8 @@ export const TEXT_LIGHTNESS_THRESHOLD = 50
 export const MIN_TEXT_CONTRAST = 3
 
 /**
- * White on dark backgrounds, black on light ones, judged by lightness — so a
- * palette row shares one text colour. Saturated colours outside the palette can
+ * White on dark backgrounds, black on light ones, judged by lightness — so
+ * every palette swatch of one lightness step shares one text colour. Saturated colours outside the palette can
  * mislead lightness (pure blue sits at 50 %); when the pick falls below
  * {@link MIN_TEXT_CONTRAST}, the other colour is used, which then clears 7:1.
  */

@@ -1,12 +1,21 @@
 /**
- * The 12 x 4 palette plus a black/white row.
+ * The palette, grouped by hue, plus a row with black, white and any colour at
+ * all from the system's picker.
  *
  * Text colour is never picked here — it is derived from the chosen background
  * by contrast.
  */
 
+import type { CSSProperties } from 'react'
 import * as Popover from '@radix-ui/react-popover'
-import { PALETTE, bestTextColor } from '../../domain/color'
+import { PALETTE, PALETTE_COLUMNS, bestTextColor } from '../../domain/color'
+import {
+  CUSTOM_COLOR_LABEL,
+  CUSTOM_COLOR_WHEEL,
+  CustomColorMark,
+  isCustomColor,
+  openSystemColorPicker,
+} from './customColor'
 import { Icon } from './Icon'
 import { useFieldPopoverFocus } from './focusKeeping'
 
@@ -35,8 +44,13 @@ export function ColorSwatchGrid({
   onSelect: (color: string) => void
   inherited?: InheritedColor
 }) {
+  const custom = !inherited?.active && isCustomColor(value)
   return (
-    <div className="palette" data-testid="palette">
+    <div
+      className="palette"
+      data-testid="palette"
+      style={{ '--palette-columns': PALETTE_COLUMNS } as CSSProperties}
+    >
       {inherited && (
         <div className="palette__row palette__row--inherited">
           <button
@@ -85,6 +99,22 @@ export function ColorSwatchGrid({
               </button>
             )
           })}
+          {rowIndex === PALETTE.length - 1 && (
+            <button
+              type="button"
+              className={custom ? 'palette__swatch palette__swatch--active' : 'palette__swatch'}
+              style={{ background: CUSTOM_COLOR_WHEEL }}
+              onClick={(event) =>
+                openSystemColorPicker(event.currentTarget.getBoundingClientRect(), value, onSelect)
+              }
+              aria-label={CUSTOM_COLOR_LABEL}
+              title={CUSTOM_COLOR_LABEL}
+              aria-pressed={custom}
+              data-testid="palette-custom"
+            >
+              <CustomColorMark color={custom ? value : null} />
+            </button>
+          )}
         </div>
       ))}
     </div>
