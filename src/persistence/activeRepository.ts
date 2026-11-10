@@ -17,8 +17,7 @@
  * and IndexedDB is never the answer to one.
  *
  * `repository` is a thin façade rather than a resolved instance, so callers can
- * keep a module-level import type { UserSettings } from '../domain/userSettings'
-import while the decision stays here and stays late
+ * keep a module-level import while the decision stays here and stays late
  * enough to be testable.
  */
 

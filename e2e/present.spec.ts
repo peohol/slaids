@@ -198,7 +198,7 @@ test.describe('presentation mode', () => {
     const settings = page.getByTestId('user-settings-modal')
     const includeReferences = settings.getByRole('checkbox', { name: 'Tell med referanseslides i fremdriftslinjen' })
     await expect(includeReferences).not.toBeChecked()
-    await includeReferences.check()
+    await includeReferences.click()
     await expect(includeReferences).toBeChecked()
     await settings.getByRole('button', { name: 'Lukk' }).click()
     await page.getByTestId('open-presentation').filter({ hasText: 'Referanser' }).click()

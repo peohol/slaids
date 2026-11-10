@@ -1156,10 +1156,11 @@ export class SupabaseSlaidsRepository
    * ---------------------------------------------------------------- */
 
   async getUserSettings(ownerId: string | null): Promise<UserSettings> {
-    const { data, error } = await this.client.from(USER_SETTINGS_TABLE)
-      .select('include_references_in_progress')
-      .eq('owner_id', ownerId ?? await this.ownerId())
-      .maybeSingle()
+    const { data, error } = await this.scoped(
+      this.client.from(USER_SETTINGS_TABLE)
+        .select('include_references_in_progress')
+        .eq('owner_id', ownerId ?? await this.ownerId()),
+    ).maybeSingle()
     if (error) fail('Kunne ikke hente brukerinnstillingene', error)
     return { includeReferencesInProgress: data?.include_references_in_progress === true }
   }
