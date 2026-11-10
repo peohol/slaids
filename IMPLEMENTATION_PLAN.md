@@ -3486,14 +3486,6 @@ Sekvenser på minst 3 kan komprimeres:
 
 To tall på rad beholdes som `5, 6`.
 
-### Oppslag med DOI eller PubMed-ID
-
-Innliming av en DOI eller PubMed-ID i oppslagsfeltet i referansedialogen henter
-tittel, forfattere, år og lenke som et redigerbart utkast. Oppslaget bruker
-Crossref og DataCite for DOI, og Europe PMC for PubMed-ID. Oppslagstjenesten får
-identifikatoren uten resten av referanseutkastet. Feltene kan også fylles ut manuelt.
-Referansen opprettes først når brukeren lagrer utkastet.
-
 ### Referanseslides
 
 Referanseslides skal være **derived**, ikke manuelt lagret som vanlige slides.
@@ -3502,6 +3494,14 @@ Hvis referanselisten ikke får plass ved definert minimumsfont:
 
 - generer flere referenceslides;
 - ikke krymp teksten vilkårlig.
+
+### Oppslag med DOI eller PubMed-ID
+
+Innliming av en DOI eller PubMed-ID i oppslagsfeltet i referansedialogen henter
+tittel, forfattere, år og lenke som et redigerbart utkast. Oppslaget bruker
+Crossref og DataCite for DOI, og Europe PMC for PubMed-ID. Oppslagstjenesten får
+identifikatoren uten resten av referanseutkastet. Feltene kan også fylles ut manuelt.
+Referansen opprettes først når brukeren lagrer utkastet.
 
 ---
 

@@ -15,13 +15,13 @@ import {
 } from '../../domain/commands'
 import { computeReferenceNumbering, formatReference, splitReferences } from '../../domain/references'
 import { useActiveEditor } from '../../state/activeEditor'
-import { lookupReferenceMetadata, parseReferenceIdentifier } from '../../state/referenceMetadata'
 import { useEditorStore } from '../../state/store'
 import type { Reference } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Icon } from '../components/Icon'
 import { notify } from '../../state/toast'
+import { lookupReferenceMetadata, parseReferenceIdentifier } from '../../state/referenceMetadata'
 import { useTypedSubstitution } from './useTypedSubstitution'
 
 const EMPTY: Omit<Reference, 'id'> = { title: '', authors: '', url: '', year: '' }
