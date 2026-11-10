@@ -5,7 +5,7 @@
  * a live reference removes every citation that points at it, so it is confirmed.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   addReference,
   deleteReference,
@@ -15,6 +15,7 @@ import {
 } from '../../domain/commands'
 import { computeReferenceNumbering, formatReference, splitReferences } from '../../domain/references'
 import { useActiveEditor } from '../../state/activeEditor'
+import { lookupReferenceMetadata, parseReferenceIdentifier } from '../../state/referenceMetadata'
 import { useEditorStore } from '../../state/store'
 import type { Reference } from '../../domain/types'
 import { Modal } from '../components/Modal'
@@ -42,6 +43,11 @@ export function ReferenceModal({
   const [editing, setEditing] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<Reference | null>(null)
   const [clearingUnused, setClearingUnused] = useState(false)
+  const [identifier, setIdentifier] = useState('')
+  const [lookupStatus, setLookupStatus] = useState('')
+  const [lookingUp, setLookingUp] = useState(false)
+  const pendingLookup = useRef<AbortController | null>(null)
+  useEffect(() => () => pendingLookup.current?.abort(), [open])
   // Title and authors are prose that ends up on the deck's own reference
   // page — the year and the URL are not, so only these two get the live
   // substitutions.
@@ -55,6 +61,56 @@ export function ReferenceModal({
   const numbering = computeReferenceNumbering(presentation)
   const { used, unused } = splitReferences(presentation)
   const canSubmit = Boolean(draft.title.trim() || draft.authors.trim() || draft.url.trim())
+
+  const clearLookup = (value = ''): void => {
+    pendingLookup.current?.abort()
+    pendingLookup.current = null
+    setIdentifier(value)
+    setLookingUp(false)
+    setLookupStatus('')
+  }
+
+  const changeOpen = (next: boolean): void => {
+    if (!next) clearLookup()
+    onOpenChange(next)
+  }
+
+  const lookup = async (value: string): Promise<void> => {
+    clearLookup(value)
+    const parsed = parseReferenceIdentifier(value)
+    if (!parsed) {
+      setLookupStatus('Skriv inn en gyldig DOI eller PubMed-ID.')
+      return
+    }
+    const controller = new AbortController()
+    pendingLookup.current = controller
+    setLookingUp(true)
+    setLookupStatus('Henter referanseopplysninger …')
+    try {
+      const metadata = await lookupReferenceMetadata(parsed, controller.signal)
+      if (controller.signal.aborted) return
+      if (!metadata) {
+        setLookupStatus('Fant ingen referanse med denne identifikatoren.')
+        return
+      }
+      setDraft((current) => ({
+        title: current.title === draft.title ? metadata.title || current.title : current.title,
+        authors: current.authors === draft.authors ? metadata.authors || current.authors : current.authors,
+        url: current.url === draft.url ? metadata.url : current.url,
+        year: current.year === draft.year ? metadata.year || current.year : current.year,
+      }))
+      setLookupStatus('Opplysningene er hentet. Du kan redigere feltene før du lagrer.')
+    } catch {
+      if (!controller.signal.aborted) {
+        setLookupStatus('Kunne ikke hente opplysningene. Prøv igjen eller fyll ut feltene selv.')
+      }
+    } finally {
+      if (pendingLookup.current === controller) {
+        pendingLookup.current = null
+        setLookingUp(false)
+      }
+    }
+  }
 
   const insert = (reference: Reference): void => {
     if (!editor) {
@@ -81,6 +137,7 @@ export function ReferenceModal({
       notify.error(result.error.message)
       return
     }
+    clearLookup()
     run('reference-add', () => ({ ok: true, value: result.value.presentation }))
     setDraft(EMPTY)
     insert(result.value.reference)
@@ -115,6 +172,7 @@ export function ReferenceModal({
         className="btn btn--sm btn--icon"
         aria-label="Rediger referanse"
         onClick={() => {
+          clearLookup()
           setEditing(reference.id)
           setDraft({
             title: reference.title,
@@ -142,13 +200,13 @@ export function ReferenceModal({
     <>
       <Modal
         open={open}
-        onOpenChange={onOpenChange}
+        onOpenChange={changeOpen}
         title="Referanser"
         description="Nummereringen følger rekkefølgen referansene først brukes i."
         testId="reference-modal"
         width={720}
         footer={
-          <button type="button" className="btn" onClick={() => onOpenChange(false)}>
+          <button type="button" className="btn" onClick={() => changeOpen(false)}>
             Lukk
           </button>
         }
@@ -165,6 +223,39 @@ export function ReferenceModal({
           Tell med referanseslides i fremdriftslinjen
         </label>
         <div className="reference-form">
+          {!editing && (
+            <form
+              className="field reference-lookup"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void lookup(identifier)
+              }}
+            >
+              <label htmlFor="reference-identifier">DOI eller PubMed-ID</label>
+              <div className="reference-lookup__row">
+                <input
+                  id="reference-identifier"
+                  className="input"
+                  type="text"
+                  value={identifier}
+                  maxLength={512}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => clearLookup(event.currentTarget.value)}
+                  onPaste={(event) => {
+                    const value = event.clipboardData.getData('text/plain')
+                    if (!parseReferenceIdentifier(value)) return
+                    event.preventDefault()
+                    void lookup(value.trim())
+                  }}
+                />
+                <button type="submit" className="btn" disabled={!identifier.trim() || lookingUp}>
+                  Hent
+                </button>
+              </div>
+              <span className="hint" role="status">{lookupStatus}</span>
+            </form>
+          )}
           <div className="field">
             <label htmlFor="reference-title">Tittel</label>
             <input

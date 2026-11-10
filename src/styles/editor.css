@@ -1736,6 +1736,24 @@
   gap: 10px;
 }
 
+.reference-lookup {
+  grid-column: 1 / -1;
+}
+
+.reference-lookup__row {
+  display: flex;
+  gap: 10px;
+}
+
+.reference-lookup__row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.reference-lookup > .hint:empty {
+  display: none;
+}
+
 .reference-heading {
   margin: 0 0 8px;
   font-size: 14px;
