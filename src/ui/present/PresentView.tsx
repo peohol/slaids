@@ -7,6 +7,7 @@
  */
 
 import { PresentationPlayer } from './PresentationPlayer'
+import { useUserSettings } from '../../state/userSettings'
 import type { Presentation } from '../../domain/types'
 
 export function PresentView({
@@ -22,9 +23,11 @@ export function PresentView({
   /** Called with the id of the last slide shown, to select it back in the editor. */
   onExit: (lastSlideId: string) => void
 }) {
+  const includeReferencesInProgress = useUserSettings((state) => state.includeReferencesInProgress)
   return (
     <PresentationPlayer
       deck={presentation}
+      includeReferencesInProgress={includeReferencesInProgress}
       shareUrl={shareUrl ?? null}
       startIndex={startIndex}
       onExit={onExit}

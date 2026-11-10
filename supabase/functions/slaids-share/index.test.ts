@@ -20,6 +20,7 @@ import {
   ASSETS_TABLE,
   FOLDERS_TABLE,
   PRESENTATIONS_TABLE,
+  USER_SETTINGS_TABLE,
 } from '../../../src/persistence/supabaseRepository'
 import {
   createFakeDatabase,
@@ -61,6 +62,10 @@ function seed(): Record<string, FakeRow[]> {
         // cannot compute; the folder listing reads it under this name.
         title: SNAPSHOT.title,
       },
+    ],
+    [USER_SETTINGS_TABLE]: [
+      { owner_id: OWNER, include_references_in_progress: false, autocorrect: ['privat'] },
+      { owner_id: 'en-annen-eier', include_references_in_progress: true },
     ],
     [ASSETS_TABLE]: [
       { id: ASSET, owner_id: OWNER, presentation_id: 'p_delt', object_path: `${OWNER}/p_delt/${ASSET}` },
@@ -126,6 +131,17 @@ describe('slaids-share og eierens status', () => {
         expect(await response.text(), link).not.toContain(OWNER)
       }
     }
+  })
+
+  it('bruker eierens oppdaterte fremdriftsvalg i begge typer delte lenker', async () => {
+    for (const link of [`?token=${DECK_TOKEN}`, `?folder=${FOLDER_TOKEN}&presentation=p_delt`]) {
+      tables[USER_SETTINGS_TABLE][0].include_references_in_progress = false
+      expect(await (await get(link)).json()).toEqual({ ...SNAPSHOT, includeReferencesInProgress: false })
+
+      tables[USER_SETTINGS_TABLE][0].include_references_in_progress = true
+      expect(await (await get(link)).json()).toEqual({ ...SNAPSHOT, includeReferencesInProgress: true })
+    }
+    expect(tables[PRESENTATIONS_TABLE][0].shared_document).toEqual(SNAPSHOT)
   })
 
   it('svarer 404 på alle lenkene mens eieren er deaktivert, og som før etter reaktivering', async () => {

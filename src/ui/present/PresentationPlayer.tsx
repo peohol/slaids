@@ -97,6 +97,7 @@ function PlayerPage({ page, scale }: { page: DeckPage; scale: number }) {
 }
 
 export interface PresentationPlayerProps {
+  includeReferencesInProgress?: boolean
   deck: DeckSource
   /** The share link, when sharing is on: what the derived QR page points at. */
   shareUrl?: string | null
@@ -113,10 +114,10 @@ export function PresentationPlayer({
   deck,
   shareUrl = null,
   startIndex = 0,
+  includeReferencesInProgress = deck.includeReferencesInProgress,
   onExit = null,
 }: PresentationPlayerProps) {
   const pages = useMemo(() => deckPages(deck, { shareUrl }), [deck, shareUrl])
-  const { includeReferencesInProgress } = deck
   const progress = useMemo(
     () => deckProgress(pages, includeReferencesInProgress),
     [pages, includeReferencesInProgress],

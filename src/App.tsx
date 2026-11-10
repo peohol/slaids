@@ -9,13 +9,16 @@ import { repositoryAssetSource } from './state/assetSources'
 import { lastOpenPresentationKey, readPref, writePref } from './state/prefs'
 import { useSessionStore } from './state/session'
 import { loadAutocorrect } from './state/autocorrect'
+import { loadUserSettings } from './state/userSettings'
+import { repository } from './persistence/activeRepository'
 
 function Workspace({ userId }: { userId: string | null }) {
   const lastOpenKey = lastOpenPresentationKey(userId)
   // The rules are the signed-in user's; the workspace is remounted per user.
   useEffect(() => {
     void loadAutocorrect()
-  }, [])
+    void loadUserSettings(repository, userId)
+  }, [userId])
   const [openId, setOpenId] = useState<string | null>(() =>
     readPref<string | null>(lastOpenKey, null),
   )

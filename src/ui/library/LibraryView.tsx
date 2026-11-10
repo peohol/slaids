@@ -48,6 +48,7 @@ import { Modal } from '../components/Modal'
 import { NewPresentationModal, type NewPresentationResult } from './NewPresentationModal'
 import { AdminUsersModal } from './AdminUsersModal'
 import { AgentTokensModal } from './AgentTokensModal'
+import { UserSettingsModal } from './UserSettingsModal'
 import { FolderSelect } from './FolderSelect'
 import { FolderShareButton } from './FolderShareButton'
 import { folderEntries, presentationEntries } from './libraryMenus'
@@ -87,6 +88,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   const [persisted, setPersisted] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [managingTokens, setManagingTokens] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [managingUsers, setManagingUsers] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -383,6 +385,13 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
               </button>
             </Tooltip>
           )}
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Icon name="tools" size={15} /> Brukerinnstillinger
+          </button>
           {isAdmin && (
             <MenuButton
               id="library-administration"
@@ -703,6 +712,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
       {/* Mounted only while open: closing is what drops a freshly created
           token out of memory, rather than an effect that clears it. */}
       {managingTokens && <AgentTokensModal open onOpenChange={setManagingTokens} />}
+      {settingsOpen && <UserSettingsModal open onOpenChange={setSettingsOpen} />}
       {isAdmin && managingUsers && (
         <AdminUsersModal
           open

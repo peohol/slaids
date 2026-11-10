@@ -1352,10 +1352,11 @@ noen forrige bredde å animere fra. Nøyaktig det sidebyttet ville hoppet.
 
 Forsiden telles ikke. Første ordinære slide etter forsiden er side 1, og
 QR-siden teller når den vises. Automatisk genererte referanseslides beholder
-fremdriften fra forrige side som standard. Under **Presentasjon → Referanser**
-kan forfatteren velge å telle dem med for den aktuelle presentasjonen. Den
-siste siden som telles, fyller indikatoren. Valget følger også publiserte
-kopier av presentasjonen.
+fremdriften fra forrige side som standard. Eieren kan telle dem med i
+**Brukerinnstillinger** i biblioteket. Valget gjelder alle eierens
+presentasjoner. Når en delt presentasjon åpnes, får publikum eierens
+gjeldende visningsvalg sammen med den publiserte kopien. Den siste siden
+som telles, fyller indikatoren.
 
 ---
 

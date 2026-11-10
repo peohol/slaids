@@ -145,6 +145,8 @@ function withRemoteQuirks(inner: DexieSlaidsRepository, quirks: RemoteQuirks = {
       await inner.saveTemplate(template)
     },
     deleteTemplate: (id) => inner.deleteTemplate(id),
+    getUserSettings: (ownerId) => inner.getUserSettings(ownerId),
+    updateUserSettings: (ownerId, patch) => inner.updateUserSettings(ownerId, patch),
     loadAutocorrectRules: () => inner.loadAutocorrectRules(),
     saveAutocorrectRules: (rules) => inner.saveAutocorrectRules(rules),
     putAsset: async (presentationId, ref, blob) => {
