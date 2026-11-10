@@ -45,6 +45,7 @@ const OWNED_TABLES = [
   'slaids_assets',
   'slaids_agent_tokens',
   'slaids_agent_audit',
+  'slaids_user_settings',
 ] as const
 
 function libraryFor(owner: string, tag: string): string {
@@ -59,6 +60,7 @@ function libraryFor(owner: string, tag: string): string {
     insert into public.slaids_agent_tokens (owner_id, name, token_hash, scopes)
       values ('${owner}', 'Token ${tag}', '${hash}', array['presentations:read']);
     insert into public.slaids_agent_audit (owner_id, operation, success) values ('${owner}', 'list_presentations', true);
+    insert into public.slaids_user_settings (owner_id, autocorrect) values ('${owner}', '[]'::jsonb);
     insert into storage.objects (bucket_id, name) values ('slaids-assets', '${owner}/pr_${tag}/as_${tag}');
   `
 }
@@ -167,7 +169,7 @@ describe('hver bruker sitt eget bibliotek', () => {
     },
   )
 
-  it.each(['slaids_folders', 'slaids_presentations', 'slaids_templates'] as const)(
+  it.each(['slaids_folders', 'slaids_presentations', 'slaids_templates', 'slaids_user_settings'] as const)(
     '%s: kan ikke flytte en egen rad over til en annen eier',
     async (table) => {
       await expect(
@@ -416,7 +418,11 @@ describe('tilbakerulling', () => {
     const expected = (await before.query(policies)).rows
     await before.close()
 
-    const rolledBack = await migratedDatabase(users)
+    // The state the rollback is written against: up to and including the
+    // migration it undoes, not whatever later migrations added beside it.
+    const rolledBack = await migratedDatabase(users, {
+      migrations: migrationFiles().filter((name) => name <= multiUser),
+    })
     await rolledBack.exec('create table public.slaids_migrations (version text primary key, name text)')
     await rolledBack.exec(
       readFileSync(join(process.cwd(), 'supabase', 'rollback', multiUser.replace('.sql', '.down.sql')), 'utf8'),
@@ -424,6 +430,33 @@ describe('tilbakerulling', () => {
     const after = (await rolledBack.query<{ policyname: string }>(policies)).rows
     // The access list's own policy stays with the table it guards.
     expect(after.filter((row) => row.policyname !== 'slaids_users_select_own')).toEqual(expected)
+    await rolledBack.close()
+  }, 60_000)
+
+  it('fjerner brukerinnstillingene uten å røre noe annet', async () => {
+    const users = insertAuthUsers([{ id: PEDER, email: 'peder.holman@gmail.com' }])
+    const schema = `select tablename, policyname from pg_policies where policyname like 'slaids\\_%'
+      union all select relname, '' from pg_class
+       where relnamespace = 'public'::regnamespace and relkind = 'r' and relname like 'slaids\\_%'
+      order by 1, 2`
+    const settings = migrationFiles().find((name) => name.includes('user_settings'))!
+    const before = await migratedDatabase(users, {
+      migrations: migrationFiles().filter((name) => name < settings),
+    })
+    const expected = (await before.query(schema)).rows
+    await before.close()
+
+    const rolledBack = await migratedDatabase(users, {
+      migrations: migrationFiles().filter((name) => name <= settings),
+    })
+    await rolledBack.exec('create table public.slaids_migrations (version text primary key, name text)')
+    await rolledBack.exec(
+      readFileSync(join(process.cwd(), 'supabase', 'rollback', settings.replace('.sql', '.down.sql')), 'utf8'),
+    )
+    const after = (await rolledBack.query(schema)).rows.filter(
+      (row) => (row as { tablename: string }).tablename !== 'slaids_migrations',
+    )
+    expect(after).toEqual(expected)
     await rolledBack.close()
   }, 60_000)
 })

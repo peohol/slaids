@@ -1,13 +1,12 @@
 /**
- * The same three substitutions the rich-text editors make while typing (see
- * `TypographyExtension`), wired into an ordinary `<input>`.
+ * The user's autoerstatt rules (see `TypographyExtension`), wired into an
+ * ordinary `<input>`.
  *
  * A section's heading and a reference's title and authors are prose too, and
  * both end up rendered on a slide — a section slide, or the deck's own
  * reference page — without ever passing through a Tiptap document on the
- * way there. `TEXT_SUBSTITUTIONS` is the one list that says what gets
- * rewritten; this hook is the second place that reads it, so the two can
- * never drift apart.
+ * way there. Which rule fires is `findAutocorrectRule`'s answer here exactly
+ * as it is in the rich-text fields, so the two can never drift apart.
  *
  * Anchored at the caret exactly like the input rule is: only the sequence
  * just typed can trigger a replacement, so an edit earlier in the field, or
@@ -15,20 +14,15 @@
  */
 
 import type { ChangeEvent } from 'react'
-import { TEXT_SUBSTITUTIONS, substitutionPattern } from './TypographyExtension'
+import { findAutocorrectRule } from '../../domain/autocorrect'
+import { currentAutocorrectRules } from '../../state/autocorrect'
 
 function typedSubstitution(value: string, caret: number): { value: string; caret: number } | null {
   const before = value.slice(0, caret)
-  for (const { typed, written } of TEXT_SUBSTITUTIONS) {
-    // The same pattern the input rule matches on, rather than a plain
-    // `endsWith`: what counts as a space is decided in one place, so a field
-    // that hands over a non-breaking one is understood here too.
-    const match = substitutionPattern(typed).exec(before)
-    if (!match) continue
-    const head = before.slice(0, before.length - match[0].length)
-    return { value: head + written + value.slice(caret), caret: head.length + written.length }
-  }
-  return null
+  const rule = findAutocorrectRule(before, currentAutocorrectRules())
+  if (!rule) return null
+  const head = before.slice(0, before.length - rule.from.length)
+  return { value: head + rule.to + value.slice(caret), caret: head.length + rule.to.length }
 }
 
 /**

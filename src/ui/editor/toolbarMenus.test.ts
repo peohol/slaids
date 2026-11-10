@@ -59,13 +59,14 @@ describe('presentationToolEntries', () => {
 })
 
 describe('helperToolEntries', () => {
-  const helpers = { sandboxCount: 0, onIdeas: noop, onSandbox: noop, onShowShortcuts: noop }
+  const helpers = { sandboxCount: 0, onIdeas: noop, onSandbox: noop, onShowShortcuts: noop, onEditAutocorrect: noop }
 
-  it('offers ideas, the sandbox and the shortcut list', () => {
+  it('offers ideas, the sandbox, the shortcut list and the autoerstatt rules', () => {
     expect(helperToolEntries(helpers).map((entry) => entry.testId)).toEqual([
       'open-ideas',
       'open-sandbox',
       'menu-shortcuts',
+      'menu-autocorrect',
     ])
   })
 
@@ -78,7 +79,7 @@ describe('helperToolEntries', () => {
 
   it('marks an open window as on where the entry toggles it, and is no choice where it only opens', () => {
     const toggled = helperToolEntries({ ...helpers, ideasOpen: true, sandboxOpen: false })
-    expect(toggled.map((entry) => entry.checked)).toEqual([true, false, undefined])
-    expect(helperToolEntries(helpers).map((entry) => entry.checked)).toEqual([undefined, undefined, undefined])
+    expect(toggled.map((entry) => entry.checked)).toEqual([true, false, undefined, undefined])
+    expect(helperToolEntries(helpers).map((entry) => entry.checked)).toEqual([undefined, undefined, undefined, undefined])
   })
 })

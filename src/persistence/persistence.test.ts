@@ -15,6 +15,7 @@ import {
   presentationByteSize,
 } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
+import { DEFAULT_AUTOCORRECT_RULES } from '../domain/autocorrect'
 import { MAX_INTERACTIVE_HTML_BYTES, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from '../domain/constants'
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
@@ -144,6 +145,8 @@ function withRemoteQuirks(inner: DexieSlaidsRepository, quirks: RemoteQuirks = {
       await inner.saveTemplate(template)
     },
     deleteTemplate: (id) => inner.deleteTemplate(id),
+    loadAutocorrectRules: () => inner.loadAutocorrectRules(),
+    saveAutocorrectRules: (rules) => inner.saveAutocorrectRules(rules),
     putAsset: async (presentationId, ref, blob) => {
       if (quirks.failAssets) throw new RepositoryError('Filen ble avvist.')
       const owners = await inner.listPresentations()
@@ -187,6 +190,20 @@ function presentationWithAsset(base: Presentation): Presentation {
 }
 
 describe('DexieSlaidsRepository', () => {
+  it('keeps the autoerstatt rules: defaults until a list is saved, and an empty list as a choice', async () => {
+    const database = freshDatabase()
+    const repository = new DexieSlaidsRepository(database)
+    expect(await repository.loadAutocorrectRules()).toEqual(DEFAULT_AUTOCORRECT_RULES)
+
+    await repository.saveAutocorrectRules([{ from: '(c)', to: '©' }, { from: '', to: 'x' }])
+    expect(await new DexieSlaidsRepository(database).loadAutocorrectRules()).toEqual([
+      { from: '(c)', to: '©' },
+    ])
+
+    await repository.saveAutocorrectRules([])
+    expect(await repository.loadAutocorrectRules()).toEqual([])
+  })
+
   it('refuses a save from a reader whose copy is older than what is stored', async () => {
     // Two repositories over one database: two tabs, or two devices. Neither
     // owns the deck more than the other, and IndexedDB has no version column,

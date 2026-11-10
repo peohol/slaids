@@ -33,9 +33,6 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl + B / I / U', 'Fet / kursiv / understreket'],
       ['Ctrl + Shift + V', 'Lim inn som ren tekst'],
       ['Shift + F10', 'Hurtigmeny for markeringen'],
-      ['«mellomrom» - «mellomrom»', 'Blir til tankestrek (–)'],
-      ['...', 'Blir til ellipse (…)'],
-      ['«mellomrom» * «mellomrom»', 'Blir til punktseparator (·)'],
     ],
   },
   {
@@ -52,9 +49,12 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
 export function ShortcutsModal({
   open,
   onOpenChange,
+  onEditAutocorrect,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** The user's own typing substitutions are theirs to edit, not listed here. */
+  onEditAutocorrect: () => void
 }) {
   return (
     <Modal
@@ -82,6 +82,20 @@ export function ShortcutsModal({
               </div>
             ))}
           </dl>
+          {group.title === 'Tekst' && (
+            <p className="hint">
+              Det som byttes ut mens du skriver – for eksempel at «mellomrom» - «mellomrom» blir til
+              tankestrek – bestemmer du selv under{' '}
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                data-testid="shortcuts-autocorrect"
+                onClick={onEditAutocorrect}
+              >
+                Autoerstatt
+              </button>
+            </p>
+          )}
         </section>
       ))}
     </Modal>

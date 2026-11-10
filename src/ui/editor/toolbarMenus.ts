@@ -123,6 +123,7 @@ export interface HelperToolHandlers {
   onIdeas: () => void
   onSandbox: () => void
   onShowShortcuts: () => void
+  onEditAutocorrect: () => void
 }
 
 /** Aids to working, rather than parts of the presentation. */
@@ -153,6 +154,14 @@ export function helperToolEntries(handlers: HelperToolHandlers): MenuAction[] {
       icon: 'code',
       testId: 'menu-shortcuts',
       onSelect: handlers.onShowShortcuts,
+    },
+    {
+      kind: 'action',
+      id: 'autocorrect',
+      label: 'Autoerstatt',
+      icon: 'text',
+      testId: 'menu-autocorrect',
+      onSelect: handlers.onEditAutocorrect,
     },
   ]
 }

@@ -6,6 +6,11 @@
  * clear error instead of a broken editor.
  */
 
+import {
+  defaultAutocorrectRules,
+  normalizeAutocorrectRules,
+  type AutocorrectRule,
+} from '../domain/autocorrect'
 import { migratePresentation } from '../domain/migrations'
 import { presentationRevision } from '../domain/revision'
 import { validateLayoutTemplate } from '../domain/schema'
@@ -26,6 +31,9 @@ import {
   type SlaidsRepository,
   type StoredAsset,
 } from './repository'
+
+/** The `settings` key the autoerstatt list is stored under. */
+const AUTOCORRECT_SETTING = 'autocorrect'
 
 /** Why a trashed presentation is not found: it is somewhere else, and can come back. */
 export function trashedMessage(id: string): string {
@@ -342,6 +350,18 @@ export class DexieSlaidsRepository implements SlaidsRepository {
 
   async deleteTemplate(id: string): Promise<void> {
     await this.database.templates.delete(id)
+  }
+
+  async loadAutocorrectRules(): Promise<AutocorrectRule[]> {
+    const record = await this.database.settings.get(AUTOCORRECT_SETTING)
+    return record ? normalizeAutocorrectRules(record.value) : defaultAutocorrectRules()
+  }
+
+  async saveAutocorrectRules(rules: readonly AutocorrectRule[]): Promise<void> {
+    await this.database.settings.put({
+      key: AUTOCORRECT_SETTING,
+      value: normalizeAutocorrectRules(rules),
+    })
   }
 
   async putAsset(presentationId: string, ref: AssetRef, blob: Blob): Promise<void> {

@@ -106,6 +106,7 @@ export function CompactToolsPanel({
             onIdeas: onOpenIdeas,
             onSandbox: onOpenSandbox,
             onShowShortcuts,
+            onEditAutocorrect: toolbar.onEditAutocorrect,
           })}
         />
       </div>
