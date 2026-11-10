@@ -37,6 +37,7 @@ function CitationNodeView({ node }: NodeViewProps) {
     <NodeViewWrapper
       as="sup"
       className={classes.join(' ')}
+      style={authorYearLabels ? { whiteSpace: 'inherit' } : undefined}
       data-citation=""
       contentEditable={false}
       title={onCitationClick ? 'Åpne referansen' : undefined}
