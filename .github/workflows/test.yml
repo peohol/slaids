@@ -1,7 +1,7 @@
 # Typesjekken, linten, enhetstestene og byggingen, på hver PR og på main.
 #
 # Dette er porten et bidrag skal gjennom. Den kjører nøyaktig de fire
-# kommandoene `CLAUDE.md` ber en bidragsyter kjøre lokalt, i den rekkefølgen —
+# kommandoene `AGENTS.md` ber en bidragsyter kjøre lokalt, i den rekkefølgen —
 # og den finnes fordi «jeg kjørte dem» ikke er noe et repo kan kontrollere.
 # Vercel-sjekken som allerede står på hver PR er en *deploy*: den kjører
 # `tsc --noEmit && vite build`, så den fanger typefeil og et bygg som brekker,

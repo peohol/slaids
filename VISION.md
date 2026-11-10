@@ -26,6 +26,6 @@ riktig.
 | ------------------------------------------- | ------------------------------------ |
 | `IMPLEMENTATION_PLAN.md`                    | Normativ spesifikasjon               |
 | `README.md`                                 | Hva som finnes i dag, og hvordan kjøre det |
-| `CLAUDE.md`                                 | Arbeidsregler og kjerneinvarianter for utvikling |
+| `AGENTS.md`                                 | Arbeidsregler og kjerneinvarianter for utvikling |
 | `docs/archive/VISION.original-2026-08-20.md` | Historikk, ikke normativ             |
 | `VISION.md` (dette dokumentet)              | Peker, ikke normativ                 |

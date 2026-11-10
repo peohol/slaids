@@ -17,7 +17,7 @@
  * OAuth 2.1 authorization server with PKCE, refresh-token rotation, dynamic
  * client registration and RFC 8414 metadata. Writing a second one here would be
  * a second user directory, a second consent screen and a second set of secrets
- * for the same people — which `CLAUDE.md` already forbids for the browser
+ * for the same people — which `AGENTS.md` already forbids for the browser
  * ("aldri et eget bruker-/passordsystem") and which is no more attractive
  * server-side.
  *

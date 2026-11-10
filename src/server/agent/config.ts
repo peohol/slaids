@@ -1,7 +1,7 @@
 /**
  * What the agent API needs from its environment, and what it refuses.
  *
- * Slaids has two storage modes and no fallback between them (see `CLAUDE.md`).
+ * Slaids has two storage modes and no fallback between them (see `AGENTS.md`).
  * The REST layer inherits that rule in the sharpest possible form: it exists
  * only in Supabase mode. There is no local mode for it — a server has no
  * IndexedDB to serve from — so a deployment without Supabase credentials

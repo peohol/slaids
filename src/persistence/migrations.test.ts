@@ -48,7 +48,7 @@ describe(DELETE_FOLDER_FUNCTION, () => {
 
   it('finnes som en migrasjon som kan kjøres på nytt', () => {
     expect(file).not.toBe('')
-    // `CLAUDE.md`'s rule for every Slaids migration, and what makes a file safe
+    // `AGENTS.md`'s rule for every Slaids migration, and what makes a file safe
     // to re-run in the SQL editor or against a database whose ledger is
     // incomplete.
     expect(sql).toMatch(

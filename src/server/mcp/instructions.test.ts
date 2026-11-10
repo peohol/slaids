@@ -720,7 +720,7 @@ describe('én regel, ett sted', () => {
 
   it('lar guiden si de samme stadiene som domenet', () => {
     /*
-     * The guide is what `CLAUDE.md` sends a developing agent to read before it
+     * The guide is what `AGENTS.md` sends a developing agent to read before it
      * touches the agent's rules, so a wrong stage here is not cosmetic: it can
      * put back the very confusion this flow spent its rounds removing. It named
      * stages the domain no longer has, from a flow where an agent reported its

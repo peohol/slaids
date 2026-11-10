@@ -349,7 +349,7 @@ describe('et OAuth-token på MCP', () => {
   })
 
   it('kan ikke publisere med mindre installasjonen sier det uttrykkelig', async () => {
-    // `CLAUDE.md`: ordinary editing never carries the right to publish. The
+    // `AGENTS.md`: ordinary editing never carries the right to publish. The
     // default grant is the three editing scopes, so this is the one operation
     // family an OAuth connector cannot reach out of the box.
     const { harnessed, server } = await oauthHarness()
