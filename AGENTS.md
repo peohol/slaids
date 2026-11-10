@@ -28,7 +28,7 @@ Slaids er en nettleserbasert presentasjonseditor med matematisk sonelayout. Diss
 ## Viktige tekniske grenser
 
 - Sonegeometri beregnes sentralt i `src/domain/geometry.ts`. Bevar prinsippet om ett globalt gap; ikke lag parallelle geometri-, rendrings- eller innholdstilpasningssystemer.
-- En lovlig lagring skal ikke skjule synlig innhold. Bruk eksisterende innholdsmåling og fit-kontroll; les de detaljerte reglene i `IMPLEMENTATION_PLAN.md`.
+- En gyldig redigeringsoperasjon skal ikke skjule synlig innhold. Bruk eksisterende innholdsmåling og fit-kontroll, og følg eventuelle eksplisitte unntak i `IMPLEMENTATION_PLAN.md`.
 - Persistens velges i `src/persistence/activeRepository.ts`: Supabase når nødvendige variabler er satt, ellers Dexie når ingen er satt. Delvis konfigurasjon skal gi feil, ikke stille fallback. Ikke lagre presentasjoner eller filer i `localStorage`.
 - Supabase Auth er eneste brukerautentisering. Deling publiserer et renset snapshot, aldri den private arbeidskopien. REST og MCP deler domenelogikk og håndhever tillatelser på serveren.
 - Eksterne filer går gjennom `src/domain/assetIngress.ts`; SVG skal renses før lagring.
