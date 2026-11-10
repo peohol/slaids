@@ -25,7 +25,8 @@ export interface ModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
-  description?: string
+  /** A line under the title; more than one line is given as elements. */
+  description?: ReactNode
   children: ReactNode
   footer?: ReactNode
   width?: number

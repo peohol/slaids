@@ -49,6 +49,9 @@ test.describe('autoerstatning', () => {
     await page.getByTestId('context-menu').getByTestId('menu-autocorrect').click()
     const dialog = page.getByTestId('autocorrect-modal')
     await expect(dialog.getByTestId('autocorrect-rule')).toHaveCount(8)
+    await expect(dialog.locator('.dialog__description')).toHaveText(
+      'Reglene gjelder på tvers av presentasjoner.␣ er mellomrom (space).',
+    )
     // The defaults are mdeditz's eight; a new rule is typed straight into its row.
     await dialog.getByTestId('autocorrect-add').click()
     await page.keyboard.type('...')
@@ -131,6 +134,50 @@ test.describe('autoerstatning', () => {
     await expect.poll(order).toEqual(moved)
   })
 
+
+  test('en regel som dras stopper ved første og siste plass i lista', async ({ page }) => {
+    await createPresentation(page, 'Regelgrenser')
+    await page.getByTestId('toolbar-menu-tools').click()
+    await page.getByTestId('context-menu').getByTestId('menu-autocorrect').click()
+    const dialog = page.getByTestId('autocorrect-modal')
+    const grip = dialog.getByTestId('autocorrect-grip').nth(3)
+    await expect(grip.locator('svg')).toBeVisible()
+
+    /** Where the lifted row and the list are, and how far the dialog can scroll. */
+    const bounds = () =>
+      dialog.locator('.dialog__body').evaluate((body) => {
+        const list = body.querySelector('.autocorrect-rules')!.getBoundingClientRect()
+        const lifted = body.querySelector('.autocorrect-rule--dragging')!.getBoundingClientRect()
+        return {
+          above: list.top - lifted.top,
+          below: lifted.bottom - list.bottom,
+          room: body.scrollHeight - body.clientHeight,
+        }
+      })
+    const room = await dialog
+      .locator('.dialog__body')
+      .evaluate((body) => body.scrollHeight - body.clientHeight)
+
+    const box = (await grip.boundingBox())!
+    const x = box.x + box.width / 2
+    await page.mouse.move(x, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(x, box.y + 30, { steps: 3 })
+    // Far past the end of the list and the window: the row stops at the last
+    // place, and the dialog does not grow room to scroll into.
+    await page.mouse.move(x, box.y + 2000, { steps: 20 })
+    await page.waitForTimeout(600)
+    let now = await bounds()
+    expect(now.below).toBeLessThanOrEqual(1)
+    expect(now.room).toBeLessThanOrEqual(room + 1)
+    // And far above it: the row stops at the first place, not under the heading.
+    await page.mouse.move(x, box.y - 2000, { steps: 20 })
+    await page.waitForTimeout(600)
+    now = await bounds()
+    expect(now.above).toBeLessThanOrEqual(1)
+    await page.mouse.up()
+    await expect(dialog.getByTestId('autocorrect-from').first()).toHaveValue('--')
+  })
 
   test('erstatter mens man skriver i innhold, korttittel og slidetittel', async ({ page }) => {
     await createPresentation(page, 'Autoerstatning')

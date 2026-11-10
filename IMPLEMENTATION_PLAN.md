@@ -2730,8 +2730,8 @@ av `normalizeAutocorrectRules` ved hver lesing og skriving
 
 Rekkefølgen i lista er også brukerens: en regel flyttes ved å dra i grepet
 foran den – samme dnd-kit-sortering og samme pekersensor som filmstripen –
-eller med tastaturet (mellomrom løfter, pilene flytter, Escape legger tilbake),
-og lista lagres i den rekkefølgen den står. Rekkefølgen er bare for oversikten
+eller med tastaturet (mellomrom løfter, pilene flytter, Escape legger tilbake).
+En løftet regel stopper ved første og siste plass i lista, og lista lagres i den rekkefølgen den står. Rekkefølgen er bare for oversikten
 og avgjør ikke hvilken regel som treffer. Det finnes ingen knapp som setter
 lista tilbake til standardreglene; standardlista er bare utgangspunktet for en
 bruker som aldri har lagret.

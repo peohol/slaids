@@ -2463,6 +2463,12 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
+  color: var(--chrome-text-dim);
+}
+
+.autocorrect-rule__grip:hover,
+.autocorrect-rule--dragging .autocorrect-rule__grip {
+  color: var(--chrome-text);
 }
 
 /* The rule in the air sits over the ones stepping aside for it. */

@@ -63,8 +63,20 @@ let nextKey = 0
 const toRows = (rules: readonly AutocorrectRule[]): Row[] =>
   rules.map((rule) => ({ key: `rule-${nextKey++}`, from: showSpaces(rule.from), to: showSpaces(rule.to) }))
 
-/** A rule only moves up and down: the list is one column. */
-const alongTheList: Modifier = ({ transform }) => ({ ...transform, x: 0 })
+/**
+ * A rule moves only up and down, and only as far as the list goes: it stops at
+ * the first place and the last instead of being carried on past them — below
+ * the list, where it would make the dialog scroll on for ever, or up under the
+ * dialog's heading. The bounds are the list's own (`ul`, the row's parent), and
+ * both rectangles are measured at the lift, so scrolling the dialog changes
+ * neither side of the comparison.
+ */
+const withinTheList: Modifier = ({ transform, draggingNodeRect, containerNodeRect }) => {
+  if (!draggingNodeRect || !containerNodeRect) return { ...transform, x: 0 }
+  const highest = containerNodeRect.top - draggingNodeRect.top
+  const lowest = containerNodeRect.bottom - draggingNodeRect.bottom
+  return { ...transform, x: 0, y: Math.min(Math.max(transform.y, highest), lowest) }
+}
 
 const LIFT_INSTRUCTIONS =
   'Trykk mellomrom for å løfte regelen, flytt den med pil opp og ned, og trykk mellomrom igjen for å slippe den. Escape legger den tilbake.'
@@ -101,7 +113,7 @@ function SortableRule({ id, children }: { id: string; children: ReactNode }) {
         {...attributes}
         {...listeners}
       >
-        <Icon name="grip" size={14} />
+        <Icon name="handle" size={18} />
       </span>
       {children}
     </li>
@@ -211,7 +223,13 @@ export function AutocorrectModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Autoerstatt"
-      description={`Det du skriver til venstre byttes ut med det til høyre, i alle presentasjonene dine. ${VISIBLE_SPACE} er et mellomrom.`}
+      description={
+        <>
+          Reglene gjelder på tvers av presentasjoner.
+          <br />
+          {VISIBLE_SPACE} er mellomrom (space).
+        </>
+      }
       testId="autocorrect-modal"
       width={520}
       holdEscape={moving}
@@ -236,7 +254,7 @@ export function AutocorrectModal({
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
-        modifiers={[alongTheList]}
+        modifiers={[withinTheList]}
         accessibility={{
           screenReaderInstructions: { draggable: LIFT_INSTRUCTIONS },
           announcements: announcements((id) => ids.indexOf(String(id)) + 1),
