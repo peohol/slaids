@@ -10,14 +10,15 @@ import { Fragment, type CSSProperties, type ReactNode } from 'react'
 import {
   CARD_DIVIDER_COLOR,
   CARD_RADIUS,
-  CARD_SHADOW,
   DEFAULT_VERTICAL_ALIGN,
   SUBFIELD_DIVIDER_THICKNESS,
 } from '../../domain/constants'
 import { CARD_TITLE_PART, subfieldPart } from '../../domain/fit'
-import { themeMetrics } from '../../domain/metrics'
+import { cardShadow, themeMetrics, type ThemeMetrics } from '../../domain/metrics'
 import { bestTextColor, dividerColorFor, textShadowFor, WHITE } from '../../domain/color'
+import { titleAlign } from '../../domain/richdoc'
 import type {
+  TextAlign,
   CardBody,
   ImagePanel,
   Subfield,
@@ -64,6 +65,108 @@ const VERTICAL_ALIGNMENT = {
 /** Where a field's flowed content sits, defaulting to `DEFAULT_VERTICAL_ALIGN`. */
 export function flowAlign(align: VerticalAlign | undefined): string {
   return VERTICAL_ALIGNMENT[align ?? DEFAULT_VERTICAL_ALIGN]
+}
+
+/** Hvor en tittelboks smalere enn kortet står: der tittelen er justert. */
+const TITLE_BOX_ALIGN = {
+  left: 'flex-start',
+  center: 'center',
+  right: 'flex-end',
+} as const satisfies Record<TextAlign, string>
+
+/** Inline-stilene til et kort med tittel: kortet, headeren og innholdet. */
+export interface TitledCardStyles {
+  card: CSSProperties
+  header: CSSProperties
+  /** Innholdets egen kortflate – hjørner, og skyggen når det er et eget kort. */
+  body: CSSProperties
+  /** Om et bildeinnhold er et eget kort i stedet for kortets nedre halvdel. */
+  bodyIsCard: boolean
+}
+
+/**
+ * Hvordan et kort med tittel settes sammen i temaets utseende
+ * (`TITLED_CARD_STYLES`).
+ *
+ * Hvert tall er et token: headerens høyde, gapet en svevende header holder,
+ * hjørnet en fane lar være fritt (`cardTitleInset`) – de samme estimatoren og
+ * bildebriefen leser fra `ThemeMetrics`, så det som tegnes her og det de
+ * regner med, ikke kan gli fra hverandre. En header smalere enn kortet er
+ * nøyaktig like bred som tittelen pluss polstring (`max-content`) og aldri
+ * bredere enn plassen; en lengre tittel renner over sidelengs som enhver
+ * korttittel, og det er det fit-målingen og tittelens forminskning leser.
+ */
+export function titledCardStyles(
+  tokens: ThemeMetrics,
+  shadow: string,
+  align: TextAlign,
+  isImage: boolean,
+): TitledCardStyles {
+  const height = tokens.cardHeaderHeight
+  const padding = `0 ${tokens.cardPadding}px`
+  if (tokens.titledCardStyle === 'joined') {
+    return {
+      card: {
+        borderRadius: CARD_RADIUS,
+        boxShadow: shadow,
+        /*
+         * Headeren og innholdet har hver sine hjørner, så kortet har ingenting
+         * eget å klippe – og et bildeinnhold trenger plassen: editoren tegner
+         * de skjulte delene av en beskjæring *utenfor* rammen, og en klipping
+         * her ville skjult akkurat det den forhåndsvisningen finnes for å vise.
+         * Et tekstinnhold klippes av `.card-body` uansett.
+         */
+        overflow: isImage ? 'visible' : 'hidden',
+      },
+      header: { height, padding, borderRadius: `${CARD_RADIUS}px ${CARD_RADIUS}px 0 0` },
+      body: { borderRadius: `0 0 ${CARD_RADIUS}px ${CARD_RADIUS}px` },
+      bodyIsCard: false,
+    }
+  }
+
+  // Headeren og innholdet er to bokser som hver klipper sitt eget innhold og
+  // kaster sin egen skygge – som et klippende kort rundt dem ville kuttet.
+  const room = `calc(100% - ${tokens.cardTitleInset}px)`
+  const titleBox: CSSProperties = {
+    alignSelf: TITLE_BOX_ALIGN[align],
+    width: 'max-content',
+    maxWidth: room,
+    // En tom tittel er fortsatt en boks man kan se og klikke i.
+    minWidth: `min(${height * 2}px, ${room})`,
+    marginInline: tokens.cardTitleInset / 2,
+    boxShadow: shadow,
+  }
+  const bodyCard: CSSProperties = { borderRadius: CARD_RADIUS, boxShadow: shadow }
+  if (tokens.titledCardStyle === 'tab') {
+    // Fanen går én hjørneradius ned bak innholdet, så dens egne nedre hjørner
+    // aldri synes og innholdets avrundede øvre hjørner står foran den.
+    return {
+      card: { overflow: 'visible' },
+      header: {
+        ...titleBox,
+        height: height + CARD_RADIUS,
+        padding: `0 ${tokens.cardPadding}px ${CARD_RADIUS}px`,
+        marginBottom: -CARD_RADIUS,
+        borderRadius: `${CARD_RADIUS}px ${CARD_RADIUS}px 0 0`,
+      },
+      body: { ...bodyCard, position: 'relative', zIndex: 1 },
+      bodyIsCard: true,
+    }
+  }
+  return {
+    card: { overflow: 'visible' },
+    header: {
+      ...titleBox,
+      height,
+      padding,
+      // Like mye luft på skjermen uansett hvor lite sonen tegnes: delt på
+      // sonens egen skala (`drawZoneFit`), som er 1 alle andre steder.
+      marginBottom: `calc(${tokens.cardBodyOffset - height}px / var(--slaids-zone-fit, 1))`,
+      borderRadius: CARD_RADIUS,
+    },
+    body: bodyCard,
+    bodyIsCard: true,
+  }
 }
 
 function SubfieldStack({
@@ -193,7 +296,7 @@ export function ZoneContentFrame({
           background: content.backgroundColor,
           color,
           borderRadius: CARD_RADIUS,
-          boxShadow: CARD_SHADOW,
+          boxShadow: cardShadow(theme),
           padding: tokens.cardPadding,
           textShadow: textShadowFor(content.backgroundColor),
         }}
@@ -215,8 +318,10 @@ export function ZoneContentFrame({
    * single stored document.
    */
   const titled = content
+  const isImage = titled.kind === 'titled-image-card'
   const headerColor = titled.headerColor ?? colors.accent
   const headerText = bestTextColor(headerColor)
+  const look = titledCardStyles(tokens, cardShadow(theme), titleAlign(titled.title), isImage)
   return (
     /*
      * The card paints nothing itself: the header and the body each carry their
@@ -234,18 +339,10 @@ export function ZoneContentFrame({
     <div
       className="zone-content zone-content--card zone-content--titled"
       data-content-kind={titled.kind}
+      data-titled-style={tokens.titledCardStyle}
       style={{
-        borderRadius: CARD_RADIUS,
-        boxShadow: CARD_SHADOW,
+        ...look.card,
         background: 'transparent',
-        /*
-         * The header and the body each carry their own corners, so the card
-         * has nothing of its own to clip — and a picture body needs the room:
-         * the editor draws the hidden parts of a crop *outside* the frame, and
-         * a clip here would hide the very thing that preview exists to show.
-         * A text body is clipped by `.card-body` either way.
-         */
-        overflow: titled.kind === 'titled-image-card' ? 'visible' : 'hidden',
         /*
          * A caption with no colour of its own reads `--slaids-heading-pill`
          * (see `captionTint`), the same variable a heading pill reads. Scoping
@@ -265,11 +362,9 @@ export function ZoneContentFrame({
         data-fit-axis="x"
         data-fit-part={CARD_TITLE_PART}
         style={{
+          ...look.header,
           background: headerColor,
           color: headerText,
-          height: tokens.cardHeaderHeight,
-          padding: `0 ${tokens.cardPadding}px`,
-          borderRadius: `${CARD_RADIUS}px ${CARD_RADIUS}px 0 0`,
           textShadow: textShadowFor(headerColor),
           fontFamily: theme.headingFontFamily,
         }}
@@ -280,16 +375,22 @@ export function ZoneContentFrame({
         /*
          * The picture *is* the body: no padding and no white beneath it, so the
          * card reads as a title panel over a photograph rather than as a
-         * photograph mounted on a card.
+         * photograph mounted on a card. Når tittelen er en egen boks, er bildet
+         * et eget kort igjen, med egne hjørner og egen skygge.
          */
-        <div className="card-body card-body--image">{renderImage(titled.image, 'body')}</div>
+        <div
+          className="card-body card-body--image"
+          style={{ position: look.body.position, zIndex: look.body.zIndex }}
+        >
+          {renderImage(titled.image, look.bodyIsCard ? 'card' : 'body')}
+        </div>
       ) : (
         <div
           className="card-body"
           style={{
+            ...look.body,
             background: WHITE,
             padding: tokens.cardPadding,
-            borderRadius: `0 0 ${CARD_RADIUS}px ${CARD_RADIUS}px`,
             color: '#000',
           }}
         >

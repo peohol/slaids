@@ -1,7 +1,7 @@
 /**
  * The presentation's theme: what the whole deck is drawn in.
  *
- * A theme is five values and one command. `setTheme` already owns all of
+ * A theme is a handful of values and one command. `setTheme` already owns all of
  * them — it normalises the colour, refuses an empty font, bounds the two scales
  * and re-measures the deck against the *prospective* theme — so this file
  * translates names and does nothing else. There is no validation here, no
@@ -80,6 +80,7 @@ import {
   SPACING_RANGE,
   type ThemeScalePreset,
 } from '../../domain/metrics'
+import { TITLED_CARD_STYLES, type TitledCardStyle } from '../../domain/constants'
 import { ok } from '../../domain/result'
 import type { PresentationTheme } from '../../domain/types'
 import { defineOperation, expectedRevisionSchema, presentationIdSchema } from '../operation'
@@ -122,6 +123,10 @@ export interface ThemeView {
   spacing: number
   /** Skriftstørrelse: one multiplier on every type size in the deck. */
   fontScale: number
+  /** Om kort, bilder, inndelingspiller og miniapp-rammer kaster skygge. */
+  boxShadows: boolean
+  /** Hvordan et kort med tittel tegner tittelen. */
+  titledCardStyle: TitledCardStyle
 }
 
 function fontView(stack: string): ThemeFontView {
@@ -140,6 +145,8 @@ export function themeView(theme: PresentationTheme): ThemeView {
     bodyFont: fontView(theme.bodyFontFamily),
     spacing: theme.spacing,
     fontScale: theme.fontScale,
+    boxShadows: theme.boxShadows,
+    titledCardStyle: theme.titledCardStyle,
   }
 }
 
@@ -167,7 +174,7 @@ const fontChoices = GUARANTEED_FONT_IDS.join(', ')
 export const setThemeOperation = defineOperation({
   name: 'set_theme',
   summary:
-    'Sett presentasjonens tema: font for titler, font for brødtekst, luft og skriftstørrelse. Temaet er globalt – enkeltslides kan ikke avvike. Farger er ikke her: de settes per inndeling med set_section_colors, og arves av slidene fram til neste inndeling. Alt måles på nytt mot hele dekket, og en endring som ville skjult innhold avvises med CONTENT_DOES_NOT_FIT uten at noe lagres. Utelatte felter beholder verdien de har.',
+    'Sett presentasjonens tema: font for titler, font for brødtekst, luft, skriftstørrelse, skygger og utseendet på kort med tittel. Temaet er globalt – enkeltslides kan ikke avvike. Farger er ikke her: de settes per inndeling med set_section_colors, og arves av slidene fram til neste inndeling. Alt måles på nytt mot hele dekket, og en endring som ville skjult innhold avvises med CONTENT_DOES_NOT_FIT uten at noe lagres. Utelatte felter beholder verdien de har.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({
@@ -197,6 +204,16 @@ export const setThemeOperation = defineOperation({
       .describe(
         `Skriftstørrelse: én multiplikator på all typografi, inkludert tittelsonen og kortheaderen. Editorens trinn: ${presetHint(FONT_SCALE_PRESETS)}. Alt mellom ${FONT_SCALE_RANGE.min} og ${FONT_SCALE_RANGE.max} er lov.`,
       ),
+    boxShadows: z
+      .boolean()
+      .optional()
+      .describe('Om kort, bilder, inndelingspiller og miniapp-rammer kaster skygge. Endrer ingen geometri.'),
+    titledCardStyle: z
+      .enum(TITLED_CARD_STYLES)
+      .optional()
+      .describe(
+        'Hvordan kort med tittel tegnes: joined = tittel og innhold i ett kort med tittelfeltet over hele bredden; tab = innholdet er et eget kort og tittelen en farget fane bak det, like bred som tittelteksten og høyst kortbredden minus én hjørneradius; floating = tittelen er et eget kort, like bredt som teksten og høyst like bredt som innholdet, ett gap over innholdskortet. tab gir tittelen litt mindre bredde, floating gir innholdet ett gap mindre høyde, så en endring som ville skjult tekst avvises med CONTENT_DOES_NOT_FIT.',
+      ),
   }),
   run(context, input): Promise<AgentResult<{ presentationId: string; theme: ThemeView }>> {
     return mutatePresentation(context, input, (presentation) => {
@@ -220,6 +237,8 @@ function patchFrom(input: {
   bodyFont?: FontId
   spacing?: number
   fontScale?: number
+  boxShadows?: boolean
+  titledCardStyle?: TitledCardStyle
 }): Partial<PresentationTheme> {
   return {
     ...(input.headingFont === undefined
@@ -228,6 +247,8 @@ function patchFrom(input: {
     ...(input.bodyFont === undefined ? {} : { bodyFontFamily: fontStackFor(input.bodyFont) }),
     ...(input.spacing === undefined ? {} : { spacing: input.spacing }),
     ...(input.fontScale === undefined ? {} : { fontScale: input.fontScale }),
+    ...(input.boxShadows === undefined ? {} : { boxShadows: input.boxShadows }),
+    ...(input.titledCardStyle === undefined ? {} : { titledCardStyle: input.titledCardStyle }),
   }
 }
 

@@ -13,6 +13,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as commands from './index'
+import * as manual from './manualLayout'
 
 const ROOT = join(process.cwd(), 'src')
 /** The only part of the app that may resize a zone by hand: the editor's UI. */
@@ -42,8 +43,9 @@ describe('menneskelig soneredigering', () => {
   })
 
   it('er ikke en del av kommandoflaten Agent Core og API-ene bygger på', () => {
-    expect(Object.keys(commands)).not.toContain('setSplitWeightsByHand')
-    expect(Object.keys(commands)).not.toContain('rearrangeZonesByHand')
+    const exported = Object.keys(manual)
+    expect(exported.length).toBeGreaterThan(0)
+    expect(Object.keys(commands).filter((name) => exported.includes(name))).toEqual([])
   })
 
   it('er faktisk i bruk der den er tillatt, så testen over vokter noe', () => {

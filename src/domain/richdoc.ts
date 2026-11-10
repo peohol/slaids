@@ -97,6 +97,15 @@ export function drawnAlign(align: unknown, block: AlignableBlock): TextAlign {
   return align === 'left' || align === 'center' || align === 'right' ? align : DEFAULT_TEXT_ALIGN[block]
 }
 
+/**
+ * Hvor en tittel på én linje tegnes: avsnittets justering, eller titlenes
+ * standard. Et kort med tittelen som fane eller eget kort plasserer den boksen
+ * etter dette, så en venstrejustert tittel står til venstre.
+ */
+export function titleAlign(doc: TitleDoc): TextAlign {
+  return drawnAlign(doc.content?.[0]?.attrs?.textAlign, 'title')
+}
+
 export function imageNode(
   assetId: string,
   options: {

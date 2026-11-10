@@ -116,7 +116,8 @@
   flex: 0 0 auto;
   overflow: hidden;
   white-space: nowrap;
-  font-size: var(--slaids-card-header-font-size);
+  /* En tittel for lang for headeren settes mindre for seg selv (`fitCardTitles`). */
+  font-size: calc(var(--slaids-card-header-font-size) * var(--slaids-title-fit, 1));
   font-weight: 600;
 }
 

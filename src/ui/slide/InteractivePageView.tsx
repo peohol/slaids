@@ -22,14 +22,13 @@
 
 import {
   CARD_RADIUS,
-  CARD_SHADOW,
   PROGRESS_BAR_HEIGHT,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   TITLE_LINE_HEIGHT,
 } from '../../domain/constants'
 import { bestTextColor, textShadowFor } from '../../domain/color'
-import { geometryForTheme, themeMetrics } from '../../domain/metrics'
+import { cardShadow, geometryForTheme, themeMetrics } from '../../domain/metrics'
 import type { InteractiveSlide } from '../../domain/types'
 import {
   ACTIVATE_BUTTON_ATTRIBUTE,
@@ -68,7 +67,7 @@ export function InteractivePageView({ slide }: { slide: InteractiveSlide }) {
     background: PLAY_GREEN,
     color: bestTextColor(PLAY_GREEN),
     borderRadius: CARD_RADIUS,
-    boxShadow: CARD_SHADOW,
+    boxShadow: cardShadow(theme),
   }
 
   return (

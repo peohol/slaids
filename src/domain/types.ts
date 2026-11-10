@@ -11,7 +11,7 @@
 import type { IdeaRow } from './ideas'
 import type { ImageDeposit } from './imageDeposit'
 import type { PlannedImage } from './imagePlan'
-import type { InteractiveStyleContract } from './constants'
+import type { InteractiveStyleContract, TitledCardStyle } from './constants'
 
 export type NodeId = string
 
@@ -391,6 +391,13 @@ export interface PresentationTheme {
   spacing: number
   /** Skriftstørrelse: one multiplier on every type size. */
   fontScale: number
+  /**
+   * Om kort, bilder, inndelingspiller og miniapp-rammer kaster skygge
+   * (`CARD_SHADOW`). Bare maling: flytter ingenting og skjuler ingenting.
+   */
+  boxShadows: boolean
+  /** Hvordan et kort med tittel tegner tittelen. Se `TITLED_CARD_STYLES`. */
+  titledCardStyle: TitledCardStyle
 }
 
 export interface Reference {

@@ -139,12 +139,16 @@ describe('contentKindOptions', () => {
       bodyFontFamily: 'b',
       spacing: 2,
       fontScale: 1.3,
+      boxShadows: true,
+      titledCardStyle: 'joined',
     })
     const large = contentKindOptions(tall, {
       headingFontFamily: 'a',
       bodyFontFamily: 'b',
       spacing: 2,
       fontScale: 2,
+      boxShadows: true,
+      titledCardStyle: 'joined',
     })
     const titled = (options: ReturnType<typeof contentKindOptions>): boolean =>
       options.find((option) => option.kind === 'titled-card')?.disabled ?? false

@@ -6,6 +6,7 @@ import {
   CURRENT_INTERACTIVE_STYLE_CONTRACT,
   DEFAULT_BACKGROUND_COLOR,
   DEFAULT_PILL_COLOR,
+  DEFAULT_TITLED_CARD_STYLE,
   type InteractiveStyleContract,
 } from './constants'
 import { DEFAULT_BODY_FONT, DEFAULT_HEADING_FONT } from './fonts'
@@ -35,6 +36,8 @@ export function defaultTheme(): PresentationTheme {
     bodyFontFamily: DEFAULT_BODY_FONT,
     spacing: DEFAULT_SPACING,
     fontScale: DEFAULT_FONT_SCALE,
+    boxShadows: true,
+    titledCardStyle: DEFAULT_TITLED_CARD_STYLE,
   }
 }
 

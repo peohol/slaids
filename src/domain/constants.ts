@@ -120,6 +120,26 @@ export const CARD_HEADER_FONT_SIZE = 26
 export const CARD_SHADOW = '0 5px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.20)'
 
 /**
+ * Hvordan et kort med tittel tegner tittelen – et temavalg, så alle slike kort
+ * i et dekk ser like ut.
+ *
+ *  - `joined`: header og innhold er ett kort, headeren over hele bredden.
+ *  - `tab`: innholdet er et eget kort, avrundet hele veien rundt, og headeren
+ *    er en farget fane like bred som tittelen, som står opp bak det. Aldri
+ *    bredere enn innholdet minus én hjørneradius (`CARD_RADIUS`), så
+ *    innholdets avrundede hjørner alltid synes.
+ *  - `floating`: headeren er et eget kort like bredt som tittelen, høyst hele
+ *    bredden, ett globalt gap over innholdet.
+ *
+ * Det første er slik alle dekk lagret før valget fantes, ser ut.
+ */
+export const TITLED_CARD_STYLES = ['joined', 'tab', 'floating'] as const
+
+export type TitledCardStyle = (typeof TITLED_CARD_STYLES)[number]
+
+export const DEFAULT_TITLED_CARD_STYLE: TitledCardStyle = 'joined'
+
+/**
  * The caption over a picture.
  *
  * A caption is chrome on a photograph rather than a paragraph on a slide, so it

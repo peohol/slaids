@@ -7,8 +7,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_VERTICAL_ALIGN } from '../../domain/constants'
-import { flowAlign } from './ZoneContentFrame'
+import { CARD_RADIUS, CARD_SHADOW, DEFAULT_VERTICAL_ALIGN } from '../../domain/constants'
+import { themeMetrics } from '../../domain/metrics'
+import { flowAlign, titledCardStyles } from './ZoneContentFrame'
 
 describe('flowAlign', () => {
   it('reads an absent alignment as the default', () => {
@@ -26,5 +27,49 @@ describe('flowAlign', () => {
     }
     expect(flowAlign('middle')).toBe('safe center')
     expect(flowAlign('bottom')).toBe('safe end')
+  })
+})
+
+describe('titledCardStyles', () => {
+  const look = (style: 'joined' | 'tab' | 'floating', align: 'left' | 'center' | 'right' = 'center') =>
+    titledCardStyles(themeMetrics({ titledCardStyle: style }), CARD_SHADOW, align, false)
+
+  it('tegner ett kort med header over hele bredden når tittelen er i ett med innholdet', () => {
+    const joined = look('joined')
+    expect(joined.card.boxShadow).toBe(CARD_SHADOW)
+    expect(joined.header.alignSelf).toBeUndefined()
+    expect(joined.bodyIsCard).toBe(false)
+  })
+
+  it('gjør ellers innholdet til et eget kort, og hver boks kaster sin egen skygge', () => {
+    for (const style of ['tab', 'floating'] as const) {
+      const split = look(style)
+      expect(split.card.boxShadow, style).toBeUndefined()
+      expect(split.card.overflow, style).toBe('visible')
+      expect([split.header.boxShadow, split.body.boxShadow], style).toEqual([CARD_SHADOW, CARD_SHADOW])
+      expect(split.body.borderRadius, style).toBe(CARD_RADIUS)
+      expect(split.header.width, style).toBe('max-content')
+      expect(split.bodyIsCard, style).toBe(true)
+    }
+  })
+
+  it('lar en fane gå én radius ned bak innholdet, og aldri bredere enn innholdet minus én radius', () => {
+    const tab = look('tab')
+    expect(tab.header.maxWidth).toBe(`calc(100% - ${CARD_RADIUS}px)`)
+    expect(tab.header.marginBottom).toBe(-CARD_RADIUS)
+    expect(tab.body.zIndex).toBe(1)
+  })
+
+  it('holder en svevende header ett globalt gap over innholdet ved enhver soneskala, og lar den bli like bred', () => {
+    const tokens = themeMetrics({ titledCardStyle: 'floating' })
+    const floating = look('floating')
+    expect(floating.header.marginBottom).toBe(`calc(${tokens.gap}px / var(--slaids-zone-fit, 1))`)
+    expect(floating.header.maxWidth).toBe('calc(100% - 0px)')
+  })
+
+  it('plasserer tittelboksen der tittelen er justert', () => {
+    expect(look('tab', 'left').header.alignSelf).toBe('flex-start')
+    expect(look('tab', 'center').header.alignSelf).toBe('center')
+    expect(look('floating', 'right').header.alignSelf).toBe('flex-end')
   })
 })

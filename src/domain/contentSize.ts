@@ -68,6 +68,9 @@ export function minimumSizeForKind(
     case 'untitled-card':
       return { width: MIN_TEXT_WIDTH, height: tokens.cardPadding * 2 + oneTextLine(tokens) }
     case 'titled-card':
+      // Headerens egen høyde, aldri `cardBodyOffset`: hvor lite et kort kan
+      // være avhenger ikke av hvordan temaet tegner tittelen, så et bytte
+      // kan aldri ta en sone under minstemålet. Se `ThemeMetrics`.
       return {
         width: MIN_TEXT_WIDTH,
         height: tokens.cardHeaderHeight + tokens.cardPadding * 2 + oneTextLine(tokens),

@@ -131,7 +131,7 @@ export function Inspector({
   // a titled card's header removed — so the ratio copied here is the one the
   // prompt for this zone would print.
   const aspectRatio = rect
-    ? aspectRatioLabel(content ? panelFrame(content, rect, themeMetrics(theme).cardHeaderHeight) : rect)
+    ? aspectRatioLabel(content ? panelFrame(content, rect, themeMetrics(theme).cardBodyOffset) : rect)
     : null
   /* Which splits the size controls act on: the selected one's own children
      («inni»), and the one the selected zone is a child of («blant

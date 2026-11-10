@@ -25,6 +25,9 @@ import {
   CARD_HEADER_FONT_SIZE,
   CARD_HEADER_HEIGHT,
   CARD_PADDING,
+  CARD_RADIUS,
+  CARD_SHADOW,
+  DEFAULT_TITLED_CARD_STYLE,
   SECTION_SUBTITLE_FONT_SIZE,
   G,
   HEADING_FONT_SIZE,
@@ -35,6 +38,7 @@ import {
   SUBFIELD_GAP,
   TITLE_FONT_SIZE,
   titleZoneHeightFor,
+  type TitledCardStyle,
 } from './constants'
 import type { PresentationTheme } from './types'
 
@@ -59,6 +63,20 @@ export interface ThemeMetrics {
   sectionSubtitleFontSize: number
   cardHeaderFontSize: number
   cardHeaderHeight: number
+  /**
+   * Hvordan et kort med tittel tegner den (`TITLED_CARD_STYLES`), og de to
+   * tallene valget flytter: hvor langt under kortets overkant innholdet
+   * begynner – headeren, pluss et gap når headeren svever – og hvor mye av
+   * kortets bredde headeren aldri kan ta (én hjørneradius for en fane).
+   *
+   * Bevisst *ikke* en del av hvor lite et kort kan være (`contentSize.ts`):
+   * det er det samme uansett hvordan tittelen tegnes, så et bytte kan aldri
+   * etterlate en sone under minstemålet. Innhold et bytte gir for lite plass,
+   * tegnes mindre, akkurat som i en sone en person har dratt liten.
+   */
+  titledCardStyle: TitledCardStyle
+  cardBodyOffset: number
+  cardTitleInset: number
   titleZoneHeight: number
   /** The caption over a picture: its type, and the air beside it. */
   captionFontSize: number
@@ -144,8 +162,11 @@ function scaled(base: number, factor: number): number {
 export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
   const spacing = clamp(theme?.spacing ?? DEFAULT_SPACING, SPACING_RANGE, DEFAULT_SPACING)
   const font = clamp(theme?.fontScale ?? DEFAULT_FONT_SCALE, FONT_SCALE_RANGE, DEFAULT_FONT_SCALE)
+  const gap = Math.max(4, scaled(G, spacing))
+  const cardHeaderHeight = scaled(CARD_HEADER_HEIGHT, font)
+  const titledCardStyle = theme?.titledCardStyle ?? DEFAULT_TITLED_CARD_STYLE
   return {
-    gap: Math.max(4, scaled(G, spacing)),
+    gap,
     cardPadding: Math.max(4, scaled(CARD_PADDING, spacing)),
     subfieldGap: Math.max(4, scaled(SUBFIELD_GAP, spacing)),
     blockSpacing: Math.max(2, scaled(BLOCK_SPACING, spacing)),
@@ -158,12 +179,24 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
     titleFontSize: scaled(TITLE_FONT_SIZE, font),
     sectionSubtitleFontSize: scaled(SECTION_SUBTITLE_FONT_SIZE, font),
     cardHeaderFontSize: scaled(CARD_HEADER_FONT_SIZE, font),
-    cardHeaderHeight: scaled(CARD_HEADER_HEIGHT, font),
+    cardHeaderHeight,
+    titledCardStyle,
+    cardBodyOffset: cardHeaderHeight + (titledCardStyle === 'floating' ? gap : 0),
+    cardTitleInset: titledCardStyle === 'tab' ? CARD_RADIUS : 0,
     // The line the title is set on, and nothing more — see `TITLE_LINE_HEIGHT`.
     titleZoneHeight: titleZoneHeightFor(scaled(TITLE_FONT_SIZE, font)),
     captionFontSize: scaled(CAPTION_FONT_SIZE, font),
     captionSideGap: Math.max(4, scaled(CAPTION_SIDE_GAP, spacing)),
   }
+}
+
+/**
+ * Skyggen et kort, et bilde, en inndelingspille eller en miniapp-ramme kaster –
+ * eller ingen, når temaet har skrudd av skygger. Leses av alle renderere og av
+ * miniappenes stilkontrakt, så å skru dem av skrur av alle.
+ */
+export function cardShadow(theme?: Partial<PresentationTheme>): string {
+  return theme?.boxShadows === false ? 'none' : CARD_SHADOW
 }
 
 /**

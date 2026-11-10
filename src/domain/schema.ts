@@ -19,6 +19,7 @@ import {
   MAX_ZONE_RATIO,
   MIN_SPLIT_CHILDREN,
   MIN_ZONE_RATIO,
+  TITLED_CARD_STYLES,
   type PlannedImageField,
 } from './constants'
 import { validateTree } from './layout'
@@ -27,7 +28,7 @@ import { interactiveBudgetRefusal, storedInteractiveRefusal } from './interactiv
 import type { ImageDepositStatus } from './imageDeposit'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 17
+export const CURRENT_SCHEMA_VERSION = 18
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -224,6 +225,8 @@ export const themeSchema = z.object({
   bodyFontFamily: z.string().min(1),
   spacing: z.number().finite().min(SPACING_RANGE.min).max(SPACING_RANGE.max),
   fontScale: z.number().finite().min(FONT_SCALE_RANGE.min).max(FONT_SCALE_RANGE.max),
+  boxShadows: z.boolean(),
+  titledCardStyle: z.enum(TITLED_CARD_STYLES),
 })
 
 export const referenceSchema = z.object({

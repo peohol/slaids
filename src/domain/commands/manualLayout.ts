@@ -24,6 +24,12 @@
  *  - Narrow by construction. The inputs are built field by field rather than
  *    spread, so no checker, flag or option can ride along, and only geometry
  *    commands are here: nothing that places, converts or edits content.
+ *  - Én temakommando, av samme grunn: hvordan et kort med tittel tegnes og
+ *    om bokser kaster skygge (`setCardLookByHand`). En skygge er bare maling
+ *    og skjuler ingenting; et tittelutseende kan gi innholdet mindre plass, og
+ *    en person som bytter utseende velger et uttrykk, så det som ikke lenger
+ *    får plass i normal størrelse tegnes mindre i stedet for at byttet
+ *    avvises. Agentens `set_theme` måler fortsatt dekket og avviser.
  *  - **Never reachable from an agent.** It is not re-exported from the command
  *    index, and `manualLayout.boundary.test.ts` fails if anything outside the
  *    editor UI imports it. There is no API parameter that does what this does,
@@ -32,9 +38,10 @@
 
 import type { GeometryOptions } from '../geometry'
 import type { Result } from '../result'
-import type { LayoutNode, NodeId, Presentation } from '../types'
+import type { LayoutNode, NodeId, Presentation, PresentationTheme } from '../types'
 import { rearrangeZones } from './arrangement'
 import { setSplitWeights } from './layout'
+import { setTheme } from './slides'
 import type { StructuralOutcome } from './types'
 
 /** What a hand-made geometry change may say about how it is measured: only the geometry. */
@@ -77,5 +84,22 @@ export function rearrangeZonesByHand(
     nodeId: input.nodeId,
     layout: input.layout,
     ...geometryOnly(input),
+  })
+}
+
+/**
+ * `setTheme` for de to utseendevalgene en person tar i temadialogen. Bare de
+ * to feltene sendes videre, og ingen fit-sjekk: geometrien kontrolleres
+ * fortsatt (`findGeometryRegression`), og den kan ingen av valgene feile,
+ * fordi hvor lite et kort kan være ikke avhenger av dem
+ * (`ThemeMetrics.cardBodyOffset`).
+ */
+export function setCardLookByHand(
+  presentation: Presentation,
+  input: Partial<Pick<PresentationTheme, 'boxShadows' | 'titledCardStyle'>>,
+): Result<Presentation> {
+  return setTheme(presentation, {
+    ...(input.boxShadows === undefined ? {} : { boxShadows: input.boxShadows }),
+    ...(input.titledCardStyle === undefined ? {} : { titledCardStyle: input.titledCardStyle }),
   })
 }

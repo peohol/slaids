@@ -38,12 +38,11 @@
 import {
   BODY_LINE_HEIGHT,
   CARD_RADIUS,
-  CARD_SHADOW,
   TITLE_LINE_HEIGHT,
   type InteractiveStyleContract,
 } from './constants'
 import { bestTextColor, dividerColorFor, withAlpha } from './color'
-import { themeMetrics } from './metrics'
+import { cardShadow, themeMetrics } from './metrics'
 import type { SectionColors } from './pages'
 import type { PresentationTheme } from './types'
 
@@ -95,7 +94,7 @@ export function interactiveThemeTokens(input: InteractiveStyleInput): Record<str
     '--slaids-padding': `${metrics.cardPadding}px`,
     '--slaids-block-spacing': `${metrics.blockSpacing}px`,
     '--slaids-radius': `${CARD_RADIUS}px`,
-    '--slaids-shadow': CARD_SHADOW,
+    '--slaids-shadow': cardShadow(theme),
   }
 }
 

@@ -149,6 +149,8 @@ describe('å lese temaet', () => {
       },
       spacing: DEFAULT_SPACING,
       fontScale: DEFAULT_FONT_SCALE,
+      boxShadows: true,
+      titledCardStyle: 'joined',
     })
     // The id is the name `set_theme` takes back, and the stack is what the
     // document stores — an agent can see both without being handed the JSON.
@@ -170,7 +172,7 @@ describe('å lese temaet', () => {
  * ------------------------------------------------------------------ */
 
 describe('set_theme', () => {
-  it('setter alle fire feltene i ett kall, og lagrer dem', async () => {
+  it('setter alle feltene i ett kall, og lagrer dem', async () => {
     const context = freshContext()
     const deck = await newDeck(context)
 
@@ -180,12 +182,16 @@ describe('set_theme', () => {
       bodyFont: 'source-sans',
       spacing: 2.4,
       fontScale: 1.75,
+      boxShadows: false,
+      titledCardStyle: 'tab',
     })
     expect(result.theme).toMatchObject({
       headingFont: { fontId: 'space-grotesk' },
       bodyFont: { fontId: 'source-sans' },
       spacing: 2.4,
       fontScale: 1.75,
+      boxShadows: false,
+      titledCardStyle: 'tab',
     })
 
     const document = await stored(context, deck.presentationId)
@@ -194,6 +200,8 @@ describe('set_theme', () => {
       bodyFontFamily: findFontById('source-sans')?.stack,
       spacing: 2.4,
       fontScale: 1.75,
+      boxShadows: false,
+      titledCardStyle: 'tab',
     })
     // And the answer is a reading an agent can write against straight away.
     expect(result.revision).toBe(
@@ -361,6 +369,48 @@ describe('en temaendring som ville skjult innhold', () => {
     // The rect is the room the zone has, which is the other half of what an
     // agent needs to decide between shortening the text and dropping the idea.
     expect(refused.details?.rect).toMatchObject({ width: expect.any(Number) })
+  })
+
+  it('gjelder også utseendet på kort med tittel: et svevende kort gir innholdet mindre høyde', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    await ok(context, 'set_zone_card', {
+      ...deck,
+      kind: 'titled-card',
+      title: [{ text: 'Tittel' }],
+    })
+    // Så mye tekst som kortet i ett stykke tar, funnet og ikke antatt: den
+    // lengste teksten `set_zone_text` fortsatt godtar.
+    let low = 0
+    let high = 4000
+    while (high - low > 4) {
+      const middle = Math.round((low + high) / 2)
+      const written = await call(context, 'set_zone_text', {
+        ...deck,
+        blocks: [{ type: 'paragraph', spans: [{ text: words(middle) }] }],
+      })
+      if (written.ok) low = middle
+      else high = middle
+    }
+    await ok(context, 'set_zone_text', {
+      ...deck,
+      blocks: [{ type: 'paragraph', spans: [{ text: words(low) }] }],
+    })
+
+    const refused = await fails(context, 'set_theme', {
+      presentationId: deck.presentationId,
+      titledCardStyle: 'floating',
+    })
+    expect(refused.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(refused.details).toMatchObject({ nodeId: deck.nodeId })
+    expect((await stored(context, deck.presentationId)).theme.titledCardStyle).toBe('joined')
+
+    // Skygger er bare maling: de kan aldri skjule noe, så de avvises aldri.
+    const shadowless = await ok<{ theme: ThemeView }>(context, 'set_theme', {
+      presentationId: deck.presentationId,
+      boxShadows: false,
+    })
+    expect(shadowless.theme.boxShadows).toBe(false)
   })
 
   it('lagrer ingenting – heller ikke feltene som i seg selv var greie', async () => {

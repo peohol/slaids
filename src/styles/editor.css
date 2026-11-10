@@ -3811,3 +3811,110 @@
 .zone-shrunk-notice__scale {
   color: var(--chrome-text-dim);
 }
+
+/* ------------------------------------------------------------------ *
+ * Temadialogen: skyggebryteren og de tre kortutseendene
+ *
+ * Forhåndsvisningene er bilder av en idé, ikke forminskede slider: en
+ * headerstripe og et hvitt innhold i dekkets egne første farger, satt sammen
+ * slik hvert utseende setter sammen et kort med tittel (`titledCardStyles`).
+ * ------------------------------------------------------------------ */
+
+.theme-modal__switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-look-choice.btn {
+  position: relative;
+  flex: 1 1 0;
+  justify-content: center;
+  height: auto;
+  padding: 6px;
+}
+
+/* Radioknappen selv er usynlig, men kan fortsatt få fokus: bildet er valget,
+   og fokusringen tegnes rundt hele valget. */
+.card-look-choice__input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.card-look-choice:has(.card-look-choice__input:focus-visible) {
+  outline: 2px solid var(--chrome-accent);
+  outline-offset: 2px;
+}
+
+.card-look {
+  display: flex;
+  width: 104px;
+  height: 68px;
+  padding: 9px 12px;
+  border-radius: 6px;
+}
+
+.card-look__card {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.card-look__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  border-radius: 4px 4px 0 0;
+}
+
+/* Tittelen, som en strek. */
+.card-look__header::after {
+  content: '';
+  width: 26px;
+  height: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+.card-look__body {
+  flex: 1 1 auto;
+  border-radius: 0 0 4px 4px;
+  background: #fff;
+}
+
+.card-look[data-look='tab'] .card-look__header {
+  align-self: center;
+  width: 64%;
+  height: 18px;
+  margin-bottom: -4px;
+  padding-bottom: 4px;
+}
+
+.card-look[data-look='floating'] .card-look__header {
+  align-self: center;
+  width: 72%;
+  margin-bottom: 5px;
+  border-radius: 4px;
+}
+
+.card-look:not([data-look='joined']) .card-look__body {
+  position: relative;
+  border-radius: 4px;
+}
+
+.card-look[data-shadows='on'][data-look='joined'] .card-look__card,
+.card-look[data-shadows='on']:not([data-look='joined']) :is(.card-look__header, .card-look__body) {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.card-look[data-shadows='on'][data-look='joined'] .card-look__card {
+  border-radius: 4px;
+}

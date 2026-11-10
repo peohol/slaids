@@ -18,7 +18,11 @@ const KEY = 'defaultTheme'
 export function readDefaultTheme(): PresentationTheme {
   const stored = readPref<unknown>(KEY, null)
   if (!stored) return defaultTheme()
-  const parsed = themeSchema.safeParse(stored)
+  // Lagt over dagens standardverdier, så et tema lagret før en innstilling
+  // fantes, beholder fonter og skalaer og får den nye innstillingens standard.
+  const parsed = themeSchema.safeParse(
+    typeof stored === 'object' ? { ...defaultTheme(), ...stored } : stored,
+  )
   return parsed.success ? parsed.data : defaultTheme()
 }
 
