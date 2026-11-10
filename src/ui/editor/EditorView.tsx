@@ -282,7 +282,7 @@ export function EditorView({
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [presenting, setPresenting] = useState(false)
-  const [deletingSlide, setDeletingSlide] = useState<Slide | null>(null)
+  const [deletingSlide, setDeletingSlideDialog] = useState<Slide | null>(null)
   const [deletingZoneId, setDeletingZoneId] = useState<string | null>(null)
   const [clearingZoneId, setClearingZoneId] = useState<string | null>(null)
   const [dragItemId, setDragItemId] = useState<string | null>(null)
@@ -831,6 +831,11 @@ export function EditorView({
     (slideId: string) => run('delete-slide', (current) => deleteSlide(current, slideId)),
     [run],
   )
+
+  const setDeletingSlide = useCallback((slide: Slide) => {
+    if (fewerDialogs) removeSlide(slide.id)
+    else setDeletingSlideDialog(slide)
+  }, [fewerDialogs, removeSlide])
 
   const removeZone = useCallback(
     (action: 'clear' | 'delete', slideId: string, nodeId: string, contentDisposition: ContentDisposition) => {
@@ -2020,10 +2025,7 @@ export function EditorView({
           setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
         }
         onSelectAuthored={() => setDerivedView(null)}
-        onRequestDelete={(slide) => {
-          if (fewerDialogs) removeSlide(slide.id)
-          else setDeletingSlide(slide)
-        }}
+        onRequestDelete={setDeletingSlide}
         onRequestNewPage={setNewPage}
         // On a compact workspace the strip is the whole slide overview rather
         // than a column beside the stage, so its pages are drawn as big as the
@@ -2301,9 +2303,9 @@ export function EditorView({
         onConfirm={() => {
           if (!deletingSlide) return
           removeSlide(deletingSlide.id)
-          setDeletingSlide(null)
+          setDeletingSlideDialog(null)
         }}
-        onCancel={() => setDeletingSlide(null)}
+        onCancel={() => setDeletingSlideDialog(null)}
       />
 
       <ConfirmDialog
