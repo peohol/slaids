@@ -1565,8 +1565,11 @@ export function EditorView({
         let act: (() => void) | undefined
         if (shortcut === 'sandbox') act = toggleSandbox
         if (shortcut === 'slide') act = () => setNewPage({ kind: 'content' })
-        if (shortcut === 'reference' && useActiveEditor.getState().editor?.isFocused) {
-          act = textHandlers.insertReference
+        if (shortcut === 'reference') {
+          const editor = useActiveEditor.getState().editor
+          if (editor?.isFocused && editor.isEditable && typeof editor.commands.insertCitation === 'function') {
+            act = textHandlers.insertReference
+          }
         }
 
         const slide = state.currentContentSlide()
