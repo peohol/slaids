@@ -39,6 +39,12 @@ export interface ZoneContentFrameProps {
    * hidden parts, which is why it is a prop rather than a branch in here.
    */
   renderImage: (panel: ImagePanel, variant: 'card' | 'body') => ReactNode
+  /**
+   * Noe å legge oppå delestreken etter delfelt `boundary` – editorens
+   * dra-håndtak. Tegnes inni streken og tar ingen plass, så en redigert slide
+   * og en presentert slide legges ut nøyaktig likt.
+   */
+  renderDivider?: (boundary: number) => ReactNode
 }
 
 /**
@@ -174,11 +180,13 @@ function SubfieldStack({
   dividerColor,
   gap,
   renderField,
+  renderDivider,
 }: {
   body: CardBody
   dividerColor: string
   gap: number
   renderField: (field: Subfield, index: number) => ReactNode
+  renderDivider?: (boundary: number) => ReactNode
 }) {
   const total = body.weights.reduce((sum, weight) => sum + weight, 0) || body.subfields.length
   return (
@@ -201,7 +209,9 @@ function SubfieldStack({
                   ? { width: SUBFIELD_DIVIDER_THICKNESS, alignSelf: 'stretch' }
                   : { height: SUBFIELD_DIVIDER_THICKNESS, alignSelf: 'stretch' }),
               }}
-            />
+            >
+              {renderDivider?.(index - 1)}
+            </div>
           )}
           <div
             className="subfield"
@@ -230,6 +240,7 @@ export function ZoneContentFrame({
   renderTitle,
   renderField,
   renderImage,
+  renderDivider,
 }: ZoneContentFrameProps) {
   const { theme } = useSlideRender()
   const colors = usePageColors()
@@ -267,6 +278,7 @@ export function ZoneContentFrame({
           dividerColor={dividerColorFor(colors.background)}
           gap={tokens.subfieldGap}
           renderField={renderField}
+          renderDivider={renderDivider}
         />
       </div>
     )
@@ -306,6 +318,7 @@ export function ZoneContentFrame({
           dividerColor={CARD_DIVIDER_COLOR}
           gap={tokens.subfieldGap}
           renderField={renderField}
+          renderDivider={renderDivider}
         />
       </div>
     )
@@ -399,6 +412,7 @@ export function ZoneContentFrame({
             dividerColor={CARD_DIVIDER_COLOR}
             gap={tokens.subfieldGap}
             renderField={renderField}
+            renderDivider={renderDivider}
           />
         </div>
       )}

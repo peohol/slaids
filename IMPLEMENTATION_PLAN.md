@@ -2281,6 +2281,37 @@ størrelse, med den ene siden sin som mottaker – se over – og samme bevegels
 ville forskjøvet den, komprimerer den på tvers (se «Komprimering inn i negativt
 rom»).
 
+### Delestreker mellom delfelt
+
+Delestreken mellom to delfelt inni et kort eller en beholder kan dras i vanlig
+innholdsredigering, uten å bytte til sonemodus. Det er grensedraget ett nivå
+lenger inn, med bare de delene av sonedraget som gir mening der: et delfelt kan
+ikke forskyves, komprimeres eller få luft ved siden av seg.
+
+- **Grensedrag.** De to feltene på hver side av streken bytter lengde; resten
+  står stille (`draggedWeights`). Med **Shift** skaleres blokkene på hver side
+  mot hverandre, og hver blokk beholder sitt indre forhold
+  (`shiftedBoundaryWeights`). Shift kan trykkes og slippes midt i draget.
+- **Trinn.** Draget vises og lagres i hele forholdstall 1–10, valgt med de
+  samme reglene og i samme rekkefølge som et sonedrag, med samme hysterese.
+  Delfeltenes forholdstall er ikke bundet til heltall i domenet; et drag gir
+  likevel alltid hele tall. Har kortet desimaler fra før, faller et
+  Shift-drag tilbake til grensedragets trinn.
+- **Myk grense.** Magneten holder et felt der teksten slutter å få plass, og
+  et drag forbi den lagres gjennom `manualLayout.ts` (`setBodyWeightsByHand`),
+  slik at teksten i sonen tegnes mindre i stedet for at draget avvises. Det
+  samme gjelder forholdstall skrevet inn i inspektøren. Agentens
+  `adjust_subfields` har fortsatt fit-regelen.
+- **Gulv.** Et felt kan ikke dras kortere enn én linje brødtekst
+  (`minimumSubfieldLength`); et felt som alt er kortere, beholder sin lengde
+  som gulv.
+- **Escape** slipper draget uten å lagre noe.
+
+Håndtaket ligger inni streken og dekker mellomrommet på begge sider av den,
+aldri teksten, og er usynlig til pekeren er over det. Sliden legges derfor ut
+nøyaktig likt i redigering og presentasjon. Logikken er `subfieldDrag.ts`
+(rene funksjoner) og `useSubfieldDrag.tsx` (pekeren, målingen og lagringen).
+
 ### Håndhevelse og bakoverkompatibilitet
 
 - `splitLeaf` og `updateSplit` kvantiserer **før** de måler, så geometrien som

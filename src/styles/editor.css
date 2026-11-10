@@ -1187,8 +1187,19 @@
   touch-action: none;
 }
 
-.zone-handle:hover {
+.zone-handle:hover,
+.subfield-handle[data-active] {
   background: color-mix(in srgb, var(--chrome-accent) 40%, transparent);
+}
+
+/*
+ * En delestrek mellom to delfelt dras på samme måte, i vanlig
+ * innholdsredigering. Håndtaket ligger inni streken og dekker mellomrommet på
+ * begge sider (plasseringen settes i `useSubfieldDrag`); over teksten ligger
+ * det aldri, så et klikk i et felt setter fortsatt markøren der.
+ */
+.subfield-handle {
+  z-index: 1;
 }
 
 .zone-handle--x {
