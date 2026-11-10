@@ -201,7 +201,7 @@ test('a page put in from a slide\'s menu goes right after that slide', async ({ 
  * den første av dem er likevel plassen etter siste slide: det samme
  * mellomrommet tilbys der, og den nye siden havner foran alle avledede.
  */
-test('the gap before the derived pages puts a new page after the last slide', async ({ page }) => {
+test('mellomrommet foran de avledede sidene setter inn en ny side etter siste slide', async ({ page }) => {
   await createPresentation(page, 'Før referansene')
   await addReference(page, 'En kilde')
   const derived = page.getByTestId('filmstrip-derived')
