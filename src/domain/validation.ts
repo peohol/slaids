@@ -206,7 +206,7 @@ export function findSlideIssues(
     // the worse of them is how the other one gets fixed and the slide still
     // does not come out right. `part` names which region, in the same
     // vocabulary the commands refuse with.
-    for (const [key, overflow] of slideOverflow(slide, fitContextFor(presentation), options)) {
+    for (const [key, overflow] of slideOverflow(slide, fitContextFor(presentation, options.citationStyle), options)) {
       if (overflow <= FIT_TOLERANCE) continue
       const nodeId = nodeIdOfKey(key)
       const part = partOfKey(key)
@@ -253,7 +253,7 @@ function findSectionIssues(
   const issues: InvariantIssue[] = []
   for (const [key, overflow] of sectionOverflow(
     section,
-    fitContextFor(presentation),
+    fitContextFor(presentation, options.citationStyle),
     options,
   )) {
     if (overflow <= FIT_TOLERANCE) continue

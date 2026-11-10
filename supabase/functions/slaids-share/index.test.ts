@@ -133,13 +133,23 @@ describe('slaids-share og eierens status', () => {
     }
   })
 
-  it('bruker eierens oppdaterte fremdriftsvalg i begge typer delte lenker', async () => {
+  it('bruker eierens oppdaterte visningsvalg i begge typer delte lenker', async () => {
     for (const link of [`?token=${DECK_TOKEN}`, `?folder=${FOLDER_TOKEN}&presentation=p_delt`]) {
       tables[USER_SETTINGS_TABLE][0].include_references_in_progress = false
-      expect(await (await get(link)).json()).toEqual({ ...SNAPSHOT, includeReferencesInProgress: false })
+      delete tables[USER_SETTINGS_TABLE][0].citation_style
+      expect(await (await get(link)).json()).toEqual({
+        ...SNAPSHOT,
+        includeReferencesInProgress: false,
+        citationStyle: 'numbered',
+      })
 
       tables[USER_SETTINGS_TABLE][0].include_references_in_progress = true
-      expect(await (await get(link)).json()).toEqual({ ...SNAPSHOT, includeReferencesInProgress: true })
+      tables[USER_SETTINGS_TABLE][0].citation_style = 'author-year'
+      expect(await (await get(link)).json()).toEqual({
+        ...SNAPSHOT,
+        includeReferencesInProgress: true,
+        citationStyle: 'author-year',
+      })
     }
     expect(tables[PRESENTATIONS_TABLE][0].shared_document).toEqual(SNAPSHOT)
   })

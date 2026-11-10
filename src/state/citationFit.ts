@@ -73,7 +73,8 @@ export function docEditRenumberProblem(input: DocEditGuardInput): string | null 
     (regression) => regression.slideId !== input.slideId || regression.nodeId !== input.nodeId,
   )
   if (regressions.length === 0) return null
+  const change = domFitCheckers.citationStyle === 'author-year' ? 'Endrede henvisninger' : 'Citation-nummereringen'
   return regressions.length === 1
-    ? 'Citation-nummereringen ville gjort at innhold i en annen sone ikke lenger får plass.'
-    : `Citation-nummereringen ville gjort at innhold i ${regressions.length} andre soner ikke lenger får plass.`
+    ? `${change} ville gjort at innhold i en annen sone ikke lenger får plass.`
+    : `${change} ville gjort at innhold i ${regressions.length} andre soner ikke lenger får plass.`
 }

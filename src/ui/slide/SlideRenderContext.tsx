@@ -4,13 +4,12 @@ import { createContext, useContext } from 'react'
 import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from '../../domain/constants'
 import { renderFontStack } from '../../domain/fonts'
 import type { DeckProgress, DeckSectionColors, SectionColors } from '../../domain/pages'
-import type { ReferenceNumbering } from '../../domain/references'
+import type { CitationLabelContext } from '../../domain/references'
 import type { PresentationTheme } from '../../domain/types'
 import { defaultTheme } from '../../domain/presentation'
 
-export interface SlideRenderValue {
+export interface SlideRenderValue extends CitationLabelContext {
   theme: PresentationTheme
-  numbering: ReferenceNumbering
   /**
    * The colours each page of the deck is drawn in — see `deckSectionColors`.
    *

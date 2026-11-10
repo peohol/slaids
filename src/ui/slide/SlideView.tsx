@@ -83,7 +83,7 @@ export interface SlideViewProps {
   geometryOptions?: GeometryOptions
   /** Editor hooks: replace how a leaf's content is rendered. */
   renderLeaf?: (leaf: LeafNode, rect: Rect) => ReactNode
-  renderTitle?: (rect: Rect) => ReactNode
+  renderTitle?: (position: React.CSSProperties) => ReactNode
   /** Overlays drawn on top of the slide (zone editing chrome). */
   children?: ReactNode
   className?: string
@@ -97,7 +97,7 @@ export function SlideView({
   children,
   className,
 }: SlideViewProps) {
-  const { theme } = useSlideRender()
+  const { theme, authorYearLabels } = useSlideRender()
   const colors = useSectionColorsFor(slide.id)
   const geometry = computeSlideGeometry(slide, {
     ...geometryForTheme(theme),
@@ -105,6 +105,27 @@ export function SlideView({
   })
   const leaves = collectLeaves(slide.root)
   const titleColor = bestTextColor(colors.background)
+  const titleRect = geometry.titleRect
+  const titlePosition: React.CSSProperties | undefined = titleRect
+    ? authorYearLabels ? { position: 'absolute', inset: 0 } : absoluteStyle(titleRect)
+    : undefined
+  const title = titlePosition && (renderTitle ? renderTitle(titlePosition) : (
+    <div
+      className="slide-title"
+      style={{
+        ...titlePosition,
+        color: titleColor,
+        fontFamily: theme.headingFontFamily,
+        fontSize: themeMetrics(theme).titleFontSize,
+        lineHeight: TITLE_LINE_HEIGHT,
+        textShadow: textShadowFor(colors.background),
+      }}
+      data-fit-scroll=""
+      data-fit-axis="x"
+    >
+      {slide.title && <RichDocView doc={slide.title} className="rich-doc--title" field="title" />}
+    </div>
+  ))
 
   return (
     <PageColorsProvider colors={colors}>
@@ -118,24 +139,13 @@ export function SlideView({
         ...slideTokenStyle(theme, colors.accent),
       }}
     >
-      {geometry.titleRect &&
-        (renderTitle ? (
-          renderTitle(geometry.titleRect)
-        ) : (
-          <div
-            className="slide-title"
-            style={{
-              ...absoluteStyle(geometry.titleRect),
-              color: titleColor,
-              fontFamily: theme.headingFontFamily,
-              fontSize: themeMetrics(theme).titleFontSize,
-              lineHeight: TITLE_LINE_HEIGHT,
-              textShadow: textShadowFor(colors.background),
-            }}
-          >
-            {slide.title && <RichDocView doc={slide.title} className="rich-doc--title" field="title" />}
-          </div>
-        ))}
+      {titleRect && authorYearLabels ? (
+        <div style={absoluteStyle(titleRect)}>
+          <ZoneFitBox width={titleRect.width} height={titleRect.height}>
+            {title}
+          </ZoneFitBox>
+        </div>
+      ) : title}
 
       {leaves.map((leaf) => {
         const rect = geometry.rects.get(leaf.id)

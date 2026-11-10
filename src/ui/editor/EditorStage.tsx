@@ -45,7 +45,7 @@ import type {
   ZoneContentKind,
 } from '../../domain/types'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
-import { SlideView, absoluteStyle } from '../slide/SlideView'
+import { SlideView } from '../slide/SlideView'
 import { useSectionColorsFor, useSlideRender } from '../slide/SlideRenderContext'
 import { domFitCheckers, measureElementOverflow } from '../../state/measure'
 import { docEditRenumberProblem } from '../../state/citationFit'
@@ -302,11 +302,14 @@ export function EditorStage({
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const reportScale = useZoneScales((state) => state.report)
   const titleEditorRef = useRef<Editor | null>(null)
-  const { theme, numbering } = useSlideRender()
+  const { theme, numbering, authorYearLabels } = useSlideRender()
   const colors = useSectionColorsFor(slide.id)
   // A ratio drag changes geometry, never the deck's citation numbers, so the
   // same context serves as both baseline and prospective state.
-  const fitContext = useMemo(() => ({ theme, numbering }), [theme, numbering])
+  const fitContext = useMemo(
+    () => ({ theme, numbering, authorYearLabels }),
+    [theme, numbering, authorYearLabels],
+  )
   // The gap the author set is the gap a ratio drag works in.
   const tokens = themeMetrics(theme)
 
@@ -742,13 +745,13 @@ export function EditorStage({
           <SlideView
             slide={displaySlide}
             className={mode === 'zone' ? 'slide--zone-mode' : undefined}
-            renderTitle={(rect) => (
+            renderTitle={(position) => (
               <div
                 className="slide-title"
                 data-testid="slide-title"
                 ref={titleHostRef}
                 style={{
-                  ...absoluteStyle(rect),
+                  ...position,
                   color: titleColor,
                   fontFamily: theme.headingFontFamily,
                   fontSize: tokens.titleFontSize,

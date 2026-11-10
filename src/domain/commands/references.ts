@@ -10,6 +10,8 @@ import { citedReferenceIds, isReferenceValid } from '../references'
 import { removeCitations } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { Presentation, Reference } from '../types'
+import { guardFit } from './fitGuard'
+import type { StructuralOptions } from './types'
 
 export type ReferenceInput = Omit<Reference, 'id'>
 
@@ -41,6 +43,7 @@ export function updateReference(
   presentation: Presentation,
   id: string,
   input: ReferenceInput,
+  options: StructuralOptions = {},
 ): Result<Presentation> {
   const index = presentation.references.findIndex((reference) => reference.id === id)
   if (index < 0) return err('REFERENCE_NOT_FOUND', 'Fant ikke referansen.')
@@ -50,7 +53,10 @@ export function updateReference(
   }
   const references = [...presentation.references]
   references[index] = { id, ...normalized }
-  return ok(touch({ ...presentation, references }))
+  const next = touch({ ...presentation, references })
+  return options.citationStyle === 'author-year'
+    ? guardFit(presentation, next, options, 'Endringen gjør at en henvisning tar for mye plass.')
+    : ok(next)
 }
 
 /** Removes the reference and every citation pointing at it. */

@@ -24,9 +24,11 @@ export function PresentView({
   onExit: (lastSlideId: string) => void
 }) {
   const includeReferencesInProgress = useUserSettings((state) => state.includeReferencesInProgress)
+  const citationStyle = useUserSettings((state) => state.citationStyle)
   return (
     <PresentationPlayer
       deck={presentation}
+      citationStyle={citationStyle}
       includeReferencesInProgress={includeReferencesInProgress}
       shareUrl={shareUrl ?? null}
       startIndex={startIndex}

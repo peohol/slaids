@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   citationLabel,
+  citationLabelsFor,
   compressNumbers,
   computeReferenceNumbering,
   formatReference,
@@ -132,6 +133,27 @@ describe('formatReference', () => {
 
   it('drops empty parts', () => {
     expect(formatReference({ id: 'x', title: 'T', authors: '', url: '', year: '2020' })).toBe('T ⋅ 2020')
+  })
+})
+
+describe('forfatter og år', () => {
+  it('gir entydige etiketter for siterte kilder og de samme etikettene på referansesliden', () => {
+    const presentation = presentationWithCitations()
+    presentation.references = [
+      { ...presentation.references[0], authors: 'Hansen, Ola; Dahl, Eli' },
+      { ...presentation.references[1], authors: 'Hansen, Ola; Haugen, Kari' },
+      { ...presentation.references[2], authors: '', year: '' },
+      { ...presentation.references[3], authors: 'Hansen, Ola; Berg, Anja' },
+    ]
+    const { numbering, authorYearLabels } = citationLabelsFor(presentation, 'author-year')
+    expect(citationLabel(['r2', 'r1', 'r2', 'r3', 'r4'], numbering, authorYearLabels)).toBe(
+      'Hansen et al., 2024a; Hansen et al., 2024b; Tredje, u.å.',
+    )
+    expect(referenceEntries(presentation, 'author-year').map((entry) => entry.authorYearLabel)).toEqual([
+      'Hansen et al., 2024a',
+      'Hansen et al., 2024b',
+      'Tredje, u.å.',
+    ])
   })
 })
 

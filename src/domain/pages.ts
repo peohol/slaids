@@ -21,6 +21,7 @@
  */
 
 import { buildReferenceSlides } from './referenceSlides'
+import type { CitationStyle } from './references'
 import type { DeckSource, SectionSlide, Slide } from './types'
 
 /** Deterministic, so React reconciles the same page across renders. */
@@ -32,6 +33,7 @@ export type DeckPage =
   | { kind: 'qr'; id: string; shareUrl: string }
 
 export interface DeckPageOptions {
+  citationStyle?: CitationStyle
   /**
    * The share link, when sharing is on. `null` — the ordinary case — means
    * there is no QR page at all.
@@ -50,7 +52,7 @@ export function deckPages(deck: DeckSource, options: DeckPageOptions = {}): Deck
   for (const slide of deck.slides) {
     pages.push(authoredPage(slide))
   }
-  for (const slide of buildReferenceSlides(deck)) {
+  for (const slide of buildReferenceSlides(deck, options.citationStyle)) {
     pages.push({ kind: 'reference-slide', id: slide.id, slide })
   }
   const shareUrl = options.shareUrl?.trim()

@@ -101,6 +101,18 @@ describe('measuring a citation', () => {
     expect(double.overflow).toBeGreaterThan(single.overflow)
   })
 
+  it('måler forfatter og år når formatet er valgt', () => {
+    const content = cardWith(citingDoc('Tekst med kilde', 'r1', 30))
+    const numbering = new Map([['r1', 1]])
+    const numbered = estimateFit(content, TIGHT, { theme, numbering })
+    const authorYear = estimateFit(content, TIGHT, {
+      theme,
+      numbering,
+      authorYearLabels: new Map([['r1', 'Eksempelforfatter, 2024']]),
+    })
+    expect(authorYear.overflow).toBeGreaterThan(numbered.overflow)
+  })
+
   it('sees a decompressed range as wider than a compressed one', () => {
     const grouped: RichDoc = {
       type: 'doc',

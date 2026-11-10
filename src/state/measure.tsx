@@ -27,6 +27,7 @@ import {
 } from '../domain/fit'
 import { nodeIdOfKey } from '../domain/commands/fitGuard'
 import { fitContextFor, pageOverflow, type StructuralOptions } from '../domain/commands'
+import { useUserSettings } from './userSettings'
 import { FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
 import { themeMetrics } from '../domain/metrics'
 import type { Presentation, Rect, TitleDoc, ZoneContent } from '../domain/types'
@@ -107,6 +108,7 @@ export function measureContentFit(
         value={{
           theme,
           numbering: context.numbering,
+          authorYearLabels: context.authorYearLabels,
           // A zone is measured on its own, not as a page of a deck: there is
           // no section above it whose colours apply and no progress to draw,
           // and the room the indicator takes was already subtracted from the
@@ -157,6 +159,7 @@ export function measureTitleFit(
         value={{
           theme,
           numbering: context.numbering,
+          authorYearLabels: context.authorYearLabels,
           // A zone is measured on its own, not as a page of a deck: there is
           // no section above it whose colours apply and no progress to draw,
           // and the room the indicator takes was already subtracted from the
@@ -200,9 +203,12 @@ export function measureTitleFit(
  * is what lets a font change or a renumbering be validated before it is
  * committed.
  */
-export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitle'>> = {
+export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitle' | 'citationStyle'>> = {
   fits: measureContentFit satisfies ContentFitChecker,
   fitsTitle: measureTitleFit satisfies TitleFitChecker,
+  get citationStyle() {
+    return useUserSettings.getState().citationStyle
+  },
 }
 
 /**
@@ -218,7 +224,7 @@ export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitl
  * deliberately rather than on every keystroke.
  */
 export function overflowingCount(presentation: Presentation): number {
-  const context = fitContextFor(presentation)
+  const context = fitContextFor(presentation, domFitCheckers.citationStyle)
   const places = new Set<string>()
   for (const slide of presentation.slides) {
     // Which kind is measured how is `pageOverflow`'s decision, not this file's.

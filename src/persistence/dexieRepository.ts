@@ -354,9 +354,11 @@ export class DexieSlaidsRepository implements SlaidsRepository {
   }
 
   async getUserSettings(_ownerId: string | null): Promise<UserSettings> {
+    const citation = await this.database.settings.get('citationStyle')
     const stored = await this.database.settings.get('includeReferencesInProgress')
     return {
       ...DEFAULT_USER_SETTINGS,
+      citationStyle: citation?.value === 'author-year' ? 'author-year' : 'numbered',
       includeReferencesInProgress: stored?.value === true,
     }
   }

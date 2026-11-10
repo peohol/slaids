@@ -151,7 +151,7 @@ function isTitleFit(record: MutationRecord): boolean {
 }
 
 export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFitBoxProps) {
-  const { theme, numbering } = useSlideRender()
+  const { theme, numbering, authorYearLabels } = useSlideRender()
   const innerRef = useRef<HTMLDivElement>(null)
   const scaleRef = useRef(1)
   const [scale, setScale] = useState(1)
@@ -195,7 +195,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
   // painted, so a drag never shows a frame of the new size at the old scale.
   useLayoutEffect(() => {
     refit()
-  }, [refit, theme, numbering])
+  }, [refit, theme, numbering, authorYearLabels])
 
   // Whatever is drawn inside, a frame later — but still before anything is
   // painted. The content arrives, changes and is swapped (the editor's fields

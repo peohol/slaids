@@ -14,7 +14,9 @@ import {
 } from '../../domain/commands'
 import { computeReferenceNumbering, formatReference, splitReferences } from '../../domain/references'
 import { useActiveEditor } from '../../state/activeEditor'
+import { domFitCheckers } from '../../state/measure'
 import { useEditorStore } from '../../state/store'
+import { useUserSettings } from '../../state/userSettings'
 import type { Reference } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -37,6 +39,7 @@ export function ReferenceModal({
   const presentation = useEditorStore((state) => state.presentation)
   const run = useEditorStore((state) => state.run)
   const editor = useActiveEditor((state) => state.editor)
+  const authorYear = useUserSettings((state) => state.citationStyle === 'author-year')
   const [draft, setDraft] = useState(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<Reference | null>(null)
@@ -68,7 +71,7 @@ export function ReferenceModal({
   const submit = (): void => {
     if (!canSubmit) return
     if (editing) {
-      run('reference-update', (current) => updateReference(current, editing, draft))
+      if (!run('reference-update', (current) => updateReference(current, editing, draft, domFitCheckers))) return
       setEditing(null)
       setDraft(EMPTY)
       return
@@ -99,7 +102,7 @@ export function ReferenceModal({
           : undefined
       }
     >
-      {isUsed && <span className="reference-row__number">{numbering.get(reference.id)}</span>}
+      {isUsed && !authorYear && <span className="reference-row__number">{numbering.get(reference.id)}</span>}
       <span className="reference-row__text">{formatReference(reference) || '(tom referanse)'}</span>
       <button
         type="button"
@@ -143,7 +146,9 @@ export function ReferenceModal({
         open={open}
         onOpenChange={onOpenChange}
         title="Referanser"
-        description="Nummereringen følger rekkefølgen referansene først brukes i."
+        description={authorYear
+          ? 'Henvisninger vises med forfatter og år.'
+          : 'Nummereringen følger rekkefølgen referansene først brukes i.'}
         testId="reference-modal"
         width={720}
         footer={

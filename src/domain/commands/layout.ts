@@ -129,7 +129,7 @@ export function splitLeaf(
 
   if (leaf.content) {
     const targetRect = preview.childRects[targetIndex]
-    const fit = input.fits?.(leaf.content, targetRect, fitContextFor(presentation))
+    const fit = input.fits?.(leaf.content, targetRect, fitContextFor(presentation, input.citationStyle))
     if (!fit || fit.fits) {
       children[targetIndex] = { ...children[targetIndex], content: leaf.content }
     } else {
@@ -538,7 +538,7 @@ export function setZoneContent(
     if (tooSmall) return tooSmall
     // Measured against the document as it will be *after* the placement:
     // content arriving with citations in it can renumber itself.
-    const fit = input.fits?.(input.content, area, fitContextFor(next))
+    const fit = input.fits?.(input.content, area, fitContextFor(next, input.citationStyle))
     if (fit && !fit.fits) {
       return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i sonen.', {
         slideId: input.slideId,
@@ -690,7 +690,7 @@ function transferZoneContent(
   // Moving citation-bearing content between slides changes first-occurrence
   // order, and copying it adds an occurrence, so the label this very content
   // renders can differ before and after.
-  const fit = input.fits?.(placed, area, fitContextFor(next))
+  const fit = input.fits?.(placed, area, fitContextFor(next, input.citationStyle))
   if (fit && !fit.fits) {
     return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i målsonen.', {
       slideId: targetSlideId,
@@ -740,5 +740,5 @@ export function canAcceptContent(
   if (!input.fits) return true
   const root = replaceNode(slide.root, leaf.id, { ...leaf, content: input.content })
   const prospective = withSlide(presentation, { ...slide, root })
-  return input.fits(input.content, area, fitContextFor(prospective)).fits
+  return input.fits(input.content, area, fitContextFor(prospective, input.citationStyle)).fits
 }

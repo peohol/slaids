@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { UserSettings } from '../../domain/userSettings'
 import { repository } from '../../persistence/activeRepository'
 import { loadUserSettings, saveUserSettings, useUserSettings } from '../../state/userSettings'
 import { Modal } from '../components/Modal'
@@ -10,15 +11,15 @@ export function UserSettingsModal({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { includeReferencesInProgress, ownerId, status } = useUserSettings()
+  const { citationStyle, includeReferencesInProgress, ownerId, status } = useUserSettings()
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(false)
 
-  async function changeProgress(checked: boolean): Promise<void> {
+  async function changeSettings(patch: Partial<UserSettings>): Promise<void> {
     setSaving(true)
     setSaveError(false)
     try {
-      await saveUserSettings(repository, { includeReferencesInProgress: checked })
+      await saveUserSettings(repository, patch)
     } catch {
       setSaveError(true)
     } finally {
@@ -48,15 +49,33 @@ export function UserSettingsModal({
           </button>
         </>
       ) : (
-        <label className="user-settings-option">
-          <input
-            type="checkbox"
-            checked={includeReferencesInProgress}
-            disabled={status !== 'ready' || saving}
-            onChange={(event) => void changeProgress(event.currentTarget.checked)}
-          />
-          Tell med referanseslides i fremdriftslinjen
-        </label>
+        <>
+          <label className="user-settings-option">
+            <input
+              type="checkbox"
+              checked={includeReferencesInProgress}
+              disabled={status !== 'ready' || saving}
+              onChange={(event) =>
+                void changeSettings({ includeReferencesInProgress: event.currentTarget.checked })
+              }
+            />
+            Tell med referanseslides i fremdriftslinjen
+          </label>
+          <label className="field">
+            <span className="field__label">Henvisninger på slides</span>
+            <select
+              className="select"
+              value={citationStyle}
+              disabled={status !== 'ready' || saving}
+              onChange={(event) => void changeSettings({
+                citationStyle: event.currentTarget.value === 'author-year' ? 'author-year' : 'numbered',
+              })}
+            >
+              <option value="numbered">Nummerert</option>
+              <option value="author-year">Forfatter, år</option>
+            </select>
+          </label>
+        </>
       )}
       {saveError && <p role="alert">Kunne ikke lagre innstillingen. Prøv igjen.</p>}
     </Modal>
