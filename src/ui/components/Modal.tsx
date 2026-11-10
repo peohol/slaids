@@ -25,11 +25,18 @@ export interface ModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
-  description?: string
+  /** A line under the title; more than one line is given as elements. */
+  description?: ReactNode
   children: ReactNode
   footer?: ReactNode
   width?: number
   testId?: string
+  /**
+   * Whether Escape belongs to something inside the dialog right now — a row
+   * being dragged, which Escape puts back — rather than closing the dialog and
+   * throwing away what was done in it.
+   */
+  holdEscape?: boolean
 }
 
 export function Modal({
@@ -41,6 +48,7 @@ export function Modal({
   footer,
   width,
   testId,
+  holdEscape = false,
 }: ModalProps) {
   const opener = useRef<HTMLElement | null>(null)
   return (
@@ -52,6 +60,9 @@ export function Modal({
           style={width ? ({ '--dialog-width': `${width}px` } as CSSProperties) : undefined}
           data-testid={testId}
           aria-describedby={description ? undefined : ''}
+          onEscapeKeyDown={(event) => {
+            if (holdEscape) event.preventDefault()
+          }}
           // Still the opener here: the focus moves into the dialog after this.
           onOpenAutoFocus={() => {
             const active = document.activeElement

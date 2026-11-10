@@ -5,7 +5,7 @@
  * thumbnail can never misrepresent the slide.
  */
 
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   SortableContext,
   rectSortingStrategy,
@@ -431,6 +431,18 @@ export function Filmstrip({
   })
   /** Siste vanlige slide — den nye siden fra mellomrommet over de avledede kommer etter den. */
   const lastSlide = presentation.slides[presentation.slides.length - 1]
+  /*
+   * The order the sort works from, kept as the same array for as long as the
+   * deck's slides are. Reading the drag context above re-renders the strip every
+   * time the dragged slide passes another, and a fresh array each time tells
+   * dnd-kit the list itself has changed — which switches the slide-in animation
+   * off for every entry that is moving away from its own place. Only the move
+   * back would then be animated, and every move has to be.
+   */
+  const slideIds = useMemo(
+    () => presentation.slides.map((slide) => slide.id),
+    [presentation.slides],
+  )
 
   const openMenu = useContextMenu((state) => state.open)
 
@@ -515,7 +527,7 @@ export function Filmstrip({
           makes no such assumption, and the strip is a grid of one column.
         */}
         <SortableContext
-            items={presentation.slides.map((slide) => slide.id)}
+            items={slideIds}
             strategy={layout.columns > 1 ? rectSortingStrategy : verticalListSortingStrategy}
           >
             {presentation.slides.map((slide, index) => (

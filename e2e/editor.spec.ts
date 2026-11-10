@@ -145,6 +145,78 @@ test.describe('slides and content', () => {
   })
 
   /*
+   * The regression this covers: a slide that made room for the dragged one
+   * jumped into its new place, and only slid back when the drag turned round.
+   * The strip re-renders on every swap, and each render used to hand the sort a
+   * fresh list of ids — which dnd-kit reads as «the list changed» and answers by
+   * switching the animation off for every entry leaving its own place.
+   *
+   * What is checked is the style each entry is given at the moment it is moved:
+   * every change of place has to arrive with a transition that takes time.
+   */
+  test('every swap while dragging a slide is animated, there and back', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1200 })
+    await createPresentation(page, 'Animerte bytter')
+    for (let i = 0; i < 2; i += 1) {
+      await page.getByTestId('add-slide').click()
+      await page.getByTestId('new-slide-without-title').click()
+    }
+    const items = page.getByTestId('filmstrip-item')
+    await expect(items).toHaveCount(4)
+
+    // Every style the entries are given, in order, as the sort writes them.
+    await page.evaluate(() => {
+      const log: { id: string; transform: string; transition: string }[] = []
+      ;(window as unknown as { __moves: typeof log }).__moves = log
+      for (const item of document.querySelectorAll<HTMLElement>('[data-testid="filmstrip-item"]')) {
+        new MutationObserver(() =>
+          log.push({
+            id: item.dataset.slideId as string,
+            transform: item.style.transform,
+            transition: item.style.transition,
+          }),
+        ).observe(item, { attributes: true, attributeFilter: ['style'] })
+      }
+    })
+
+    // The slide that steps aside for the dragged one: the only moves the sort
+    // animates. The dragged slide itself follows the pointer.
+    const passedBy = await items.nth(2).getAttribute('data-slide-id')
+    const grip = (await items.nth(1).locator('.filmstrip__number').boundingBox())!
+    const below = (await items.nth(2).boundingBox())!
+    const start = { x: grip.x + grip.width / 2, y: grip.y + grip.height / 2 }
+    await page.mouse.move(start.x, start.y)
+    await page.mouse.down()
+    await page.mouse.move(start.x, start.y + 10, { steps: 3 })
+    // Past the slide below, back above it, and past it again — the first and
+    // the third are the moves that used to jump.
+    for (const dy of [below.height + 10, 10, below.height + 10]) {
+      await page.mouse.move(start.x, start.y + dy, { steps: 10 })
+      await page.waitForTimeout(300)
+    }
+    await page.mouse.up()
+
+    const moves = await page.evaluate(
+      () => (window as unknown as { __moves: { id: string; transform: string; transition: string }[] }).__moves,
+    )
+    const last = new Map<string, string>()
+    const changes = moves.filter((move) => {
+      const changed = move.id === passedBy && last.get(move.id) !== move.transform
+      last.set(move.id, move.transform)
+      return changed && move.transform !== ''
+    })
+    // Out of its place, back, and out again.
+    expect(changes.length).toBeGreaterThanOrEqual(3)
+    // A duration of nothing is left out of the style altogether — «transform
+    // linear» — so what is asked for is a duration that is there and is not 0.
+    for (const change of changes) {
+      expect(change.transition, `moved to ${change.transform} without animation`).toMatch(
+        /(^|\s)(0?\.\d*[1-9]|[1-9][\d.]*)m?s\b/,
+      )
+    }
+  })
+
+  /*
    * The same reorder, said as a command rather than as a gesture.
    *
    * It is not a mobile control that happens to be visible here: a drag is a
