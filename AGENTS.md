@@ -1,81 +1,50 @@
-# Slaids — Coding agent instructions
+# Slaids – instruksjoner for kodeagenter
 
-Slaids er en nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
+Slaids er en nettleserbasert presentasjonseditor med matematisk sonelayout. Disse reglene gjelder alle kodeagenter som arbeider i repoet.
 
-## Start her
+## Før hver oppgave
 
-1. Les relevant kode før du foreslår eller gjør endringer. Ikke gjett om kode du ikke har åpnet.
-2. `IMPLEMENTATION_PLAN.md` er **eneste normative produkt- og arkitekturspesifikasjon**. Les relevante deler før strukturelle endringer.
-3. `VISION.md` er bare en peker. `docs/archive/VISION.original-2026-08-20.md` er historisk kontekst, ikke normativt.
-4. Bruk eksisterende typer, domenekommandoer, tester og validering som executable documentation. Hvis kode og plan ser ut til å motsi hverandre, undersøk før du endrer noe; ikke oppfinn en tredje regel her.
-5. Når du lager eller endrer en miniapp: les `docs/INTERACTIVE_MINIAPPS.md`, start fra `examples/interactive-miniapps/starter.html`, og følg forfatterkontraktens nettleser- og layoutkontroller. Riktige temavariabler og en grønn build er ikke tilstrekkelig verifikasjon.
-6. Når du endrer agentens presentasjonsdesign, agentinstruksjoner eller eksempeldekk: les `docs/AGENT_PRESENTATION_DESIGN.md`. Designguiden beskriver hvordan innholdets logiske struktur skal drive sonetreet; den er veiledning, ikke en parallell produktspesifikasjon.
+- **Bruk alltid siste versjon av `AGENTS.md` og `README.md` i repoet før en ny oppgave.** Hent dem fra oppdatert `main`, ikke fra tidligere samtaler. Les hele `AGENTS.md`. For den lange `README.md`: gå gjennom overskriftene og les relevante seksjoner grundig, ikke hele filen uten behov. Sjekk også arbeidsgrenens versjoner ved avvik.
+- Les berørt kode før du foreslår eller gjør endringer. Ikke gjett om kode du ikke har åpnet.
+- `IMPLEMENTATION_PLAN.md` er **eneste normative produkt- og arkitekturspesifikasjon**. Les relevante deler før strukturelle endringer. `README.md` beskriver dagens løsning; `VISION.md` er bare en peker.
+- Ved miniapper: les `docs/INTERACTIVE_MINIAPPS.md` og bruk `examples/interactive-miniapps/starter.html`. Verifiser funksjon og utseende i nettleseren, ikke bare bygg.
+- Ved arbeid med agentens presentasjonsdesign, instruksjoner eller eksempeldekk: les `docs/AGENT_PRESENTATION_DESIGN.md`.
+
+## Språk og samarbeid
+
+- **Skriv på norsk bokmål** i all agentkommunikasjon, PR-titler og -beskrivelser, GitHub-saker og -kommentarer, kodekommentarer, dokumentasjon og andre tekstfiler du skriver. Behold eksisterende navn på kodeelementer, API-felter, filbaner og kommandoer. Ikke oversett eksterne standarder, ordrette sitater eller innhold som uttrykkelig skal være på et annet språk. Ikke omskriv eldre engelsk tekst bare for å endre språk.
+- Skriv for menneskelige samarbeidspartnere som **ikke har lest chatten eller oppdragsprompten**. Forklar kort hva arbeidet skal løse og hva som faktisk er endret. Unngå unødvendig teknisk sjargong, lange utgreiinger og henvisninger som bare gir mening i samtalen.
+- **Start alltid PR-beskrivelsen med hensikten**: hvilket behov eller problem endringen gjelder. Beskriv deretter kort de viktigste endringene, hva som er kontrollert, og eventuelle kjente begrensninger. Oppgi faktisk gjennomførte tester; ikke påstå at noe er testet uten at det er gjort.
+- GitHub-kommentarer og gjennomganger skal være korte, konkrete og forståelige. Ved feil: angi hva som er galt, konsekvensen og hva som må rettes.
+- Når du handler gjennom en persons GitHub-konto slik at bidraget kan se ut til å komme fra mennesket, **oppgi hvilken kodeagent som skrev PR-en eller kommentaren**. Ikke utgi deg for kontoeieren.
 
 ## Arbeidsmåte
 
-- Gjør den minste sammenhengende endringen som løser oppgaven. Ikke refaktorer, generaliser eller legg til fleksibilitet uten at oppgaven krever det.
-- Bevar én sannhetskilde. Ikke kopier domeneregler, skjemaer, konstanter, operasjonslister eller geometri inn i nye lag når de kan importeres eller avledes.
-- Domenelogikk skal ikke legges i React, REST- eller MCP-adaptere. Strukturendringer går gjennom typed domenekommandoer i `src/domain/commands/`.
-- `src/agent/` er transportuavhengig Agent Core. `src/server/agent/` og `src/server/mcp/` er adaptere. `src/server/` skal aldri importeres av klientkoden.
-- Rendering, hit-testing og fit skal bruke prosjektets eksisterende felles geometri/rendering; ikke bygg parallelle implementasjoner.
-- Valider ved systemgrenser. Ikke legg defensiv validering mellom interne lag som allerede har en typed kontrakt.
-- Tester skal verifisere den generelle regelen, ikke bare eksempelet som utløste endringen. Ikke hardkod mot testdata og ikke svekk/fjern tester for å få grønt resultat.
-- Midlertidige filer og hjelpeskript skal fjernes før oppgaven avsluttes.
+- Gjør den minste sammenhengende endringen som løser oppgaven. Ikke legg til generell fleksibilitet eller refaktorering uten behov.
+- Bevar én sannhetskilde: gjenbruk domeneregler, typer, geometri og validering. Domenelogikk hører ikke hjemme i React-, REST- eller MCP-adaptere; strukturendringer går via `src/domain/commands/`.
+- `src/agent/` er transportuavhengig Agent Core. `src/server/agent/` og `src/server/mcp/` er adaptere; klientkode skal ikke importere `src/server/`.
+- Tester skal verifisere den generelle regelen, ikke bare ett eksempel. Ikke svekk tester for å få grønt resultat. Fjern midlertidige filer før levering.
 
-## Viktige, tverrgående invariants
+## Viktige tekniske grenser
 
-Dette er bare de få reglene som kodeagenter må ha i kontekst på nesten alle oppgaver. Detaljene og begrunnelsene hører hjemme i `IMPLEMENTATION_PLAN.md` og koden.
-
-- Logisk designrom er `1600 × 900`; viewport skalerer det uniformt.
-- Layout er et rekursivt tre: `split` har `children`, `leaf` har `content`; `children.length === weights.length`; weights er heltall 1–10 og kvantiseres sentralt.
-- Det finnes nøyaktig ett globalt gap mellom synlig innhold. Strukturelle noder skal ikke introdusere ekstra layoutavstand.
-- `src/domain/geometry.ts` er sannhetskilden for rects.
-- Rich text lagres som ProseMirror/Tiptap JSON, ikke rå HTML. Persisted data valideres med Zod og versjonerte migrasjoner.
-- En lovlig commit skal ikke skjule synlig innhold. Mål den prospektive tilstanden før commit; fit-unntak skal være eksplisitte og begrunnede i fit-guarden.
-- Persistens velges ett sted i `src/persistence/activeRepository.ts`: Supabase når begge nødvendige variabler finnes, ellers Dexie når ingen finnes. Delvis Supabase-konfigurasjon er en feil, ikke en fallback. Presentasjoner/assets lagres aldri i `localStorage`.
-- Supabase Auth er den eneste brukerautentiseringen. Secret/service-role-nøkler skal aldri inn i frontend eller `VITE_*`.
-- Deling er publisering av et sanitert snapshot, ikke samarbeid. Offentlig lesing skal aldri gi tilgang til den private arbeidskopien.
-- Agentoperasjoner skal være semantiske, bruke de samme domenekommandoene som editoren og deklarere/håndheve scopes serverside. REST og MCP skal dele Agent Core, ikke kopiere domenelogikk.
-- Eksterne assets går gjennom `src/domain/assetIngress.ts`; SVG saniteres før lagring. Slaids genererer ikke bilder: raster lastes opp, SVG kan opprettes som markup.
+- Sonegeometri beregnes sentralt i `src/domain/geometry.ts`. Bevar prinsippet om ett globalt gap; ikke lag parallelle geometri-, rendrings- eller innholdstilpasningssystemer.
+- En gyldig redigeringsoperasjon skal ikke skjule synlig innhold. Bruk eksisterende innholdsmåling og fit-kontroll, og følg eventuelle eksplisitte unntak i `IMPLEMENTATION_PLAN.md`.
+- Persistens velges i `src/persistence/activeRepository.ts`: Supabase når nødvendige variabler er satt, ellers Dexie når ingen er satt. Delvis konfigurasjon skal gi feil, ikke stille fallback. Ikke lagre presentasjoner eller filer i `localStorage`.
+- Supabase Auth er eneste brukerautentisering. Deling publiserer et renset snapshot, aldri den private arbeidskopien. REST og MCP deler domenelogikk og håndhever tillatelser på serveren.
+- Eksterne filer går gjennom `src/domain/assetIngress.ts`; SVG skal renses før lagring.
 
 ## Verifikasjon
 
-Etter kodeendringer, kjør de smaleste relevante testene underveis. Før en ferdig kodeendring leveres, kjør normalt:
-
-```bash
-npm run typecheck
-npm run lint
-npm test
-```
-
-Kjør `npm run build` når endringen berører bygg, Vercel/serverkode, bundling eller avhengigheter. Kjør relevante Playwright-tester for UI-flyt; en UI-endring er ikke ferdig bare fordi unit-testene er grønne. Sjekk også browser-konsollen og reload/persistens når det er relevant.
-
-Vanlige kommandoer:
-
-```bash
-npm run dev
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm run e2e
-```
+- Kjør relevante smale tester underveis. Før en ferdig kodeendring leveres, kjør normalt `npm run typecheck`, `npm run lint` og `npm test`.
+- Kjør `npm run build` når bygg, avhengigheter, server eller Vercel berøres. Ved UI-endringer, kjør relevante `npm run e2e`-tester og kontroller i nettleseren.
 
 ## Operasjonelle sikkerhetsgrenser
 
-- Supabase-prosjektet deles med mdeditz, som har sine egne migrasjoner i den prosjektglobale historikken. **Kjør aldri `supabase db push`, `migration repair` eller `db pull` for å deploye Slaids-migrasjoner.** Bruk `scripts/deploy-migrations.sh`, som fører Slaids' egen historikk i `public.slaids_migrations`.
-- Deploy aldri Supabase-funksjoner med `--prune`. Slaids eier bare sine egne `slaids_`-objekter og sin egen Edge Function.
-- Agent-API-hemmeligheter er servervariabler uten `VITE_`-prefiks.
-- Ikke legg flere `.ts`-entrypoints under `api/` uten å verifisere Vercel-rutingen og deployment-testene.
+- Supabase deles med mdeditz. **Bruk aldri `supabase db push`, `migration repair` eller `db pull` til Slaids-migrasjoner.** Bruk `scripts/deploy-migrations.sh` og Slaids' egen historikk i `public.slaids_migrations`.
+- Deploy aldri Supabase-funksjoner med `--prune`. Slaids eier bare egne `slaids_`-objekter og egen Edge Function.
+- Hemmeligheter og service-role-nøkler skal aldri til frontend eller variabler med `VITE_`-prefiks. Ikke legg nye `.ts`-filer under `api/` uten å verifisere Vercel-rutingen.
 
-## Vedlikehold av denne filen — viktig
+## Vedlikehold av AGENTS.md
 
-`AGENTS.md` er et kort prosjektbrief med felles instruksjoner for kodeagenter. Den er **ikke** arkitekturdokumentasjon, changelog, feiljournal, scratchpad eller et sted å lagre begrunnelsen for hver implementasjonsdetalj.
-
-- **Ikke endre `AGENTS.md` som del av vanlig feature-, bugfix- eller refaktoreringsarbeid.** Endre den bare når brukeren uttrykkelig ber om å endre prosjektinstruksene, eller når en varig, tverrgående arbeidsregel faktisk har endret seg.
-- Når en ny regel foreslås, spør først: Kan den håndheves i typer, kode, test, lint eller CI? I så fall gjør det der. Er den produkt-/arkitekturspesifikasjon? Da hører den hjemme i `IMPLEMENTATION_PLAN.md`. Er den lokal for ett subsystem? Dokumenter den nær subsystemet. Bare varige instrukser kodeagenter trenger på tvers av oppgaver hører hjemme her.
-- **Ikke append en ny regel bare fordi en kodeagent gjorde én feil.** Rett årsaken i kode/test/verktøy når mulig. Legg bare til en instruks hvis samme feilklasse realistisk kan gjenta seg og ikke kan håndheves mekanisk.
-- Ikke legg inn løste bughistorier, PR-spesifikke detaljer, midlertidige migreringssteg, konkrete feilmeldinger eller lange designbegrunnelser.
-- Ved redigering: erstatt eller kondenser eksisterende tekst fremfor å legge til en overlappende regel. Fjern foreldede regler samtidig.
-- Hold filen under **200 linjer**. Hvis den nærmer seg grensen, flytt detaljer til den normative planen, subsystem-dokumentasjon eller mekaniske tester før noe nytt legges til.
-- Unngå duplisering: én regel skal ha én autoritativ plassering. `AGENTS.md` kan peke til den, men skal ikke utvikle en parallell spesifikasjon.
+- Endre bare filen etter uttrykkelig ønske om nye prosjektinstruksjoner, eller ved reell endring av varige, tverrgående regler.
+- Hold denne filen kort (helst langt under 200 linjer). Detaljer hører hjemme i normativ plan, kode, tester eller oppgavespesifikk dokumentasjon. Ikke kopier historikk, løste feil eller subsystemdetaljer hit. Ikke importer hele `README.md` med `@README.md`: det ville laste hele den lange filen inn i hver sesjon.
