@@ -10,6 +10,7 @@ import {
   addReference,
   deleteReference,
   deleteUnusedReferences,
+  setIncludeReferencesInProgress,
   updateReference,
 } from '../../domain/commands'
 import { computeReferenceNumbering, formatReference, splitReferences } from '../../domain/references'
@@ -152,6 +153,17 @@ export function ReferenceModal({
           </button>
         }
       >
+        <label className="reference-progress-option">
+          <input
+            type="checkbox"
+            checked={presentation.includeReferencesInProgress ?? false}
+            onChange={(event) => {
+              const { checked } = event.currentTarget
+              run('reference-progress', (current) => setIncludeReferencesInProgress(current, checked))
+            }}
+          />
+          Tell med referanseslides i fremdriftslinjen
+        </label>
         <div className="reference-form">
           <div className="field">
             <label htmlFor="reference-title">Tittel</label>

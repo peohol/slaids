@@ -59,23 +59,25 @@ export function deckPages(deck: DeckSource, options: DeckPageOptions = {}): Deck
 }
 
 /**
- * How far through the deck each page sits, as a fraction in `(0, 1]`.
- *
- * The front page is not in the map: it is the way in to the deck rather than a
- * step through it, and it carries no progress indicator. Everything after it
- * counts, later sections and derived pages included — the second page is page
- * one, and whatever happens to be last (an authored slide, a reference slide,
- * the QR page) is the end of the deck and reads as full.
- *
- * Keyed by page id rather than by index so a renderer that was handed one page
- * — a thumbnail, the stage, a rendered preview — can still say where in the
- * deck it belongs, without the caller having to count for it.
+ * Fremdrift fra 0 til 1 per side-ID. Forsiden har ingen indikator.
+ * Referanseslidene beholder fremdriften fra forrige side med mindre de telles med.
  */
 export type DeckProgress = ReadonlyMap<string, number>
 
-export function deckProgress(pages: readonly DeckPage[]): DeckProgress {
-  const counted = pages.slice(1)
-  return new Map(counted.map((page, index) => [page.id, (index + 1) / counted.length]))
+export function deckProgress(
+  pages: readonly DeckPage[],
+  includeReferencesInProgress = false,
+): DeckProgress {
+  const afterCover = pages.slice(1)
+  const counts = (page: DeckPage) => includeReferencesInProgress || page.kind !== 'reference-slide'
+  const total = afterCover.filter(counts).length
+  const progress = new Map<string, number>()
+  let position = 0
+  for (const page of afterCover) {
+    if (counts(page)) position += 1
+    progress.set(page.id, total > 0 ? position / total : 0)
+  }
+  return progress
 }
 
 /**

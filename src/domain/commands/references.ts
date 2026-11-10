@@ -22,6 +22,13 @@ function normalize(input: ReferenceInput): ReferenceInput {
   }
 }
 
+export function setIncludeReferencesInProgress(
+  presentation: Presentation,
+  includeReferencesInProgress: boolean,
+): Result<Presentation> {
+  return ok(touch({ ...presentation, includeReferencesInProgress }))
+}
+
 export function addReference(
   presentation: Presentation,
   input: ReferenceInput,

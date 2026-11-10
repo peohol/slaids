@@ -121,7 +121,7 @@ export function previewDocument(request: PreviewDocumentRequest): PreviewDocumen
           // see `operations/preview.ts` — so a preview draws the indicator and
           // the section colours the audience sees on that page.
           sectionColors: deckSectionColors(pages),
-          progress: deckProgress(pages),
+          progress: deckProgress(pages, presentation.includeReferencesInProgress),
           isStatic: true,
         }}
       >

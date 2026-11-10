@@ -116,7 +116,11 @@ export function PresentationPlayer({
   onExit = null,
 }: PresentationPlayerProps) {
   const pages = useMemo(() => deckPages(deck, { shareUrl }), [deck, shareUrl])
-  const progress = useMemo(() => deckProgress(pages), [pages])
+  const { includeReferencesInProgress } = deck
+  const progress = useMemo(
+    () => deckProgress(pages, includeReferencesInProgress),
+    [pages, includeReferencesInProgress],
+  )
   const sectionColors = useMemo(() => deckSectionColors(pages), [pages])
   const numbering = useMemo(() => computeReferenceNumbering(deck), [deck])
   const [index, setIndex] = useState(() => Math.min(Math.max(0, startIndex), pages.length - 1))

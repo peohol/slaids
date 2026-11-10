@@ -572,7 +572,11 @@ export function EditorView({
    * stage and on every thumbnail — a deck being edited is a deck, and the strip
    * it takes is reserved on every slide whether or not anyone is watching.
    */
-  const progress = useMemo(() => deckProgress(pages), [pages])
+  const includeReferencesInProgress = presentation?.includeReferencesInProgress
+  const progress = useMemo(
+    () => deckProgress(pages, includeReferencesInProgress),
+    [pages, includeReferencesInProgress],
+  )
   /**
    * Which colours each page inherits, from the section that governs it.
    *

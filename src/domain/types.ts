@@ -461,6 +461,7 @@ export interface DeckSource {
   theme: PresentationTheme
   slides: DeckSlides
   references: Reference[]
+  includeReferencesInProgress?: boolean
 }
 
 export interface Presentation extends DeckSource {

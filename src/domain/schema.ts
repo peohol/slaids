@@ -349,6 +349,7 @@ export const presentationSchema = z.object({
       message: 'Første slide må være en inndeling',
     }),
   references: z.array(referenceSchema),
+  includeReferencesInProgress: z.boolean().optional(),
   sandbox: z.array(sandboxItemSchema),
   ideas: z.array(ideaRowSchema),
   assets: z.array(assetRefSchema),
