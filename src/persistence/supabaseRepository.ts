@@ -1158,11 +1158,14 @@ export class SupabaseSlaidsRepository
   async getUserSettings(ownerId: string | null): Promise<UserSettings> {
     const { data, error } = await this.scoped(
       this.client.from(USER_SETTINGS_TABLE)
-        .select('include_references_in_progress')
+        .select('include_references_in_progress, fewer_dialogs')
         .eq('owner_id', ownerId ?? await this.ownerId()),
     ).maybeSingle()
     if (error) fail('Kunne ikke hente brukerinnstillingene', error)
-    return { includeReferencesInProgress: data?.include_references_in_progress === true }
+    return {
+      includeReferencesInProgress: data?.include_references_in_progress === true,
+      fewerDialogs: data?.fewer_dialogs === true,
+    }
   }
 
   async updateUserSettings(ownerId: string | null, patch: Partial<UserSettings>): Promise<void> {
@@ -1175,6 +1178,7 @@ export class SupabaseSlaidsRepository
       ...(patch.includeReferencesInProgress === undefined
         ? {}
         : { include_references_in_progress: patch.includeReferencesInProgress }),
+      ...(patch.fewerDialogs === undefined ? {} : { fewer_dialogs: patch.fewerDialogs }),
       updated_at: new Date().toISOString(),
     }, { defaultToNull: false })
     if (error) fail('Kunne ikke lagre brukerinnstillingene', error)

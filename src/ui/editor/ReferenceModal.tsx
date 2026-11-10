@@ -15,6 +15,7 @@ import {
 import { computeReferenceNumbering, formatReference, splitReferences } from '../../domain/references'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore } from '../../state/store'
+import { useUserSettings } from '../../state/userSettings'
 import type { Reference } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -36,6 +37,7 @@ export function ReferenceModal({
 }) {
   const presentation = useEditorStore((state) => state.presentation)
   const run = useEditorStore((state) => state.run)
+  const fewerDialogs = useUserSettings((state) => state.fewerDialogs)
   const editor = useActiveEditor((state) => state.editor)
   const [draft, setDraft] = useState(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
@@ -54,6 +56,9 @@ export function ReferenceModal({
   const numbering = computeReferenceNumbering(presentation)
   const { used, unused } = splitReferences(presentation)
   const canSubmit = Boolean(draft.title.trim() || draft.authors.trim() || draft.url.trim())
+  const removeReference = (reference: Reference) =>
+    run('reference-delete', (current) => deleteReference(current, reference.id))
+  const clearUnused = () => run('reference-clear-unused', (current) => deleteUnusedReferences(current))
 
   const insert = (reference: Reference): void => {
     if (!editor) {
@@ -130,7 +135,10 @@ export function ReferenceModal({
         className="btn btn--sm btn--icon"
         aria-label="Slett referanse"
         data-testid="delete-reference"
-        onClick={() => setDeleting(reference)}
+        onClick={() => {
+          if (fewerDialogs) removeReference(reference)
+          else setDeleting(reference)
+        }}
       >
         <Icon name="close" size={14} />
       </button>
@@ -232,7 +240,10 @@ export function ReferenceModal({
               <button
                 type="button"
                 className="btn btn--sm"
-                onClick={() => setClearingUnused(true)}
+                onClick={() => {
+                  if (fewerDialogs) clearUnused()
+                  else setClearingUnused(true)
+                }}
                 data-testid="clear-unused-references"
               >
                 <Icon name="trash" size={14} /> Slett alle ubrukte
@@ -257,7 +268,7 @@ export function ReferenceModal({
         }
         onConfirm={() => {
           if (!deleting) return
-          run('reference-delete', (current) => deleteReference(current, deleting.id))
+          removeReference(deleting)
           setDeleting(null)
         }}
         onCancel={() => setDeleting(null)}
@@ -268,7 +279,7 @@ export function ReferenceModal({
         title="Slette alle ubrukte referanser?"
         message={`${unused.length} referanse(r) som ikke er i bruk slettes.`}
         onConfirm={() => {
-          run('reference-clear-unused', (current) => deleteUnusedReferences(current))
+          clearUnused()
           setClearingUnused(false)
         }}
         onCancel={() => setClearingUnused(false)}

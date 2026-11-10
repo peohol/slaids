@@ -41,6 +41,7 @@ import {
   setZoneContent,
   splitLeaf,
   updateSplit,
+  type ContentDisposition,
   type StructuralOutcome,
 } from '../../domain/commands'
 import { setSplitWeightsByHand } from '../../domain/commands/manualLayout'
@@ -138,7 +139,7 @@ import { NewSlideModal } from './NewSlideModal'
 import { ReferenceModal } from './ReferenceModal'
 import { SandboxWindow } from './SandboxWindow'
 import { SplitModal, type SplitModalResult } from './SplitModal'
-import { splitCheck, type SplitCheck } from './splitDraft'
+import { defaultSplitAxis, splitCheck, type SplitCheck } from './splitDraft'
 import { ShortcutsModal } from './ShortcutsModal'
 import { AutocorrectModal } from './AutocorrectModal'
 import { StatusBar } from './StatusBar'
@@ -237,6 +238,7 @@ export function EditorView({
   const mode = useEditorStore((state) => state.mode)
   const setMode = useEditorStore((state) => state.setMode)
   const toggleMode = useEditorStore((state) => state.toggleMode)
+  const fewerDialogs = useUserSettings((state) => state.fewerDialogs)
   const run = useEditorStore((state) => state.run)
   const runStructural = useEditorStore((state) => state.runStructural)
   const depositBreak = useEditorStore((state) => state.pendingDepositBreak)
@@ -248,9 +250,9 @@ export function EditorView({
 
   const [splitOpen, setSplitOpen] = useState(false)
   /** Which new-page dialog is open, and where its page goes. */
-  const [newPage, setNewPage] = useState<NewPageRequest | null>(null)
+  const [newPage, setNewPageDialog] = useState<NewPageRequest | null>(null)
   const closeNewPage = (open: boolean): void => {
-    if (!open) setNewPage(null)
+    if (!open) setNewPageDialog(null)
   }
   const [referencesOpen, setReferencesOpen] = useState(false)
   /** Reference to scroll to and highlight when the list is opened from a pill. */
@@ -612,6 +614,7 @@ export function EditorView({
       ? computeSlideGeometry(contentSlide, geometryForTheme(presentation.theme))
       : null
   const selectedRect = geometry && selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
+  const quickSplitAxis = fewerDialogs && selectedRect ? defaultSplitAxis(selectedRect) : null
   /**
    * The content kinds as they stand for the selected zone.
    *
@@ -816,6 +819,27 @@ export function EditorView({
     [insertPage],
   )
 
+  const setNewPage = useCallback((request: NewPageRequest) => {
+    if (fewerDialogs && request.kind === 'content') {
+      insertSlide(true, undefined, request)
+    } else {
+      setNewPageDialog(request)
+    }
+  }, [fewerDialogs, insertSlide])
+
+  const removeSlide = useCallback(
+    (slideId: string) => run('delete-slide', (current) => deleteSlide(current, slideId)),
+    [run],
+  )
+
+  const removeZone = useCallback(
+    (action: 'clear' | 'delete', slideId: string, nodeId: string, contentDisposition: ContentDisposition) => {
+      const command = action === 'clear' ? clearLayoutNode : deleteLayoutNode
+      runStructural(`${action}-zone`, (current) => command(current, { slideId, nodeId, contentDisposition }))
+    },
+    [runStructural],
+  )
+
   /**
    * Take the zone away — measured, even though this slide only gains room.
    *
@@ -831,7 +855,7 @@ export function EditorView({
   const removeTitle = useCallback(() => {
     if (!contentSlide?.title) return
     const removed = contentSlide.title
-    // `force` is the user's confirmation; the command refuses without it.
+    // Brukeren har bekreftet fjerningen eller valgt færre popuper.
     const done = run('toggle-title', (current) =>
       setSlideHasTitle(current, contentSlide.id, false, { ...domFitCheckers, force: true }),
     )
@@ -1222,10 +1246,16 @@ export function EditorView({
         void runStructural('reorder-zone', (current) =>
           reorderLayoutNode(current, { slideId, nodeId, toIndex, ...domFitCheckers }),
         ),
-      clear: setClearingZoneId,
-      remove: setDeletingZoneId,
+      clear: (nodeId) => {
+        if (fewerDialogs) removeZone('clear', slideId, nodeId, 'delete')
+        else setClearingZoneId(nodeId)
+      },
+      remove: (nodeId) => {
+        if (fewerDialogs) removeZone('delete', slideId, nodeId, 'delete')
+        else setDeletingZoneId(nodeId)
+      },
     }
-  }, [addContentTo, applyContentKindTo, beginPlacement, contentSlide, runStructural])
+  }, [addContentTo, applyContentKindTo, beginPlacement, contentSlide, fewerDialogs, removeZone, runStructural])
 
   /**
    * Open the zone menu for one zone.
@@ -1374,6 +1404,7 @@ export function EditorView({
   const zoneActions: ZoneAction[] = useMemo(() => {
     if (!contentSlide || !selectedNodeId || !selectedNode || !zoneHandlers) return []
     const isLeaf = selectedNode.kind === 'leaf'
+    const quickSplit = isLeaf && quickSplitAxis
     const content = selectedLeaf?.content ?? null
     const isRoot = contentSlide.root.id === selectedNodeId
     const panel = content ? imagePanelOf(content) : null
@@ -1432,8 +1463,11 @@ export function EditorView({
       {
         id: 'split',
         group: 'zone',
-        ...(isLeaf ? { ...ZONE_ACTIONS.split, label: `${ZONE_ACTIONS.split.label} …` } : ZONE_ACTIONS.editSplit),
-        onSelect: () => setSplitOpen(true),
+        ...(isLeaf ? { ...ZONE_ACTIONS.split, label: quickSplit ? ZONE_ACTIONS.split.label : `${ZONE_ACTIONS.split.label} …` } : ZONE_ACTIONS.editSplit),
+        onSelect: () => {
+          if (quickSplit) zoneHandlers.split(selectedNodeId, quickSplit)
+          else zoneHandlers.openSplitDialog(selectedNodeId)
+        },
         testId: 'zone-action-split',
       },
       /*
@@ -1472,6 +1506,7 @@ export function EditorView({
     applyContentKind,
     contentSlide,
     openZoneMenu,
+    quickSplitAxis,
     selectedLeaf,
     selectedNode,
     selectedNodeId,
@@ -1936,7 +1971,7 @@ export function EditorView({
       },
       onToggleTitle: () => {
         if (contentSlide?.title != null) {
-          if (!isDocEmpty(contentSlide.title)) {
+          if (!fewerDialogs && !isDocEmpty(contentSlide.title)) {
             setRemovingTitle(true)
             return
           }
@@ -1985,7 +2020,10 @@ export function EditorView({
           setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
         }
         onSelectAuthored={() => setDerivedView(null)}
-        onRequestDelete={setDeletingSlide}
+        onRequestDelete={(slide) => {
+          if (fewerDialogs) removeSlide(slide.id)
+          else setDeletingSlide(slide)
+        }}
         onRequestNewPage={setNewPage}
         // On a compact workspace the strip is the whole slide overview rather
         // than a column beside the stage, so its pages are drawn as big as the
@@ -2092,13 +2130,14 @@ export function EditorView({
         </DragOverlay>
       </DndContext>
 
-      <ContextMenuHost />
+      <ContextMenuHost skipConfirmations={fewerDialogs} />
 
       {splitOpen && selectedRect && contentSlide && selectedNodeId && (
         <SplitModal
           key={`split-${selectedNodeId}`}
           open={splitOpen}
           onOpenChange={setSplitOpen}
+          fewerDialogs={fewerDialogs}
           targetRect={selectedRect}
           theme={presentation?.theme}
           targetLabels={breadcrumbLabels(contentSlide.root, selectedNodeId)}
@@ -2118,7 +2157,7 @@ export function EditorView({
         onOpenChange={closeNewPage}
         onCreate={(hasTitle) => {
           insertSlide(hasTitle, undefined, newPage ?? {})
-          setNewPage(null)
+          setNewPageDialog(null)
         }}
       />
 
@@ -2128,7 +2167,7 @@ export function EditorView({
         onOpenChange={closeNewPage}
         onCreate={(title) => {
           const created = insertSection(title, newPage ?? {})
-          if (created) setNewPage(null)
+          if (created) setNewPageDialog(null)
           return created
         }}
       />
@@ -2261,7 +2300,7 @@ export function EditorView({
         message={`${deletingSlideName.charAt(0).toUpperCase()}${deletingSlideName.slice(1)} og alt innhold på den fjernes. Du kan angre etterpå.`}
         onConfirm={() => {
           if (!deletingSlide) return
-          run('delete-slide', (current) => deleteSlide(current, deletingSlide.id))
+          removeSlide(deletingSlide.id)
           setDeletingSlide(null)
         }}
         onCancel={() => setDeletingSlide(null)}
@@ -2281,28 +2320,15 @@ export function EditorView({
           deletingZoneHasContent
             ? () => {
                 if (!deletingZoneId) return
-                runStructural('delete-zone', (current) =>
-                  deleteLayoutNode(current, {
-                    slideId: slide.id,
-                    nodeId: deletingZoneId,
-                    contentDisposition: 'sandbox',
-                  }),
-                )
+                removeZone('delete', slide.id, deletingZoneId, 'sandbox')
                 setDeletingZoneId(null)
               }
             : undefined
         }
         onConfirm={() => {
           if (!deletingZoneId) return
-          runStructural('delete-zone', (current) =>
-            deleteLayoutNode(current, {
-              slideId: slide.id,
-              nodeId: deletingZoneId,
-              // Content is only ever discarded when the dialog said so; if content
-              // appeared since (an undo, say), it is rescued instead.
-              contentDisposition: deletingZoneHasContent ? 'delete' : 'sandbox',
-            }),
-          )
+          // Hvis nytt innhold dukket opp etter at dialogen ble åpnet, tas det vare på.
+          removeZone('delete', slide.id, deletingZoneId, deletingZoneHasContent ? 'delete' : 'sandbox')
           setDeletingZoneId(null)
         }}
         onCancel={() => setDeletingZoneId(null)}
@@ -2324,28 +2350,14 @@ export function EditorView({
           clearingZoneKeeps
             ? () => {
                 if (!clearingZoneId) return
-                runStructural('clear-zone', (current) =>
-                  clearLayoutNode(current, {
-                    slideId: slide.id,
-                    nodeId: clearingZoneId,
-                    contentDisposition: 'sandbox',
-                  }),
-                )
+                removeZone('clear', slide.id, clearingZoneId, 'sandbox')
                 setClearingZoneId(null)
               }
             : undefined
         }
         onConfirm={() => {
           if (!clearingZoneId) return
-          // What the dialog said goes is what goes: with nothing worth keeping,
-          // there is nothing to park in the sandbox either.
-          runStructural('clear-zone', (current) =>
-            clearLayoutNode(current, {
-              slideId: slide.id,
-              nodeId: clearingZoneId,
-              contentDisposition: 'delete',
-            }),
-          )
+          removeZone('clear', slide.id, clearingZoneId, 'delete')
           setClearingZoneId(null)
         }}
         onCancel={() => setClearingZoneId(null)}

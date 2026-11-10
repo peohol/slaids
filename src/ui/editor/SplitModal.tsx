@@ -40,6 +40,7 @@ import { SplitPreview } from './SplitPreview'
 import {
   COUNT_ERROR,
   contentCount,
+  defaultSplitAxis,
   listed,
   parseCount,
   parseWeight,
@@ -105,6 +106,7 @@ export interface SplitModalResult {
 export interface SplitModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  fewerDialogs?: boolean
   /** The rect the split will occupy, straight from the geometry engine. */
   targetRect: Rect
   /**
@@ -144,6 +146,7 @@ export interface SplitModalProps {
 export function SplitModal({
   open,
   onOpenChange,
+  fewerDialogs = false,
   targetRect,
   theme,
   targetLabels,
@@ -157,8 +160,7 @@ export function SplitModal({
 }: SplitModalProps) {
   const hasContent = leafContent !== null
   const geometry = geometryForTheme(theme)
-  const defaultAxis: Axis =
-    existingAxis ?? (targetRect.width >= targetRect.height ? 'x' : 'y')
+  const defaultAxis = existingAxis ?? defaultSplitAxis(targetRect)
   const [axis, setAxis] = useState<Axis>(defaultAxis)
   const [count, setCount] = useState(existingWeights?.length ?? 2)
   /** What the count field shows: the count, or a number being typed that is not one yet. */
@@ -317,7 +319,7 @@ export function SplitModal({
     }
   }
   const requestApply = (): void => {
-    if (removedContent > 0 && removedDisposition === 'delete') setConfirmingDelete(true)
+    if (!fewerDialogs && removedContent > 0 && removedDisposition === 'delete') setConfirmingDelete(true)
     else apply(removedDisposition)
   }
 

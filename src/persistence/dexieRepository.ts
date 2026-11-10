@@ -354,10 +354,14 @@ export class DexieSlaidsRepository implements SlaidsRepository {
   }
 
   async getUserSettings(_ownerId: string | null): Promise<UserSettings> {
-    const stored = await this.database.settings.get('includeReferencesInProgress')
+    const [progress, dialogs] = await this.database.settings.bulkGet([
+      'includeReferencesInProgress',
+      'fewerDialogs',
+    ])
     return {
       ...DEFAULT_USER_SETTINGS,
-      includeReferencesInProgress: stored?.value === true,
+      includeReferencesInProgress: progress?.value === true,
+      fewerDialogs: dialogs?.value === true,
     }
   }
 
