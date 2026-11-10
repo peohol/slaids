@@ -1,6 +1,12 @@
 /** Keyboard shortcut reference. */
 
 import { Modal } from '../components/Modal'
+import { EDITOR_SHORTCUTS, type EditorShortcut } from './editorShortcuts'
+
+function shortcut(action: EditorShortcut): [string, string] {
+  const [key, label] = EDITOR_SHORTCUTS[action]
+  return [`Ctrl + Alt + ${key}`, label]
+}
 
 const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
   {
@@ -11,6 +17,8 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl + Shift + Z', 'Gjør om'],
       ['↑ / ↓', 'Forrige/neste side (ikke mens du skriver)'],
       ['F5', 'Vis presentasjonen'],
+      shortcut('sandbox'),
+      shortcut('slide'),
     ],
   },
   {
@@ -25,6 +33,11 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl + X', 'Klipp ut innholdet i sonen'],
       ['Ctrl + V', 'Lim inn i en tom sone'],
       ['Shift + F10', 'Hurtigmeny for valgt sone (også høyreklikk)'],
+      shortcut('splitVertical'),
+      shortcut('splitHorizontal'),
+      shortcut('clear'),
+      shortcut('remove'),
+      shortcut('toSandbox'),
     ],
   },
   {
@@ -33,6 +46,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl + B / I / U', 'Fet / kursiv / understreket'],
       ['Ctrl + Shift + V', 'Lim inn som ren tekst'],
       ['Shift + F10', 'Hurtigmeny for markeringen'],
+      shortcut('reference'),
     ],
   },
   {
@@ -69,6 +83,7 @@ export function ShortcutsModal({
         </button>
       }
     >
+      <p className="hint">På Mac kan du bruke ⌘ + Ctrl for hurtigtastene som bruker Ctrl + Alt.</p>
       {GROUPS.map((group) => (
         <section key={group.title}>
           <h3 className="reference-heading">{group.title}</h3>
