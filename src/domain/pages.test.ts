@@ -157,25 +157,29 @@ describe('deckProgress', () => {
     expect(progress.get('s3')).toBe(1)
   })
 
-  it('lar den siste siden være full, uansett hva slags side det er', () => {
-    const shared = deckPages(withCitation(), { shareUrl: SHARE_URL })
-    const progress = deckProgress(shared)
-    expect(progress.get(QR_PAGE_ID)).toBe(1)
+  it('beholder fremdriften på referanseslidene uten å telle dem som standard', () => {
+    const presentation = withCitation()
+    const pages = deckPages(presentation)
+    const reference = pages.find((page) => page.kind === 'reference-slide')!
+    const progress = deckProgress(pages)
 
-    // Uten deling er referansesiden den siste, og da er det den som er full.
-    const unshared = deckPages(withCitation(), { shareUrl: null })
-    const last = unshared[unshared.length - 1]
-    expect(last.kind).toBe('reference-slide')
-    expect(deckProgress(unshared).get(last.id)).toBe(1)
+    expect(progress.get(presentation.slides[1].id)).toBe(1)
+    expect(progress.get(reference.id)).toBe(1)
   })
 
-  it('teller de avledede sidene med, så bare første halvdel er authored', () => {
+  it('teller QR-siden og tar med referansesliden når valget er på', () => {
     const presentation = withCitation()
     const pages = deckPages(presentation, { shareUrl: SHARE_URL })
+    const reference = pages.find((page) => page.kind === 'reference-slide')!
     const progress = deckProgress(pages)
-    // Forsiden, én authored slide, én referanseside og én QR-side: den authored
-    // er 1 av de 3 som telles.
-    expect(progress.get(presentation.slides[1].id)).toBeCloseTo(1 / 3, 9)
+    const withReferences = deckProgress(pages, true)
+
+    expect(progress.get(presentation.slides[1].id)).toBe(1 / 2)
+    expect(progress.get(reference.id)).toBe(1 / 2)
+    expect(progress.get(QR_PAGE_ID)).toBe(1)
+    expect(withReferences.get(presentation.slides[1].id)).toBe(1 / 3)
+    expect(withReferences.get(reference.id)).toBe(2 / 3)
+    expect(withReferences.get(QR_PAGE_ID)).toBe(1)
   })
 
   it('gir en presentasjon med bare en forside ingen fremdrift å tegne', () => {

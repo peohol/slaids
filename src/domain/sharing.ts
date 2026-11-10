@@ -108,6 +108,7 @@ export function buildSharedSnapshot(
     theme: published.theme,
     slides: published.slides,
     references: splitReferences(published).used,
+    includeReferencesInProgress: published.includeReferencesInProgress,
     assets: published.assets.filter((asset) => shownAssetIds.has(asset.id)),
     publishedAt,
   }
@@ -138,6 +139,7 @@ const envelopeSchema = z.object({
   cover: z.unknown().optional(),
   slides: z.unknown(),
   references: z.unknown(),
+  includeReferencesInProgress: z.unknown().optional(),
   assets: z.unknown(),
 })
 
@@ -168,6 +170,7 @@ export function parseSharedSnapshot(input: unknown): Result<SharedPresentationSn
     cover: parsed.cover,
     slides: parsed.slides,
     references: parsed.references,
+    includeReferencesInProgress: parsed.includeReferencesInProgress,
     sandbox: [],
     ideas: [],
     assets: parsed.assets,
@@ -185,6 +188,7 @@ export function parseSharedSnapshot(input: unknown): Result<SharedPresentationSn
     theme: deck.theme,
     slides: deck.slides,
     references: deck.references,
+    includeReferencesInProgress: deck.includeReferencesInProgress,
     assets: deck.assets,
     publishedAt: parsed.publishedAt,
   })

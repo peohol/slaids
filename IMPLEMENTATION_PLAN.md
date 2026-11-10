@@ -1340,8 +1340,9 @@ G
 
 Hvor langt ut i dekket en side er, er noe bare dekket vet – nøyaktig som et
 citation-nummer – så det ligger i `SlideRenderContext` ved siden av
-`numbering`, utledet av `deckProgress(deckPages(...))`. Komponenten slår det opp
-selv, så et kallsted sier bare *hvilken side* den tegner.
+`numbering`, utledet av `deckProgress` fra siderekka og presentasjonens valg
+for referanseslides. Komponenten slår det opp selv, så et kallsted sier bare
+*hvilken side* den tegner.
 
 Indikatoren henger i sidens egen boks (`DeckPageView`), ikke inne i sliden. Det
 er dét som holder den montert gjennom et sidebytte: sidetypene er forskjellige
@@ -1349,9 +1350,12 @@ komponenter, så React bytter ut selve visningen når dekket går fra siste slid
 til QR-siden – og en indikator som fulgte med ville vært et nytt element uten
 noen forrige bredde å animere fra. Nøyaktig det sidebyttet ville hoppet.
 
-Tellingen følger sidene, ikke de lagrede slidene: **forsiden telles ikke**, den
-første vanlige sliden er side 1, og den siste siden er full – uansett om det er
-en vanlig slide, en referanseside eller QR-siden.
+Forsiden telles ikke. Første ordinære slide etter forsiden er side 1, og
+QR-siden teller når den vises. Automatisk genererte referanseslides beholder
+fremdriften fra forrige side som standard. Under **Presentasjon → Referanser**
+kan forfatteren velge å telle dem med for den aktuelle presentasjonen. Den
+siste siden som telles, fyller indikatoren. Valget følger også publiserte
+kopier av presentasjonen.
 
 ---
 

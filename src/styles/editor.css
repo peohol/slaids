@@ -1704,6 +1704,12 @@
  * References
  * ----------------------------------------------------------------- */
 
+.reference-progress-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .reference-form {
   display: grid;
   grid-template-columns: 1fr 1fr;

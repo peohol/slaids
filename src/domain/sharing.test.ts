@@ -168,11 +168,15 @@ describe('buildSharedSnapshot', () => {
 
 describe('parseSharedSnapshot', () => {
   it('leser tilbake det som ble bygget', () => {
-    const snapshot = buildSharedSnapshot(fullPresentation())
+    const snapshot = buildSharedSnapshot({
+      ...fullPresentation(),
+      includeReferencesInProgress: true,
+    })
     const parsed = parseSharedSnapshot(JSON.parse(JSON.stringify(snapshot)))
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) return
     expect(parsed.value.title).toBe('Arbeidskopi')
+    expect(parsed.value.includeReferencesInProgress).toBe(true)
     expect(parsed.value.slides).toHaveLength(2)
     expect(parsed.value.assets.map((entry) => entry.id)).toEqual([SHOWN_ASSET])
   })

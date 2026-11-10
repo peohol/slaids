@@ -160,7 +160,7 @@ test.describe('presentation mode', () => {
       .toBe(before.index + 1)
   })
 
-  test('appends a derived reference slide when a reference is cited', async ({ page }) => {
+  test('viser referansesliden og teller den med etter avkrysning', { tag: '@pr' }, async ({ page }) => {
     await createPresentation(page, 'Referanser')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
@@ -182,13 +182,34 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('stage-slide')).toContainText('En viktig kilde')
     await expect(page.getByTestId('stage-slide')).toHaveAttribute('data-readonly', '')
 
-    // Cover, the authored slide, then the derived reference slide.
+    // Fremdriftslinjen er allerede full på siste ordinære slide.
     await page.getByTestId('present').click()
     await expect.poll(() => presentedPage(page)).toEqual({ index: 2, count: 3 })
+    await expect.poll(async () => (await progressBar(page))?.fillWidth).toBeCloseTo(SLIDE_WIDTH, 0)
     await page.keyboard.press('ArrowRight')
     await expect.poll(() => presentedPage(page)).toEqual({ index: 3, count: 3 })
     await expect(page.getByTestId('present-view')).toContainText('Referanser')
     await expect(page.getByTestId('present-view')).toContainText('En viktig kilde')
+    await expect.poll(async () => (await progressBar(page))?.fillWidth).toBeCloseTo(SLIDE_WIDTH, 0)
+
+    await page.keyboard.press('Escape')
+    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
+    const includeReferences = page.getByRole('checkbox', { name: 'Tell med referanseslides i fremdriftslinjen' })
+    await expect(includeReferences).not.toBeChecked()
+    await includeReferences.check()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('editor')).toBeVisible()
+
+    await page.getByTestId('present').click()
+    await page.keyboard.press('Home')
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 2, count: 3 })
+    await expect.poll(async () => (await progressBar(page))?.fillWidth).toBeCloseTo(SLIDE_WIDTH / 2, 0)
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(() => presentedPage(page)).toEqual({ index: 3, count: 3 })
+    await expect.poll(async () => (await progressBar(page))?.fillWidth).toBeCloseTo(SLIDE_WIDTH, 0)
   })
 
   test('leaves the derived slide when an authored slide is selected again', async ({ page }) => {
