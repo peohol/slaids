@@ -1,11 +1,14 @@
 import { expect, test, type Page } from './fixtures'
 import {
+  addContentToZone,
   addPage,
   chooseSlideAction,
   createPresentation,
   motionSettled,
   openSlideMenu,
+  stage,
   watchForErrors,
+  zoneRects,
 } from './helpers'
 
 /** Adds `count` untitled slides after the current one. */
@@ -14,6 +17,18 @@ async function addSlides(page: Page, count: number): Promise<void> {
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-without-title').click()
   }
+}
+
+/** Siterer én referanse på gjeldende slide, som gir én avledet side. */
+async function addReference(page: Page, title: string): Promise<void> {
+  const zones = await zoneRects(page)
+  await addContentToZone(page, zones[0].id, 'untitled-card')
+  await stage(page).locator('.subfield .tiptap').first().click()
+  await page.keyboard.type('Påstand med kilde')
+  await page.getByTestId('insert-reference').click()
+  await page.getByTestId('reference-title').fill(title)
+  await page.getByTestId('save-reference').click()
+  await page.getByRole('button', { name: 'Lukk' }).click()
 }
 
 /** The gap above the strip entry at `index`. */
@@ -179,4 +194,29 @@ test('a page put in from a slide\'s menu goes right after that slide', async ({ 
   await page.getByTestId('create-section').click()
   await expect(page.getByTestId('filmstrip-item')).toHaveCount(5)
   await expect(page.getByTestId('statusbar')).toContainText('Inndeling 3 av 5')
+})
+
+/*
+ * De avledede sidene på slutten genereres og redigeres ikke, men plassen foran
+ * den første av dem er likevel plassen etter siste slide: det samme
+ * mellomrommet tilbys der, og den nye siden havner foran alle avledede.
+ */
+test('the gap before the derived pages puts a new page after the last slide', async ({ page }) => {
+  await createPresentation(page, 'Før referansene')
+  await addReference(page, 'En kilde')
+  const derived = page.getByTestId('filmstrip-derived')
+  await expect(derived).toHaveCount(1)
+  await page.getByTestId('filmstrip-thumb').first().click()
+
+  const gap = derived.locator('xpath=preceding-sibling::*[@data-testid="filmstrip-insert"]')
+  await gap.hover()
+  await expect(gap).toHaveAttribute('data-open', '')
+  await page.getByTestId('filmstrip-insert-button').click()
+  await page.getByTestId('insert-slide').click()
+  await expect(page.getByTestId('new-slide-modal')).toContainText('Kommer etter slide 2.')
+  await page.getByTestId('new-slide-without-title').click()
+
+  await expect(page.getByTestId('filmstrip-item')).toHaveCount(3)
+  await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+  await expect(derived.locator('.filmstrip__number')).toHaveText('4')
 })

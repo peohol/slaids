@@ -422,6 +422,15 @@ export function Filmstrip({
   const [openGap, setOpenGap] = useState<string | null>(null)
   const dragging = useDndContext().active !== null
   const offersGaps = layout.columns === 1 && !dragging
+  /** Ett mellomroms del av denne tilstanden, navngitt etter oppføringen under det. */
+  const gap = (id: string) => ({
+    id,
+    open: openGap === id,
+    onOpenChange: (open: boolean) =>
+      setOpenGap((current) => (open ? id : current === id ? null : current)),
+  })
+  /** Siste vanlige slide — den nye siden fra mellomrommet over de avledede kommer etter den. */
+  const lastSlide = presentation.slides[presentation.slides.length - 1]
 
   const openMenu = useContextMenu((state) => state.open)
 
@@ -521,13 +530,7 @@ export function Filmstrip({
                 insert={
                   offersGaps && index > 0 ? (
                     <FilmstripInsert
-                      id={slide.id}
-                      open={openGap === slide.id}
-                      onOpenChange={(open) =>
-                        setOpenGap((current) =>
-                          open ? slide.id : current === slide.id ? null : current,
-                        )
-                      }
+                      {...gap(slide.id)}
                       onChoose={(kind) => onRequestNewPage({ kind, before: slide.id })}
                     />
                   ) : undefined
@@ -536,39 +539,52 @@ export function Filmstrip({
             ))}
         </SortableContext>
 
+        {/*
+          De avledede sidene kommer etter de vanlige, så mellomrommet over den
+          første av dem er plassen etter siste vanlige slide — det samme
+          mellomrommet, på samme vilkår, som mellom to slides. En ny side som
+          settes inn der, er en vanlig side og havner foran alle avledede.
+        */}
         {derived.map((page, index) => {
           const isQr = page.kind === 'qr'
           const label = isQr ? 'QR-side' : `Referanseslide ${index + 1}`
           return (
-            <div
-              key={page.id}
-              className={
-                page.id === viewingDerivedId
-                  ? 'filmstrip__item filmstrip__item--active filmstrip__item--derived'
-                  : 'filmstrip__item filmstrip__item--derived'
-              }
-              data-testid={isQr ? 'filmstrip-qr' : 'filmstrip-derived'}
-              data-page-id={page.id}
-            >
-              <div className="filmstrip__index">
-                <span className="filmstrip__number">{presentation.slides.length + index + 1}</span>
-                <span className="filmstrip__badge">Avledet</span>
-              </div>
-              <button
-                type="button"
-                className="filmstrip__thumb"
-                style={{ width: layout.width, height: (layout.width * SLIDE_HEIGHT) / SLIDE_WIDTH }}
-                onClick={() => onSelectDerived(page.id)}
-                aria-label={label}
-                aria-current={page.id === viewingDerivedId ? 'true' : undefined}
+            <div key={page.id} className="filmstrip__slot">
+              {offersGaps && index === 0 && lastSlide && (
+                <FilmstripInsert
+                  {...gap(page.id)}
+                  onChoose={(kind) => onRequestNewPage({ kind, after: lastSlide.id })}
+                />
+              )}
+              <div
+                className={
+                  page.id === viewingDerivedId
+                    ? 'filmstrip__item filmstrip__item--active filmstrip__item--derived'
+                    : 'filmstrip__item filmstrip__item--derived'
+                }
+                data-testid={isQr ? 'filmstrip-qr' : 'filmstrip-derived'}
+                data-page-id={page.id}
               >
-                <Thumb width={layout.width}>
-                  <DeckPageView page={page} />
-                </Thumb>
-              </button>
-              <p className="filmstrip__note">
-                {isQr ? 'Genereres av Del' : 'Genereres fra referansene'}
-              </p>
+                <div className="filmstrip__index">
+                  <span className="filmstrip__number">{presentation.slides.length + index + 1}</span>
+                  <span className="filmstrip__badge">Avledet</span>
+                </div>
+                <button
+                  type="button"
+                  className="filmstrip__thumb"
+                  style={{ width: layout.width, height: (layout.width * SLIDE_HEIGHT) / SLIDE_WIDTH }}
+                  onClick={() => onSelectDerived(page.id)}
+                  aria-label={label}
+                  aria-current={page.id === viewingDerivedId ? 'true' : undefined}
+                >
+                  <Thumb width={layout.width}>
+                    <DeckPageView page={page} />
+                  </Thumb>
+                </button>
+                <p className="filmstrip__note">
+                  {isQr ? 'Genereres av Del' : 'Genereres fra referansene'}
+                </p>
+              </div>
             </div>
           )
         })}
