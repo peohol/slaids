@@ -1,5 +1,13 @@
 import { expect, test } from './fixtures'
-import { chooseFolderAction, choosePresentationAction, createPresentation, toast, watchForErrors } from './helpers'
+import {
+  chooseFolderAction,
+  choosePresentationAction,
+  createPresentation,
+  stage,
+  toast,
+  watchForErrors,
+  worstOverflow,
+} from './helpers'
 
 test.describe('presentation library', () => {
   test('runs in local mode without a sign-in gate, and says so', async ({ page }) => {
@@ -32,24 +40,22 @@ test.describe('presentation library', () => {
     expect(guard.errors).toEqual([])
   })
 
-  test('refuses a name too long for the forside it becomes', async ({ page }) => {
-    // Navnet er også forsidens første linje, så det måles som en hvilken som
-    // helst annen linje på en side. Dialogen blir stående med navnet i seg.
+  test('takes a name too long for one line and sets it smaller on the forside', async ({ page }) => {
+    // Navnet er også forsidens første linje. En person nektes aldri et navn
+    // fordi det er langt: linjen settes i mindre skrift og merkes.
     await page.goto('/')
     await page.getByTestId('new-presentation').click()
     await page
       .getByTestId('presentation-title-input')
       .fill('Et navn som er altfor langt til å stå på én linje på forsiden av dette dekket, uansett hvilken font det settes i')
     await page.getByTestId('create-presentation').click()
-
-    await expect(toast(page, 'får ikke plass på forsiden')).toHaveCount(1)
-    await expect(page.getByTestId('new-presentation-modal')).toBeVisible()
-    await expect(page.getByTestId('editor')).toHaveCount(0)
-
-    // Kortet ned, og den blir opprettet.
-    await page.getByTestId('presentation-title-input').fill('Kort nok')
-    await page.getByTestId('create-presentation').click()
     await expect(page.getByTestId('editor')).toBeVisible()
+
+    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
+    const pill = stage(page).locator('[data-section-line="title"]')
+    await expect(pill).toHaveAttribute('data-title-fit', /^0\.\d+$/)
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    expect(await worstOverflow(page)).toBeLessThan(1)
   })
 
   test('renames, duplicates and deletes into the trash', async ({ page }) => {

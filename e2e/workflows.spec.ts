@@ -5,10 +5,12 @@ import {
   createPresentation,
   enterContentMode,
   enterZoneMode,
+  fillZoneToCapacity,
   splitSelected,
   stage,
   waitForSaved,
   watchForErrors,
+  worstOverflow,
   zoneRects,
   chooseFromToolbarMenu,
 } from './helpers'
@@ -53,6 +55,35 @@ test.describe('sandbox drag and drop', () => {
 
     await expect(page.getByTestId('sandbox-item')).toHaveCount(0)
     await expect(targetZone).toContainText('Flyttbart innhold')
+    expect(guard.errors).toEqual([])
+  })
+
+  test('places an item in a new zone too small for its text, and draws it smaller', async ({ page }) => {
+    // En person nektes aldri å plassere innhold fordi sonen er for liten for
+    // teksten: innholdet legges inn, tegnes mindre og merkes.
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Sandkasse i ny sone')
+    const [whole] = await zoneRects(page)
+    await addContentToZone(page, whole.id, 'untitled-card')
+    await fillZoneToCapacity(page, whole.id)
+
+    await enterZoneMode(page)
+    await clickZone(page, whole)
+    await page.getByTestId('inspector-action-sandbox').click()
+    await expect(page.getByTestId('sandbox-item')).toHaveCount(1)
+
+    // The empty zone is split; the left one gets a quarter of the width.
+    await splitSelected(page, [1, 3], 'x')
+    const zones = await zoneRects(page)
+    await page.getByTestId('sandbox-place').click()
+    await expect(page.getByTestId('zone-drop-available')).toHaveCount(2)
+    await clickZone(page, zones[0])
+
+    await expect(page.getByTestId('sandbox-item')).toHaveCount(0)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
+    await expect(zone.locator('.zone-fit')).toHaveAttribute('data-fit-scale', /^0\.\d+$/)
+    await expect(zone.getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
     expect(guard.errors).toEqual([])
   })
 })

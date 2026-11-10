@@ -9,13 +9,12 @@
 
 import { useState } from 'react'
 import { setTheme } from '../../domain/commands'
-import { setCardLookByHand } from '../../domain/commands/manualLayout'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { TITLED_CARD_STYLES, type TitledCardStyle } from '../../domain/constants'
 import { FONT_OPTIONS, findFontByStack } from '../../domain/fonts'
 import { FONT_SCALE_PRESETS, SPACING_PRESETS, type ThemeScalePreset } from '../../domain/metrics'
 import { bestTextColor } from '../../domain/color'
 import type { PresentationTheme } from '../../domain/types'
-import { domFitCheckers } from '../../state/measure'
 import { notify } from '../../state/toast'
 import { useEditorStore } from '../../state/store'
 import { writeDefaultTheme } from '../../state/defaultTheme'
@@ -104,26 +103,19 @@ export function ThemeModal({
   const previewAccent = presentation.slides[0].accentColor
 
   /**
-   * De to utseendevalgene er en persons valg av uttrykk, ikke en endring som
-   * skal måles mot dekket: en skygge skjuler ingenting, og tekst et
-   * tittelutseende gir for lite plass, tegnes mindre, som i en sone dratt liten.
+   * Alt i temadialogen er en persons valg: tekst som ikke lenger får plass i
+   * normal størrelse etter et nytt tema, tegnes mindre og merkes, i stedet for
+   * at valget avvises (`HUMAN_EDIT`). Agentens `set_theme` måles fortsatt.
    */
-  const setLook = (
-    label: string,
-    patch: Partial<Pick<PresentationTheme, 'boxShadows' | 'titledCardStyle'>>,
-  ): void => {
-    run(label, (current) => setCardLookByHand(current, patch))
+  const applyTheme = (label: string, patch: Partial<PresentationTheme>): void => {
+    run(label, (current) => setTheme(current, patch, HUMAN_EDIT))
   }
 
   /**
    * Pick a font — but only commit it once the browser can actually draw it.
    *
-   * The fit gate answers "does this still fit?" by measuring the real DOM. Ask
-   * it while the web font is still downloading and it measures the fallback,
-   * approves the change, and the swap a moment later pushes text out of zones
-   * that were just declared fine. So: load first, wait for readiness, then let
-   * the command measure. A font that will not load is not silently accepted
-   * against fallback metrics either — the change is refused and said out loud.
+   * A font that will not load is not silently accepted and drawn with the
+   * fallback: the change is refused and said out loud.
    */
   const applyFont = async (field: 'heading' | 'body', stack: string): Promise<void> => {
     setLoading(field)
@@ -137,7 +129,7 @@ export function ThemeModal({
       }
       const patch =
         field === 'heading' ? { headingFontFamily: stack } : { bodyFontFamily: stack }
-      run(`theme-${field}-font`, (current) => setTheme(current, patch, domFitCheckers))
+      applyTheme(`theme-${field}-font`, patch)
     } finally {
       setLoading(null)
     }
@@ -179,9 +171,6 @@ export function ThemeModal({
             value={theme.headingFontFamily}
             data-testid="theme-heading-font"
             disabled={loading !== null}
-            // A wider heading font can push slide titles and card headers out
-            // of their fixed-height zones, so the command validates the whole
-            // deck against the prospective theme — after the font is loaded.
             onChange={(event) => void applyFont('heading', event.target.value)}
           >
             {FONT_OPTIONS.map((font) => (
@@ -213,7 +202,7 @@ export function ThemeModal({
             Laster {findFontByStack(
               loading === 'heading' ? theme.headingFontFamily : theme.bodyFontFamily,
             )?.label ?? 'fonten'}
-            … endringen måles først når fonten er klar.
+            … endringen tas i bruk når fonten er klar.
           </p>
         )}
       </div>
@@ -232,9 +221,7 @@ export function ThemeModal({
               data-testid={`theme-spacing-${step.value}`}
               aria-pressed={isCurrent(step.value, theme.spacing, SPACING_PRESETS)}
               onClick={() =>
-                run('theme-spacing', (current) =>
-                  setTheme(current, { spacing: step.value }, domFitCheckers),
-                )
+                applyTheme('theme-spacing', { spacing: step.value })
               }
             >
               {step.label}
@@ -262,9 +249,7 @@ export function ThemeModal({
               data-testid={`theme-font-scale-${step.value}`}
               aria-pressed={isCurrent(step.value, theme.fontScale, FONT_SCALE_PRESETS)}
               onClick={() =>
-                run('theme-font-scale', (current) =>
-                  setTheme(current, { fontScale: step.value }, domFitCheckers),
-                )
+                applyTheme('theme-font-scale', { fontScale: step.value })
               }
             >
               {step.label}
@@ -286,7 +271,7 @@ export function ThemeModal({
             aria-checked={theme.boxShadows}
             className="switch"
             data-testid="theme-shadows"
-            onClick={() => setLook('theme-shadows', { boxShadows: !theme.boxShadows })}
+            onClick={() => applyTheme('theme-shadows', { boxShadows: !theme.boxShadows })}
           >
             <span className="switch__thumb" />
           </button>
@@ -322,7 +307,7 @@ export function ThemeModal({
                   value={look}
                   checked={chosen}
                   aria-label={TITLED_CARD_LOOK_LABELS[look]}
-                  onChange={() => setLook('theme-titled-card', { titledCardStyle: look })}
+                  onChange={() => applyTheme('theme-titled-card', { titledCardStyle: look })}
                 />
                 <TitledCardLookPreview
                   look={look}

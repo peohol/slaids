@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createDeck } from '../../domain/commands'
 import { describeError } from '../../domain/result'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { repository, storageMode } from '../../persistence/activeRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
 import { estimateStorage, requestPersistentStorage, type StorageEstimateInfo } from '../../persistence/db'
@@ -160,9 +160,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
   }, [reloadToken, mode])
 
   const create = async (result: NewPresentationResult): Promise<void> => {
-    // The deck's name is also the first line of its front page, so it is
-    // measured like any other line on a page. A refusal leaves the dialog open
-    // with the name still in it, which is where the author fixes it.
+    // The deck's name is also the first line of its front page. Et navn for
+    // langt for linjen tas imot og settes i mindre skrift der.
     const created = createDeck(
       {
         title: result.title,
@@ -170,7 +169,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
         backgroundColor: result.backgroundColor,
         folderId: activeFolder,
       },
-      domFitCheckers,
+      HUMAN_EDIT,
     )
     if (!created.ok) {
       notify.error(describeError(created.error))

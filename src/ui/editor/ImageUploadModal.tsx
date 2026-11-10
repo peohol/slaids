@@ -38,7 +38,7 @@ import type { Editor } from '@tiptap/react'
 import { registerAsset, setImageAsset, setZoneContent } from '../../domain/commands'
 import { IMAGE_FILE_ACCEPT } from '../../domain/imageBytes'
 import { describeError } from '../../domain/result'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { createImage, imagePanelOf } from '../../domain/content'
 import { findLeaf } from '../../domain/layout'
 import { describeSanitizing, storeUploadedFile } from '../../state/assetUpload'
@@ -117,14 +117,9 @@ export function ImageUploadModal({
 
       if (effective === 'inline' && target) {
         const aspect = ref.width > 0 && ref.height > 0 ? ref.width / ref.height : undefined
-        // Sized to the room that is actually left in the field, so the picture
-        // arrives next to the text instead of being rolled back for overflow.
+        // Sized to the room that is actually left in the field, so the zone
+        // keeps its type size when there is room for the picture at all.
         const widthPercent = fittingImageWidthPercent(target, aspect ?? 16 / 9)
-        if (widthPercent === null) {
-          notify.warning('Feltet har ikke plass til et bilde. Gjør sonen større eller kort ned teksten.')
-          onOpenChange(false)
-          return
-        }
         target
           .chain()
           .focus()
@@ -146,7 +141,7 @@ export function ImageUploadModal({
               slideId,
               nodeId: zoneNodeId,
               assetId: ref.id,
-              ...domFitCheckers,
+              ...HUMAN_EDIT,
             }),
           )
         } else {
@@ -156,7 +151,7 @@ export function ImageUploadModal({
               nodeId: zoneNodeId,
               content: createImage(ref.id),
               replace: true,
-              ...domFitCheckers,
+              ...HUMAN_EDIT,
             }),
           )
         }
