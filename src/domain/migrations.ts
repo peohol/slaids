@@ -6,7 +6,13 @@
  * before validation, so early test presentations never become unreadable.
  */
 
-import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from './constants'
+import {
+  DEFAULT_BACKGROUND_COLOR,
+  DEFAULT_PILL_COLOR,
+  DEFAULT_TITLED_CARD_STYLE,
+  TITLED_CARD_STYLES,
+  type TitledCardStyle,
+} from './constants'
 import { WHITE, normalizeHex } from './color'
 import { err, ok, type Result } from './result'
 import { CURRENT_SCHEMA_VERSION, validatePresentation } from './schema'
@@ -688,6 +694,30 @@ const migrate16to17: MigrationFn = (data) => {
   return { ...rest, schemaVersion: 17 }
 }
 
+/**
+ * A theme gains two looks: whether boxes cast shadows, and how a card with a
+ * title draws it. Every deck stored before either existed had shadows and a
+ * header joined to its body, so that is what is filled in.
+ */
+const migrate17to18: MigrationFn = (data) => {
+  const theme = (data.theme ?? {}) as Raw
+  return { ...data, schemaVersion: 18, theme: { ...theme, ...cardLookOf(theme) } }
+}
+
+/**
+ * The two looks a theme stores, as a stored theme has them — or as every deck
+ * before them looked, where a value is missing or not one the theme knows.
+ * Shared by the migration that introduced them and by `repairPresentation`, so
+ * the two cannot disagree about what a deck without them looks like.
+ */
+function cardLookOf(theme: Raw): { boxShadows: boolean; titledCardStyle: TitledCardStyle } {
+  const style = TITLED_CARD_STYLES.find((known) => known === theme.titledCardStyle)
+  return {
+    boxShadows: typeof theme.boxShadows === 'boolean' ? theme.boxShadows : true,
+    titledCardStyle: style ?? DEFAULT_TITLED_CARD_STYLE,
+  }
+}
+
 /** Keyed by the version the migration upgrades *from*. */
 export const MIGRATIONS: Record<number, MigrationFn> = {
   0: migrate0to1,
@@ -707,6 +737,7 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
   14: migrate14to15,
   15: migrate15to16,
   16: migrate16to17,
+  17: migrate17to18,
 }
 
 /**
@@ -734,6 +765,7 @@ export function repairPresentation(data: Raw): Raw {
     bodyFontFamily: asString(theme.bodyFontFamily, '').trim() || DEFAULT_BODY_FONT,
     spacing: clampScale(theme.spacing, SPACING_RANGE, DEFAULT_SPACING),
     fontScale: clampScale(theme.fontScale, FONT_SCALE_RANGE, DEFAULT_FONT_SCALE),
+    ...cardLookOf(theme),
   }
 
   const repairColors = (value: unknown): unknown => {

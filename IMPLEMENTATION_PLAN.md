@@ -2392,6 +2392,36 @@ Kort med:
 
 Body-subfields skal ha intern layoutsemantikk som ikke blandes med slide-sonetreet.
 
+**Utseende.** Hvordan et kort med tittel tegner tittelen er et temavalg
+(`titledCardStyle`, `TITLED_CARD_STYLES`), så alle slike kort i et dekk ser
+like ut. Det gjelder både kort med tittel og kort med tittel og bilde:
+
+- `joined` – som over: header og body er ett kort, headeren over hele bredden.
+  Alle dekk fra før valget fantes ser slik ut.
+- `tab` – bodyen er et eget kort med avrundede hjørner også øverst, og headeren
+  er en farget fane som står opp bak den. Fanen er like bred som tittelteksten
+  pluss polstring, aldri bredere enn bodyen minus én hjørneradius, og løper én
+  radius ned bak bodyen så dens egne nedre hjørner aldri vises.
+- `floating` – headeren er et eget kort, like bredt som teksten og høyst like
+  bredt som bodyen, ett globalt gap over bodykortet.
+
+En header smalere enn kortet står der tittelen er justert. Valget flytter to
+tall i `ThemeMetrics`: hvor langt ned bodyen begynner (`cardBodyOffset`,
+headeren pluss gapet når den svever) og hvor mye av bredden headeren aldri kan
+ta (`cardTitleInset`). Renderer, estimator og bildebrief leser de samme
+tallene. Minstemålet for et kort (`contentSize.ts`) avhenger bevisst *ikke*
+av utseendet, så et bytte kan aldri gjøre en sone ulovlig liten. Tekst et
+bytte gir for lite plass tegnes forminsket, akkurat som i en sone en person
+har dratt liten (§ «Forminsket visning»): en person som velger utseende i
+temadialogen får det alltid (`setCardLookByHand`), mens agentens `set_theme`
+måler dekket og avviser.
+
+**Skygger** kan slås av for hele dekket (`boxShadows`). Det gjelder alle
+`box-shadow`-er på slidene – kort, bilder, inndelingspiller, miniapp-rammer og
+deres `--slaids-shadow` – og leses ett sted (`cardShadow` i `metrics.ts`).
+Tekstskygger for lesbarhet er ikke berørt. En skygge er maling, så valget
+måles aldri.
+
 ### 13.4 Bilde
 
 Et bilde som fyller en sone er et kort fylt til randen med bilde:
@@ -2526,6 +2556,10 @@ type PresentationTheme = {
   spacing: number
   /** Skriftstørrelse: én multiplikator på all typografi. */
   fontScale: number
+  /** Om kort, bilder, piller og miniapp-rammer kaster skygge. Se § 13.3. */
+  boxShadows: boolean
+  /** Hvordan et kort med tittel tegner tittelen. Se § 13.3. */
+  titledCardStyle: 'joined' | 'tab' | 'floating'
 }
 ```
 
@@ -4660,6 +4694,9 @@ Kontrakten er derfor:
   navn en agent kan bruke for å si «normal», ikke grensene den må holde seg til;
   de siteres i beskrivelsen fra `SPACING_PRESETS` og `FONT_SCALE_PRESETS`. En
   agent som ber om 1.12 har bedt om noe lovlig, og fit-guarden avgjør resten.
+- **Skygger og kortutseende er med.** `boxShadows` måles aldri; et nytt
+  `titledCardStyle` måles som en font, fordi en fane gir tittelen litt mindre
+  bredde og en svevende tittel gir innholdet ett gap mindre høyde.
 - **Fargene ligger ikke i temaet**, de settes per seksjon med
   `set_section_colors`. Editorens
   palett er en måte å klikke en farge på, ikke en begrensning domenet har.

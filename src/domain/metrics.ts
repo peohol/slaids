@@ -25,6 +25,9 @@ import {
   CARD_HEADER_FONT_SIZE,
   CARD_HEADER_HEIGHT,
   CARD_PADDING,
+  CARD_RADIUS,
+  CARD_SHADOW,
+  DEFAULT_TITLED_CARD_STYLE,
   SECTION_SUBTITLE_FONT_SIZE,
   G,
   HEADING_FONT_SIZE,
@@ -35,6 +38,7 @@ import {
   SUBFIELD_GAP,
   TITLE_FONT_SIZE,
   titleZoneHeightFor,
+  type TitledCardStyle,
 } from './constants'
 import type { PresentationTheme } from './types'
 
@@ -59,6 +63,20 @@ export interface ThemeMetrics {
   sectionSubtitleFontSize: number
   cardHeaderFontSize: number
   cardHeaderHeight: number
+  /**
+   * How a card with a title draws it (`TITLED_CARD_STYLES`), and the two
+   * numbers that choice moves: how far below the card's top edge its body
+   * starts — the header, plus a gap when the header floats — and how much of
+   * the card's width the header may never take (one corner radius for a tab).
+   *
+   * Deliberately *not* part of how small a card may be (`contentSize.ts`):
+   * that is the same whichever way the title is drawn, so switching style can
+   * never leave a zone below its minimum. A body the switch leaves too little
+   * room is drawn smaller, exactly like a zone a person dragged small.
+   */
+  titledCardStyle: TitledCardStyle
+  cardBodyOffset: number
+  cardTitleInset: number
   titleZoneHeight: number
   /** The caption over a picture: its type, and the air beside it. */
   captionFontSize: number
@@ -144,8 +162,11 @@ function scaled(base: number, factor: number): number {
 export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
   const spacing = clamp(theme?.spacing ?? DEFAULT_SPACING, SPACING_RANGE, DEFAULT_SPACING)
   const font = clamp(theme?.fontScale ?? DEFAULT_FONT_SCALE, FONT_SCALE_RANGE, DEFAULT_FONT_SCALE)
+  const gap = Math.max(4, scaled(G, spacing))
+  const cardHeaderHeight = scaled(CARD_HEADER_HEIGHT, font)
+  const titledCardStyle = theme?.titledCardStyle ?? DEFAULT_TITLED_CARD_STYLE
   return {
-    gap: Math.max(4, scaled(G, spacing)),
+    gap,
     cardPadding: Math.max(4, scaled(CARD_PADDING, spacing)),
     subfieldGap: Math.max(4, scaled(SUBFIELD_GAP, spacing)),
     blockSpacing: Math.max(2, scaled(BLOCK_SPACING, spacing)),
@@ -158,12 +179,24 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
     titleFontSize: scaled(TITLE_FONT_SIZE, font),
     sectionSubtitleFontSize: scaled(SECTION_SUBTITLE_FONT_SIZE, font),
     cardHeaderFontSize: scaled(CARD_HEADER_FONT_SIZE, font),
-    cardHeaderHeight: scaled(CARD_HEADER_HEIGHT, font),
+    cardHeaderHeight,
+    titledCardStyle,
+    cardBodyOffset: cardHeaderHeight + (titledCardStyle === 'floating' ? gap : 0),
+    cardTitleInset: titledCardStyle === 'tab' ? CARD_RADIUS : 0,
     // The line the title is set on, and nothing more — see `TITLE_LINE_HEIGHT`.
     titleZoneHeight: titleZoneHeightFor(scaled(TITLE_FONT_SIZE, font)),
     captionFontSize: scaled(CAPTION_FONT_SIZE, font),
     captionSideGap: Math.max(4, scaled(CAPTION_SIDE_GAP, spacing)),
   }
+}
+
+/**
+ * The drop shadow a card, a picture, a section pill or a miniapp frame casts —
+ * or none, when the theme has shadows turned off. Read by every renderer and by
+ * the miniapp style contract, so turning them off turns off all of them.
+ */
+export function cardShadow(theme?: Partial<PresentationTheme>): string {
+  return theme?.boxShadows === false ? 'none' : CARD_SHADOW
 }
 
 /**

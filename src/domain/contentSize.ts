@@ -68,6 +68,9 @@ export function minimumSizeForKind(
     case 'untitled-card':
       return { width: MIN_TEXT_WIDTH, height: tokens.cardPadding * 2 + oneTextLine(tokens) }
     case 'titled-card':
+      // The header's own height, never `cardBodyOffset`: how small a card may
+      // be does not depend on how the theme draws its title, so switching
+      // that can never take a zone below its minimum. See `ThemeMetrics`.
       return {
         width: MIN_TEXT_WIDTH,
         height: tokens.cardHeaderHeight + tokens.cardPadding * 2 + oneTextLine(tokens),

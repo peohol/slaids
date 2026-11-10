@@ -24,6 +24,12 @@
  *  - Narrow by construction. The inputs are built field by field rather than
  *    spread, so no checker, flag or option can ride along, and only geometry
  *    commands are here: nothing that places, converts or edits content.
+ *  - One theme command, for the same reason: how a card with a title is drawn
+ *    and whether boxes cast shadows (`setCardLookByHand`). A shadow is paint
+ *    and hides nothing; a title style can leave a body less room, and a person
+ *    switching style is choosing a look, so what no longer fits at normal size
+ *    is drawn smaller rather than the switch refused. An agent's `set_theme`
+ *    still measures the deck and refuses.
  *  - **Never reachable from an agent.** It is not re-exported from the command
  *    index, and `manualLayout.boundary.test.ts` fails if anything outside the
  *    editor UI imports it. There is no API parameter that does what this does,
@@ -32,9 +38,10 @@
 
 import type { GeometryOptions } from '../geometry'
 import type { Result } from '../result'
-import type { LayoutNode, NodeId, Presentation } from '../types'
+import type { LayoutNode, NodeId, Presentation, PresentationTheme } from '../types'
 import { rearrangeZones } from './arrangement'
 import { setSplitWeights } from './layout'
+import { setTheme } from './slides'
 import type { StructuralOutcome } from './types'
 
 /** What a hand-made geometry change may say about how it is measured: only the geometry. */
@@ -77,5 +84,21 @@ export function rearrangeZonesByHand(
     nodeId: input.nodeId,
     layout: input.layout,
     ...geometryOnly(input),
+  })
+}
+
+/**
+ * `setTheme`, for the two looks a person picks in the theme dialog. Only those
+ * two fields are passed on, and no checker: the geometry is still asked
+ * (`findGeometryRegression`), which neither look can fail, because how small a
+ * card may be does not depend on them (`ThemeMetrics.cardBodyOffset`).
+ */
+export function setCardLookByHand(
+  presentation: Presentation,
+  input: Partial<Pick<PresentationTheme, 'boxShadows' | 'titledCardStyle'>>,
+): Result<Presentation> {
+  return setTheme(presentation, {
+    ...(input.boxShadows === undefined ? {} : { boxShadows: input.boxShadows }),
+    ...(input.titledCardStyle === undefined ? {} : { titledCardStyle: input.titledCardStyle }),
   })
 }

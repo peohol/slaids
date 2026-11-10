@@ -150,16 +150,17 @@ function doesNotFitAtAll(parts: readonly string[]): FitResult {
 /**
  * Theme fields that can change how much space content needs.
  *
- * The fonts, the air and the type size all can — each of them changes either
- * how wide a glyph is, how much room is left for glyphs, or both. Colours
- * cannot, so a background change must not trigger a full re-measure of the deck.
+ * The fonts, the air, the type size and how a card draws its title all can —
+ * each of them changes either how wide a glyph is, how much room is left for
+ * glyphs, or both. Colours and shadows cannot, so a background change must not trigger a full re-measure of the deck.
  */
 export function sameFitRelevantTheme(a: PresentationTheme, b: PresentationTheme): boolean {
   return (
     a.headingFontFamily === b.headingFontFamily &&
     a.bodyFontFamily === b.bodyFontFamily &&
     a.spacing === b.spacing &&
-    a.fontScale === b.fontScale
+    a.fontScale === b.fontScale &&
+    a.titledCardStyle === b.titledCardStyle
   )
 }
 
@@ -443,7 +444,7 @@ function estimateBodyOverflow(body: CardBody, area: Rect, context: EstimateConte
  * the estimator has to model it explicitly.
  */
 function estimateHeaderOverflow(title: TitleDoc, rect: Rect, context: EstimateContext): number {
-  const available = rect.width - context.tokens.cardPadding * 2
+  const available = rect.width - context.tokens.cardTitleInset - context.tokens.cardPadding * 2
   if (available <= 0) return Number.MAX_SAFE_INTEGER
   const needed =
     countDocChars(title, context) * context.tokens.cardHeaderFontSize * context.metrics.heading
@@ -494,7 +495,7 @@ export function estimateFit(
       )
     }
     case 'titled-image-card': {
-      const header = estimate.tokens.cardHeaderHeight
+      const header = estimate.tokens.cardBodyOffset
       const panel = { ...rect, y: rect.y + header, height: rect.height - header }
       return fitResult({
         [CARD_TITLE_PART]: estimateHeaderOverflow(content.title, rect, estimate),
@@ -527,7 +528,7 @@ export function estimateFit(
     }
     case 'titled-card': {
       const pad = estimate.tokens.cardPadding
-      const header = estimate.tokens.cardHeaderHeight
+      const header = estimate.tokens.cardBodyOffset
       const inner = {
         x: rect.x + pad,
         y: rect.y + header + pad,

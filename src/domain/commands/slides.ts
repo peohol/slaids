@@ -28,7 +28,7 @@ import {
   guardFit,
   subtreeOverflow,
 } from './fitGuard'
-import { FIT_TOLERANCE, MAX_IMAGE_CONTEXT_CHARS } from '../constants'
+import { FIT_TOLERANCE, MAX_IMAGE_CONTEXT_CHARS, TITLED_CARD_STYLES } from '../constants'
 import { FONT_SCALE_RANGE, SPACING_RANGE } from '../metrics'
 import { syncImagePlaceholders } from './imagePlan'
 import type { StructuralOptions } from './types'
@@ -552,6 +552,13 @@ export function setTheme(
     }
     next.fontScale = theme.fontScale
   }
+  if (theme.boxShadows !== undefined) next.boxShadows = theme.boxShadows
+  if (theme.titledCardStyle !== undefined) {
+    if (!TITLED_CARD_STYLES.includes(theme.titledCardStyle)) {
+      return err('INVALID_ARGUMENT', 'Ukjent utseende for kort med tittel.')
+    }
+    next.titledCardStyle = theme.titledCardStyle
+  }
 
   const updated = touch({ ...presentation, theme: next })
 
@@ -615,6 +622,9 @@ function refusalMessage(patch: Partial<PresentationTheme>): string {
   }
   if (size && !fonts && !spacing) {
     return 'Denne skriftstørrelsen gjør at innhold ikke lenger får plass. Kort ned innholdet først, eller velg en mindre størrelse.'
+  }
+  if (patch.titledCardStyle !== undefined && !fonts && !spacing && !size) {
+    return 'Dette utseendet på kort med tittel gjør at innhold ikke lenger får plass. Kort ned innholdet først, eller velg et annet utseende.'
   }
   return 'Denne endringen gjør at innhold ikke lenger får plass. Kort ned innholdet først.'
 }

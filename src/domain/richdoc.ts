@@ -97,6 +97,15 @@ export function drawnAlign(align: unknown, block: AlignableBlock): TextAlign {
   return align === 'left' || align === 'center' || align === 'right' ? align : DEFAULT_TEXT_ALIGN[block]
 }
 
+/**
+ * Where a one-line title is drawn: its paragraph's alignment, or the title
+ * default. A card whose title is a tab or a card of its own places that box
+ * by it, so a title aligned left stands at the left.
+ */
+export function titleAlign(doc: TitleDoc): TextAlign {
+  return drawnAlign(doc.content?.[0]?.attrs?.textAlign, 'title')
+}
+
 export function imageNode(
   assetId: string,
   options: {

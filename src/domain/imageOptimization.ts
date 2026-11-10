@@ -168,7 +168,7 @@ export function assetOccurrences(presentation: Presentation): Map<string, AssetO
           kind: 'panel',
           slideId: slide.id,
           nodeId: leaf.id,
-          frame: panelFrame(content, rect, tokens.cardHeaderHeight),
+          frame: panelFrame(content, rect, tokens.cardBodyOffset),
           focus: panel.focus,
         })
       }
@@ -196,13 +196,14 @@ export function assetOccurrences(presentation: Presentation): Map<string, AssetO
  * The box a picture panel covers.
  *
  * A picture that is the whole zone covers the whole zone; the body of a titled
- * image card is the zone less the header along the top — the same subtraction
+ * image card is the zone less the header along the top (and the gap under a
+ * floating one — `cardBodyOffset`) — the same subtraction
  * `estimateFit` makes for its caption, and the same header height the renderer
  * gives the panel.
  */
-export function panelFrame(content: ZoneContent, rect: Rect, cardHeaderHeight: number): Size {
+export function panelFrame(content: ZoneContent, rect: Rect, cardBodyOffset: number): Size {
   if (content.kind === 'titled-image-card') {
-    return { width: rect.width, height: Math.max(0, rect.height - cardHeaderHeight) }
+    return { width: rect.width, height: Math.max(0, rect.height - cardBodyOffset) }
   }
   return { width: rect.width, height: rect.height }
 }
@@ -224,7 +225,7 @@ export function panelFrame(content: ZoneContent, rect: Rect, cardHeaderHeight: n
 function inlineBoxes(
   content: ZoneContent,
   rect: Rect,
-  tokens: { cardPadding: number; subfieldGap: number; cardHeaderHeight: number },
+  tokens: { cardPadding: number; subfieldGap: number },
 ): { assetId: string; box: Size }[] {
   const out: { assetId: string; box: Size }[] = []
   const collect = (doc: RichDoc, column: number): void => {

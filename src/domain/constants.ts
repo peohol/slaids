@@ -120,6 +120,26 @@ export const CARD_HEADER_FONT_SIZE = 26
 export const CARD_SHADOW = '0 5px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.20)'
 
 /**
+ * How a card with a title draws its title — a theme choice, so every such card
+ * in a deck looks the same.
+ *
+ *  - `joined`: header and body are one card, the header across its full width.
+ *  - `tab`: the body is a card of its own, rounded all round, and the header is
+ *    a coloured tab as wide as its title, standing up from behind it. Never
+ *    wider than the body less one corner radius (`CARD_RADIUS`), so the body's
+ *    rounded corners always show.
+ *  - `floating`: the header is a card of its own as wide as its title, up to
+ *    the full width, one global gap above the body.
+ *
+ * The first is what every deck stored before the choice existed looks like.
+ */
+export const TITLED_CARD_STYLES = ['joined', 'tab', 'floating'] as const
+
+export type TitledCardStyle = (typeof TITLED_CARD_STYLES)[number]
+
+export const DEFAULT_TITLED_CARD_STYLE: TitledCardStyle = 'joined'
+
+/**
  * The caption over a picture.
  *
  * A caption is chrome on a photograph rather than a paragraph on a slide, so it

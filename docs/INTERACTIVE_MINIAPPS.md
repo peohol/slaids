@@ -194,7 +194,7 @@ Farger alene skal ikke formidle betydning.
 | `--slaids-padding` | Panelpadding |
 | `--slaids-block-spacing` | Blokkavstand |
 | `--slaids-radius` | Hjørneradius |
-| `--slaids-shadow` | Slagskygge |
+| `--slaids-shadow` | Slagskygge, eller `none` når skygger er slått av i temaet |
 
 `body` får som standard `padding: var(--slaids-gap)`. En layout som selv eier
 ytterluften, slik som startmalen, nullstiller denne paddingen.

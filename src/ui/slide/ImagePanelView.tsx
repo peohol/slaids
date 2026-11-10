@@ -16,10 +16,9 @@ import {
   CAPTION_RADIUS,
   CAPTION_TINT_OPACITY,
   CARD_RADIUS,
-  CARD_SHADOW,
 } from '../../domain/constants'
 import { CAPTION_PART } from '../../domain/fit'
-import { themeMetrics } from '../../domain/metrics'
+import { cardShadow, themeMetrics } from '../../domain/metrics'
 import type { CaptionPosition, ImageCaption, ImagePanel } from '../../domain/types'
 import { useAssetUrl } from '../../state/assetSource'
 import { RichDocView } from './RichDocView'
@@ -142,8 +141,9 @@ export function PanelImage({ assetId, focus }: { assetId: string | null; focus: 
  * floating over it.
  *
  * The frame rounds and shadows itself only when it *is* the card — a picture
- * under a title panel is the card's lower half, so it takes the card's bottom
- * corners and lets the card cast the shadow.
+ * under a title panel joined to it is the card's lower half, so it takes the
+ * card's bottom corners and lets the card cast the shadow. Under a title drawn
+ * as a tab or a card of its own, the picture is a card again.
  */
 export function ImagePanelView({
   panel,
@@ -162,6 +162,7 @@ export function ImagePanelView({
   overlay?: ReactNode
   hostRef?: Ref<HTMLDivElement>
 } & React.HTMLAttributes<HTMLDivElement>) {
+  const { theme } = useSlideRender()
   const radius = variant === 'card' ? CARD_RADIUS : `0 0 ${CARD_RADIUS}px ${CARD_RADIUS}px`
   return (
     <div
@@ -170,7 +171,7 @@ export function ImagePanelView({
       data-image-variant={variant}
       style={{
         borderRadius: radius,
-        ...(variant === 'card' ? { boxShadow: CARD_SHADOW } : {}),
+        ...(variant === 'card' ? { boxShadow: cardShadow(theme) } : {}),
       }}
       {...rest}
     >

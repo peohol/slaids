@@ -258,7 +258,7 @@ export function resolveImagePlan(presentation: Presentation): ResolvedPlannedIma
       if (!panel) continue
       const rect = geometry.rects.get(leaf.id)
       if (!rect) continue
-      const frame = panelFrame(leaf.content, rect, tokens.cardHeaderHeight)
+      const frame = panelFrame(leaf.content, rect, tokens.cardBodyOffset)
       const aspect = frame.height > 0 ? frame.width / frame.height : 1
       const number = resolved.length + 1
       const aspectRatio = aspectRatioLabel(frame)

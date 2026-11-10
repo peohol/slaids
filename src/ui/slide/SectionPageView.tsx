@@ -23,7 +23,6 @@
 
 import type { ReactNode } from 'react'
 import {
-  CARD_SHADOW,
   PROGRESS_BAR_HEIGHT,
   SECTION_PILL_PADDING_X_EM,
   SECTION_PILL_PADDING_Y_EM,
@@ -33,7 +32,7 @@ import {
 } from '../../domain/constants'
 import { bestTextColor } from '../../domain/color'
 import { computeSectionGeometry } from '../../domain/geometry'
-import { sectionGeometryForTheme, themeMetrics } from '../../domain/metrics'
+import { cardShadow, sectionGeometryForTheme, themeMetrics } from '../../domain/metrics'
 import { sectionColorsOf } from '../../domain/pages'
 import { isDocEmpty } from '../../domain/richdoc'
 import type { PresentationTheme, SectionSlide } from '../../domain/types'
@@ -120,7 +119,7 @@ export function SectionFrame({
               fontSize: fontSizes[line],
               lineHeight: TITLE_LINE_HEIGHT,
               padding: `${SECTION_PILL_PADDING_Y_EM}em ${SECTION_PILL_PADDING_X_EM}em`,
-              boxShadow: CARD_SHADOW,
+              boxShadow: cardShadow(theme),
               // Border-box, so this less the pill's own padding is exactly the
               // width `computeSectionGeometry` hands the fit checker.
               maxWidth: geometry.areaRect.width,
