@@ -74,12 +74,14 @@ import { repository } from '../../persistence/activeRepository'
 import { leaveWhenSaved, startAutosave } from '../../state/autosave'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
 import { readPref, writePref } from '../../state/prefs'
+import { hasStructuralClipboard } from '../../state/clipboard'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import { notify } from '../../state/toast'
 import { domFitCheckers, overflowingCount } from '../../state/measure'
 import { ensureWebFonts, webFontsReady } from '../fonts'
 import { copyZoneToClipboard, cutZoneToClipboard, pasteClipboardIntoZone } from './zoneClipboard'
+import { imageTransferFiles, uploadZoneImage, zoneImageRequest, type ZoneImageRequest } from './zoneImage'
 import type { InteractiveSource } from '../../domain/interactive'
 import type { OptimizationScope } from '../../domain/imageOptimization'
 import type {
@@ -275,6 +277,7 @@ export function EditorView({
    * where the picture goes, so the dialog does not offer the text field.
    */
   const [imageOpen, setImageOpen] = useState<false | 'ask' | 'zone'>(false)
+  const [replacingZoneImage, setReplacingZoneImage] = useState<ZoneImageRequest | null>(null)
   /** The picture optimiser, and which files it is about. `null` while closed. */
   const [optimizeScope, setOptimizeScope] = useState<OptimizationScope | null>(null)
   const [ideasOpen, setIdeasOpen] = useState(() => readPref('ideasOpen', false))
@@ -1094,11 +1097,27 @@ export function EditorView({
     setDropTargets(new Set())
   }, [])
 
+  const beginZoneImage = useCallback((nodeId: string, file: File) => {
+    const request = zoneImageRequest(file, nodeId)
+    if (!request) return
+    cancelPlacement()
+    if (request.content && !imagePanelOf(request.content) && !fewerDialogs) {
+      setReplacingZoneImage(request)
+      return
+    }
+    void uploadZoneImage(request, fewerDialogs ? 'delete' : undefined)
+  }, [cancelPlacement, fewerDialogs])
+
   /** The target was pressed. Same commands a drop would have run. */
   const commitPlacement = useCallback(
     (nodeId: string) => {
       const slide = useEditorStore.getState().currentContentSlide()
       if (!placement || !slide || placement.slideId !== slide.id) return
+      if (placement.kind === 'image') {
+        useEditorStore.getState().selectNode(nodeId)
+        beginZoneImage(nodeId, placement.file)
+        return
+      }
       if (placement.kind === 'sandbox') {
         runStructural('place-sandbox-item', (current) =>
           placeSandboxItem(current, {
@@ -1121,7 +1140,7 @@ export function EditorView({
       useEditorStore.getState().selectNode(nodeId)
       cancelPlacement()
     },
-    [cancelPlacement, placement, runStructural],
+    [beginZoneImage, cancelPlacement, placement, runStructural],
   )
 
   /*
@@ -1131,6 +1150,79 @@ export function EditorView({
    * having to notice and reset anything.
    */
   const activePlacement = placement?.slideId === currentSlideId ? placement : null
+  const placingImage = activePlacement?.kind === 'image'
+
+  useEffect(() => {
+    let pasteFallback: number | undefined
+    const clearPasteFallback = (): void => window.clearTimeout(pasteFallback)
+    const canPasteOnStage = (): boolean =>
+      !presenting && !viewedDerivedPage && !isInteractiveRuntimeActive() && !hasOpenDialog()
+
+    const onPasteKey = (event: KeyboardEvent): void => {
+      if (
+        !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'v' ||
+        event.repeat || !hasStructuralClipboard() || !canPasteOnStage()
+      ) return
+      const target = event.target as HTMLElement | null
+      if (target?.isContentEditable || target?.closest?.('input, textarea, select')) return
+      const state = useEditorStore.getState()
+      const slide = state.currentContentSlide()
+      if (state.mode !== 'zone' || !slide || !state.selectedNodeId) return
+      const leaf = findLeaf(slide.root, state.selectedNodeId)
+      if (!leaf || leaf.content) return
+
+      // Når systemets utklippstavle er tom, kan den interne kopien fortsatt
+      // finnes uten at nettleseren sender noen innlimingshendelse.
+      clearPasteFallback()
+      pasteFallback = window.setTimeout(() => {
+        const live = useEditorStore.getState()
+        if (live.presentation?.id === state.presentation?.id && live.currentSlideId === slide.id &&
+            live.selectedNodeId === leaf.id && live.mode === 'zone' && canPasteOnStage()) {
+          void pasteClipboardIntoZone(leaf.id)
+        }
+      }, 150)
+    }
+
+    const onPaste = (event: ClipboardEvent): void => {
+      clearPasteFallback()
+      if (!canPasteOnStage()) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest?.('input, textarea, select')) return
+      const state = useEditorStore.getState()
+      const slide = state.currentContentSlide()
+      if (!slide) return
+
+      const file = event.clipboardData && imageTransferFiles(event.clipboardData)[0]
+      if (file) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (slide.root.kind === 'leaf') {
+          beginZoneImage(slide.root.id, file)
+        } else {
+          setStageFocus(null)
+          setCompactPanel(null)
+          beginPlacement({ kind: 'image', file })
+        }
+        return
+      }
+
+      // En vanlig tekstinnliming går til feltet. Slaids-innhold limes som før
+      // inn i en valgt, tom sone når Soner-modus har tastaturet.
+      if (state.mode !== 'zone' || target?.isContentEditable || !state.selectedNodeId) return
+      const leaf = findLeaf(slide.root, state.selectedNodeId)
+      if (leaf && !leaf.content) {
+        event.preventDefault()
+        void pasteClipboardIntoZone(leaf.id)
+      }
+    }
+    window.addEventListener('keydown', onPasteKey, true)
+    window.addEventListener('paste', onPaste, true)
+    return () => {
+      clearPasteFallback()
+      window.removeEventListener('keydown', onPasteKey, true)
+      window.removeEventListener('paste', onPaste, true)
+    }
+  }, [beginPlacement, beginZoneImage, presenting, viewedDerivedPage])
 
   /* -------------------------------------------------------------- *
    * Focused fields
@@ -1679,7 +1771,7 @@ export function EditorView({
       }
 
       if (!meta) return
-      // Only a slide with zones has anything to cut, copy or paste into.
+      // Klipp ut og kopier soneinnhold gjelder bare slides med soner.
       const activeSlide = state.currentContentSlide()
       if (!activeSlide || !state.selectedNodeId) return
       const leaf = findLeaf(activeSlide.root, state.selectedNodeId)
@@ -1689,11 +1781,6 @@ export function EditorView({
         event.preventDefault()
         if (key === 'c') copyZoneToClipboard(leaf.id)
         else cutZoneToClipboard(leaf.id)
-        return
-      }
-      if (key === 'v' && leaf && !leaf.content) {
-        event.preventDefault()
-        void pasteClipboardIntoZone(leaf.id)
       }
     }
 
@@ -1895,6 +1982,7 @@ export function EditorView({
         useEditorStore.getState().selectNode(nodeId)
         setImageOpen('zone')
       }}
+      onDropImage={beginZoneImage}
       dropTargets={dropTargets}
       // While a field is focused, a press means "put the caret here" again —
       // which is what the field was made big enough for.
@@ -2053,7 +2141,7 @@ export function EditorView({
     ),
     placementBar: activePlacement ? (
       <div className="placement-bar" data-testid="placement-bar" role="status">
-        <span>{PLACEMENT_PROMPT}</span>
+        <span>{placingImage ? 'Velg sonen der bildet skal settes inn.' : PLACEMENT_PROMPT}</span>
         <button
           type="button"
           className="btn btn--sm"
@@ -2274,6 +2362,23 @@ export function EditorView({
           onChange={(event) => setRenameValue(event.target.value)}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={replacingZoneImage !== null}
+        title="Erstatte soneinnholdet med bildet?"
+        message="Sonen har innhold fra før. Du kan slette det eller flytte det til sandkassen."
+        confirmLabel="Slett og sett inn"
+        alternativeLabel="Flytt til sandkassen"
+        onConfirm={() => {
+          if (replacingZoneImage) void uploadZoneImage(replacingZoneImage, 'delete')
+          setReplacingZoneImage(null)
+        }}
+        onAlternative={() => {
+          if (replacingZoneImage) void uploadZoneImage(replacingZoneImage, 'sandbox')
+          setReplacingZoneImage(null)
+        }}
+        onCancel={() => setReplacingZoneImage(null)}
+      />
 
       <ConfirmDialog
         open={depositBreak !== null}

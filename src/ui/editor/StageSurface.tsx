@@ -79,6 +79,10 @@ export interface StageSurfaceProps {
   onPointerMove?: (event: React.PointerEvent) => void
   onPointerLeave?: (event: React.PointerEvent) => void
   onClick?: (event: React.MouseEvent) => void
+  onClickCapture?: (event: React.MouseEvent) => void
+  onDragOverCapture?: (event: React.DragEvent) => void
+  onDragLeave?: (event: React.DragEvent) => void
+  onDropCapture?: (event: React.DragEvent) => void
   /** A right-click, Shift+F10 or the menu key on the page. */
   onContextMenu?: (event: React.MouseEvent) => void
   /** A line under the stage saying what this page is and where it came from. */
@@ -121,6 +125,10 @@ export function StageSurface({
   onPointerMove,
   onPointerLeave,
   onClick,
+  onClickCapture,
+  onDragOverCapture,
+  onDragLeave,
+  onDropCapture,
   onContextMenu,
   note,
   children,
@@ -238,6 +246,10 @@ export function StageSurface({
       onPointerMove={onPointerMove}
       onPointerLeave={onPointerLeave}
       onClick={onClick}
+      onClickCapture={onClickCapture}
+      onDragOverCapture={onDragOverCapture}
+      onDragLeave={onDragLeave}
+      onDropCapture={onDropCapture}
       onContextMenu={onContextMenu}
       onMouseDownCapture={onContextMenu ? secondaryPressInText : undefined}
     >

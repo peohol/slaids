@@ -30,6 +30,7 @@ import { createLeaf } from '../layout'
 import { collectCitationIds, docToPlainText, paragraphDoc, titleDoc } from '../richdoc'
 import type { AssetRef, Presentation, ZoneContent } from '../types'
 import { contentAt, sectionAt } from '../testDecks'
+import { placeZoneImage } from './zoneImage'
 
 const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
 
@@ -103,6 +104,32 @@ describe('a picture panel', () => {
     )
     const swapped = unwrap(setImageAsset(moved, { ...target(moved), assetId: 'a1' }))
     expect(imagePanelOf(contentOf(swapped))?.focus).toEqual({ x: 0.2, y: 0.8 })
+  })
+
+  it('registrerer den nye filen og bevarer utsnitt, bildetekst og korttittel', () => {
+    const base = deckWith(createTitledImageCard('a1', 'Overskrift'))
+    const cropped = unwrap(setImageFocus(base, { ...target(base), focus: { x: 0.2, y: 0.8 } }))
+    const withCaption = unwrap(setImageCaption(cropped, {
+      ...target(cropped),
+      position: 'bottom',
+      doc: titleDoc('Bildetekst'),
+    }))
+    const original = contentOf(withCaption)
+    if (original.kind !== 'titled-image-card') throw new Error('Forventet et bildekort.')
+
+    const replacement = { ...asset, id: 'a2', width: 300, height: 800 }
+    const placed = unwrap(placeZoneImage(withCaption, {
+      ...target(withCaption),
+      asset: replacement,
+      ...checkers,
+    }))
+
+    expect(placed.presentation.assets).toContainEqual(replacement)
+    expect(contentOf(placed.presentation)).toEqual({
+      ...original,
+      image: { ...original.image, assetId: replacement.id },
+    })
+    expect(placed.movedToSandbox).toEqual([])
   })
 })
 

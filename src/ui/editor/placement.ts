@@ -27,9 +27,11 @@ import { domFitCheckers } from '../../state/measure'
 import type { NodeId, Presentation } from '../../domain/types'
 
 /** Where the content looking for a zone is coming from. */
-export type PlacementSource =
+type ZonePlacementSource =
   | { kind: 'sandbox'; itemId: string }
   | { kind: 'zone'; nodeId: NodeId }
+
+export type PlacementSource = ZonePlacementSource | { kind: 'image'; file: File }
 
 /**
  * Content looking for a zone, on the page its targets were measured on.
@@ -55,7 +57,7 @@ export const PLACEMENT_PROMPT = 'Trykk på en ledig sone for å plassere innhold
 function wouldBeAccepted(
   presentation: Presentation,
   slideId: string,
-  placement: PlacementSource,
+  placement: ZonePlacementSource,
   nodeId: NodeId,
 ): boolean {
   const outcome =
@@ -90,8 +92,10 @@ export function placementTargets(
 ): Set<NodeId> {
   const slide = presentation.slides.find((entry) => entry.id === slideId)
   if (slide?.kind !== 'content') return new Set()
+  const leaves = collectLeaves(slide.root)
+  if (placement.kind === 'image') return new Set(leaves.map((leaf) => leaf.id))
   const targets = new Set<NodeId>()
-  for (const leaf of collectLeaves(slide.root)) {
+  for (const leaf of leaves) {
     // Moving content onto the zone it already sits in is a state the document
     // is already in, so `moveZoneContent` answers "done" rather than refusing.
     // True, and not a target: the prompt is asking where to put it *instead*.

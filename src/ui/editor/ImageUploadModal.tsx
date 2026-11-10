@@ -35,12 +35,9 @@
 
 import { useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
-import { registerAsset, setImageAsset, setZoneContent } from '../../domain/commands'
+import { registerAsset } from '../../domain/commands'
 import { IMAGE_FILE_ACCEPT } from '../../domain/imageBytes'
 import { describeError } from '../../domain/result'
-import { domFitCheckers } from '../../state/measure'
-import { createImage, imagePanelOf } from '../../domain/content'
-import { findLeaf } from '../../domain/layout'
 import { describeSanitizing, storeUploadedFile } from '../../state/assetUpload'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore } from '../../state/store'
@@ -48,6 +45,7 @@ import { notify } from '../../state/toast'
 import { Modal } from '../components/Modal'
 import { Icon } from '../components/Icon'
 import { acceptsInlineImage, fittingImageWidthPercent } from './SlaidsImageExtension'
+import { uploadZoneImage, zoneImageRequest } from './zoneImage'
 
 type Placement = 'inline' | 'zone'
 
@@ -65,7 +63,6 @@ export function ImageUploadModal({
   const presentation = useEditorStore((state) => state.presentation)
   const slideId = useEditorStore((state) => state.currentSlideId)
   const run = useEditorStore((state) => state.run)
-  const runStructural = useEditorStore((state) => state.runStructural)
   const editor = useActiveEditor((state) => state.editor)
   const activeField = useEditorStore((state) => state.activeField)
   const [dragOver, setDragOver] = useState(false)
@@ -95,6 +92,15 @@ export function ImageUploadModal({
 
     setBusy(true)
     try {
+      if (effective === 'zone') {
+        const request = zoneNodeId && zoneImageRequest(file, zoneNodeId)
+        if (request && request.slideId === slideId) {
+          if (await uploadZoneImage(request, 'sandbox')) onOpenChange(false)
+        } else {
+          notify.warning('Velg en sone først.')
+        }
+        return
+      }
       /*
        * Nothing is written before this returns. A file that is refused — unsafe
        * SVG, invalid SVG, a format Slaids does not store, one that is too big —
@@ -113,9 +119,8 @@ export function ImageUploadModal({
       if (stored.value.reused) {
         notify.info('Presentasjonen hadde allerede denne filen, så den ble brukt igjen.')
       }
-      run('asset-register', (current) => registerAsset(current, ref))
-
-      if (effective === 'inline' && target) {
+      if (target) {
+        run('asset-register', (current) => registerAsset(current, ref))
         const aspect = ref.width > 0 && ref.height > 0 ? ref.width / ref.height : undefined
         // Sized to the room that is actually left in the field, so the picture
         // arrives next to the text instead of being rolled back for overflow.
@@ -130,36 +135,6 @@ export function ImageUploadModal({
           .focus()
           .insertSlaidsImage({ assetId: ref.id, alt: file.name, aspect, widthPercent })
           .run()
-      } else if (zoneNodeId && slideId) {
-        /*
-         * A zone that is already a picture only changes file — its crop, its
-         * caption and, for a titled image card, its header all stay. Replacing
-         * the whole content would throw those away for what the user read as
-         * "pick a different photo".
-         */
-        const slide = useEditorStore.getState().currentContentSlide()
-        const existing =
-          slide?.id === slideId ? (findLeaf(slide.root, zoneNodeId)?.content ?? null) : null
-        if (existing && imagePanelOf(existing)) {
-          run('image-asset', (current) =>
-            setImageAsset(current, {
-              slideId,
-              nodeId: zoneNodeId,
-              assetId: ref.id,
-              ...domFitCheckers,
-            }),
-          )
-        } else {
-          runStructural('place-asset', (current) =>
-            setZoneContent(current, {
-              slideId,
-              nodeId: zoneNodeId,
-              content: createImage(ref.id),
-              replace: true,
-              ...domFitCheckers,
-            }),
-          )
-        }
       } else {
         notify.warning('Velg en sone eller et tekstfelt først.')
       }
