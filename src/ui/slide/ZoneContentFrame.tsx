@@ -67,34 +67,34 @@ export function flowAlign(align: VerticalAlign | undefined): string {
   return VERTICAL_ALIGNMENT[align ?? DEFAULT_VERTICAL_ALIGN]
 }
 
-/** Where a title box narrower than its card stands: where its title is aligned. */
+/** Hvor en tittelboks smalere enn kortet står: der tittelen er justert. */
 const TITLE_BOX_ALIGN = {
   left: 'flex-start',
   center: 'center',
   right: 'flex-end',
 } as const satisfies Record<TextAlign, string>
 
-/** The inline styles of a card with a title: the card, its header and its body. */
+/** Inline-stilene til et kort med tittel: kortet, headeren og innholdet. */
 export interface TitledCardStyles {
   card: CSSProperties
   header: CSSProperties
-  /** The body's own card face — corners, and the shadow when it is a card of its own. */
+  /** Innholdets egen kortflate – hjørner, og skyggen når det er et eget kort. */
   body: CSSProperties
-  /** Whether a picture body is a card of its own rather than the card's lower half. */
+  /** Om et bildeinnhold er et eget kort i stedet for kortets nedre halvdel. */
   bodyIsCard: boolean
 }
 
 /**
- * How a card with a title is put together under the theme's style
+ * Hvordan et kort med tittel settes sammen i temaets utseende
  * (`TITLED_CARD_STYLES`).
  *
- * Every number is a token: the header's height, the gap a floating header
- * keeps, the corner a tab leaves free (`cardTitleInset`) — the same ones the
- * estimator and the image brief read from `ThemeMetrics`, so what is drawn
- * here and what they reckon with cannot drift. A header narrower than its card
- * is exactly as wide as its title plus padding (`max-content`) and never wider
- * than its room; a longer title overflows sideways like any card title, which
- * is what the fit measurement and the zone's shrinking read.
+ * Hvert tall er et token: headerens høyde, gapet en svevende header holder,
+ * hjørnet en fane lar være fritt (`cardTitleInset`) – de samme estimatoren og
+ * bildebriefen leser fra `ThemeMetrics`, så det som tegnes her og det de
+ * regner med, ikke kan gli fra hverandre. En header smalere enn kortet er
+ * nøyaktig like bred som tittelen pluss polstring (`max-content`) og aldri
+ * bredere enn plassen; en lengre tittel renner over sidelengs som enhver
+ * korttittel, og det er det fit-målingen og tittelens forminskning leser.
  */
 export function titledCardStyles(
   tokens: ThemeMetrics,
@@ -110,11 +110,11 @@ export function titledCardStyles(
         borderRadius: CARD_RADIUS,
         boxShadow: shadow,
         /*
-         * The header and the body each carry their own corners, so the card
-         * has nothing of its own to clip — and a picture body needs the room:
-         * the editor draws the hidden parts of a crop *outside* the frame, and
-         * a clip here would hide the very thing that preview exists to show.
-         * A text body is clipped by `.card-body` either way.
+         * Headeren og innholdet har hver sine hjørner, så kortet har ingenting
+         * eget å klippe – og et bildeinnhold trenger plassen: editoren tegner
+         * de skjulte delene av en beskjæring *utenfor* rammen, og en klipping
+         * her ville skjult akkurat det den forhåndsvisningen finnes for å vise.
+         * Et tekstinnhold klippes av `.card-body` uansett.
          */
         overflow: isImage ? 'visible' : 'hidden',
       },
@@ -124,22 +124,22 @@ export function titledCardStyles(
     }
   }
 
-  // The header and the body are two boxes that each clip their own content,
-  // and each casts its own shadow — which a clipping card around them would cut.
+  // Headeren og innholdet er to bokser som hver klipper sitt eget innhold og
+  // kaster sin egen skygge – som et klippende kort rundt dem ville kuttet.
   const room = `calc(100% - ${tokens.cardTitleInset}px)`
   const titleBox: CSSProperties = {
     alignSelf: TITLE_BOX_ALIGN[align],
     width: 'max-content',
     maxWidth: room,
-    // An empty title is still a box somebody can see and click into.
+    // En tom tittel er fortsatt en boks man kan se og klikke i.
     minWidth: `min(${height * 2}px, ${room})`,
     marginInline: tokens.cardTitleInset / 2,
     boxShadow: shadow,
   }
   const bodyCard: CSSProperties = { borderRadius: CARD_RADIUS, boxShadow: shadow }
   if (tokens.titledCardStyle === 'tab') {
-    // The tab runs one corner radius down behind the body, so its own lower
-    // corners never show and the body's rounded top corners stand in front of it.
+    // Fanen går én hjørneradius ned bak innholdet, så dens egne nedre hjørner
+    // aldri synes og innholdets avrundede øvre hjørner står foran den.
     return {
       card: { overflow: 'visible' },
       header: {
@@ -159,8 +159,8 @@ export function titledCardStyles(
       ...titleBox,
       height,
       padding,
-      // The same air on screen however small the zone is drawn: divided by the
-      // zone's own scale (`drawZoneFit`), which is 1 everywhere else.
+      // Like mye luft på skjermen uansett hvor lite sonen tegnes: delt på
+      // sonens egen skala (`drawZoneFit`), som er 1 alle andre steder.
       marginBottom: `calc(${tokens.cardBodyOffset - height}px / var(--slaids-zone-fit, 1))`,
       borderRadius: CARD_RADIUS,
     },
@@ -375,8 +375,8 @@ export function ZoneContentFrame({
         /*
          * The picture *is* the body: no padding and no white beneath it, so the
          * card reads as a title panel over a photograph rather than as a
-         * photograph mounted on a card. Under a title that is a box of its own
-         * the picture is a card again, with its own corners and shadow.
+         * photograph mounted on a card. Når tittelen er en egen boks, er bildet
+         * et eget kort igjen, med egne hjørner og egen skygge.
          */
         <div
           className="card-body card-body--image"

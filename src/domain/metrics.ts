@@ -64,15 +64,15 @@ export interface ThemeMetrics {
   cardHeaderFontSize: number
   cardHeaderHeight: number
   /**
-   * How a card with a title draws it (`TITLED_CARD_STYLES`), and the two
-   * numbers that choice moves: how far below the card's top edge its body
-   * starts — the header, plus a gap when the header floats — and how much of
-   * the card's width the header may never take (one corner radius for a tab).
+   * Hvordan et kort med tittel tegner den (`TITLED_CARD_STYLES`), og de to
+   * tallene valget flytter: hvor langt under kortets overkant innholdet
+   * begynner – headeren, pluss et gap når headeren svever – og hvor mye av
+   * kortets bredde headeren aldri kan ta (én hjørneradius for en fane).
    *
-   * Deliberately *not* part of how small a card may be (`contentSize.ts`):
-   * that is the same whichever way the title is drawn, so switching style can
-   * never leave a zone below its minimum. A body the switch leaves too little
-   * room is drawn smaller, exactly like a zone a person dragged small.
+   * Bevisst *ikke* en del av hvor lite et kort kan være (`contentSize.ts`):
+   * det er det samme uansett hvordan tittelen tegnes, så et bytte kan aldri
+   * etterlate en sone under minstemålet. Innhold et bytte gir for lite plass,
+   * tegnes mindre, akkurat som i en sone en person har dratt liten.
    */
   titledCardStyle: TitledCardStyle
   cardBodyOffset: number
@@ -191,9 +191,9 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
 }
 
 /**
- * The drop shadow a card, a picture, a section pill or a miniapp frame casts —
- * or none, when the theme has shadows turned off. Read by every renderer and by
- * the miniapp style contract, so turning them off turns off all of them.
+ * Skyggen et kort, et bilde, en inndelingspille eller en miniapp-ramme kaster –
+ * eller ingen, når temaet har skrudd av skygger. Leses av alle renderere og av
+ * miniappenes stilkontrakt, så å skru dem av skrur av alle.
  */
 export function cardShadow(theme?: Partial<PresentationTheme>): string {
   return theme?.boxShadows === false ? 'none' : CARD_SHADOW

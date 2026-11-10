@@ -142,8 +142,8 @@ export function PanelImage({ assetId, focus }: { assetId: string | null; focus: 
  *
  * The frame rounds and shadows itself only when it *is* the card — a picture
  * under a title panel joined to it is the card's lower half, so it takes the
- * card's bottom corners and lets the card cast the shadow. Under a title drawn
- * as a tab or a card of its own, the picture is a card again.
+ * card's bottom corners and lets the card cast the shadow. Når tittelen er en
+ * fane eller et eget kort, er bildet et eget kort igjen.
  */
 export function ImagePanelView({
   panel,

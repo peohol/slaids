@@ -34,14 +34,14 @@ describe('titledCardStyles', () => {
   const look = (style: 'joined' | 'tab' | 'floating', align: 'left' | 'center' | 'right' = 'center') =>
     titledCardStyles(themeMetrics({ titledCardStyle: style }), CARD_SHADOW, align, false)
 
-  it('draws one card with a full-width header when joined', () => {
+  it('tegner ett kort med header over hele bredden når tittelen er i ett med innholdet', () => {
     const joined = look('joined')
     expect(joined.card.boxShadow).toBe(CARD_SHADOW)
     expect(joined.header.alignSelf).toBeUndefined()
     expect(joined.bodyIsCard).toBe(false)
   })
 
-  it('makes the body a card of its own, and each box casts its own shadow, otherwise', () => {
+  it('gjør ellers innholdet til et eget kort, og hver boks kaster sin egen skygge', () => {
     for (const style of ['tab', 'floating'] as const) {
       const split = look(style)
       expect(split.card.boxShadow, style).toBeUndefined()
@@ -53,21 +53,21 @@ describe('titledCardStyles', () => {
     }
   })
 
-  it('runs a tab one radius down behind the body, and never wider than the body less a radius', () => {
+  it('lar en fane gå én radius ned bak innholdet, og aldri bredere enn innholdet minus én radius', () => {
     const tab = look('tab')
     expect(tab.header.maxWidth).toBe(`calc(100% - ${CARD_RADIUS}px)`)
     expect(tab.header.marginBottom).toBe(-CARD_RADIUS)
     expect(tab.body.zIndex).toBe(1)
   })
 
-  it('keeps a floating header one global gap above the body at any zone scale, and lets it be as wide', () => {
+  it('holder en svevende header ett globalt gap over innholdet ved enhver soneskala, og lar den bli like bred', () => {
     const tokens = themeMetrics({ titledCardStyle: 'floating' })
     const floating = look('floating')
     expect(floating.header.marginBottom).toBe(`calc(${tokens.gap}px / var(--slaids-zone-fit, 1))`)
     expect(floating.header.maxWidth).toBe('calc(100% - 0px)')
   })
 
-  it('stands the title box where its title is aligned', () => {
+  it('plasserer tittelboksen der tittelen er justert', () => {
     expect(look('tab', 'left').header.alignSelf).toBe('flex-start')
     expect(look('tab', 'center').header.alignSelf).toBe('center')
     expect(look('floating', 'right').header.alignSelf).toBe('flex-end')

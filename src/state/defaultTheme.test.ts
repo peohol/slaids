@@ -1,5 +1,5 @@
 /**
- * The theme a new presentation starts from, as this browser remembers it.
+ * Temaet en ny presentasjon starter med, slik denne nettleseren husker det.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'

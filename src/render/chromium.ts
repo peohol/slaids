@@ -317,7 +317,7 @@ export async function fitShrunkZones(page: Page): Promise<void> {
           const helpers = (window as unknown as { __slaidsZoneFit: ZoneFitHelpers }).__slaidsZoneFit
           const inner = document.querySelectorAll<HTMLElement>('.zone-fit__inner')[i]
           helpers.draw(inner, width, height, s, isScaled)
-          // A card title fits itself afterwards, as in the app.
+          // En korttittel tilpasser seg selv etterpå, som i appen.
           return (
             limit === null ||
             Object.entries(helpers.measure(inner)).every(

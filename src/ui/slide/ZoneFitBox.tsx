@@ -54,11 +54,11 @@ export function isZoneFitScaled(scale: number): boolean {
 /**
  * Lay the content box out for a zone of `width × height` drawn at `scale`.
  *
- * `layoutScale` is the scale the box is being laid out *for*, which is `scale`
- * except while the search tries a size without drawing it. It is handed to the
- * content as `--slaids-zone-fit`, so the few distances that must stay the same
- * on screen however small the text is drawn — the gap under a floating card
- * title — can divide themselves by it.
+ * `layoutScale` er skalaen boksen legges ut *for*, som er `scale` bortsett fra
+ * mens søket prøver en størrelse uten å tegne den. Den gis til innholdet som
+ * `--slaids-zone-fit`, så de få avstandene som skal være like på skjermen
+ * uansett hvor lite teksten tegnes – gapet under en svevende korttittel – kan
+ * dele seg selv på den.
  *
  * Self-contained on purpose — no reference outside its own parameters — so
  * the preview rasteriser can hand this very function to the page it
@@ -81,18 +81,18 @@ export function drawZoneFit(
 }
 
 /**
- * Set every card title inside `element` in smaller type until it fits its
- * header, and say how small the smallest one had to go (`1` when all fit).
+ * Sett hver korttittel i `element` i mindre skrift til den får plass i
+ * headeren, og si hvor liten den minste måtte bli (`1` når alle får plass).
  *
- * A title is one line in a box of fixed height, so it is the one part of a
- * zone that can be made to fit on its own: its type shrinks and nothing else
- * does — not the body under it, not the header's height or padding. The room
- * is the header's content box, padding excluded, so a shrunk title keeps the
- * same air on both sides and stays centred. The shrink is the custom property
- * `--slaids-title-fit`, which the header's font size is multiplied by.
+ * En tittel er én linje i en boks med fast høyde, så den er den ene delen av
+ * en sone som kan få plass alene: skriften krymper og ingenting annet gjør det
+ * – ikke innholdet under, ikke headerens høyde eller polstring. Plassen er
+ * headerens innholdsboks uten polstring, så en forminsket tittel beholder lik
+ * luft på begge sider og står midtstilt. Forminskningen er CSS-variabelen
+ * `--slaids-title-fit`, som headerens skriftstørrelse ganges med.
  *
- * Self-contained, like `drawZoneFit`, so the preview rasteriser can hand it to
- * the page it draws.
+ * Selvstendig, som `drawZoneFit`, så forhåndsvisningens rasterisering kan gi
+ * den til siden den tegner.
  */
 export function fitCardTitles(element: HTMLElement): number {
   let smallest = 1
@@ -103,11 +103,11 @@ export function fitCardTitles(element: HTMLElement): number {
     const style = getComputedStyle(header)
     const room = header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
     let fit = 1
-    // Type does not scale perfectly linearly with its size, so the first
-    // guess is checked and tightened; it settles in a step or two.
+    // Skrift skalerer ikke helt lineært med størrelsen, så første gjetning
+    // kontrolleres og strammes inn; den faller på plass etter et steg eller to.
     for (let step = 0; step < 6 && room > 0; step += 1) {
-      // The line's own width where it is laid out at its text's width, its
-      // scroll width where the editor's flex row has squeezed it to the header.
+      // Linjens egen bredde der den legges ut i tekstens bredde, rullebredden
+      // der editorens flex-rad har klemt den inn til headeren.
       const needed = Math.max(line.offsetWidth, line.scrollWidth)
       if (needed <= room + 0.5) break
       fit *= room / needed
@@ -129,9 +129,9 @@ export interface ZoneFitBoxProps {
 }
 
 /**
- * The worst overflow in the zone's body. A card title is left out: it fits
- * itself (`fitCardTitles`), so a long title never makes the rest of the zone
- * smaller.
+ * Den verste overflyten i sonens innhold. En korttittel holdes utenfor: den
+ * tilpasser seg selv (`fitCardTitles`), så en lang tittel gjør aldri resten
+ * av sonen mindre.
  */
 function worstOverflow(element: HTMLElement): number {
   return Object.entries(measureOverflowParts(element)).reduce(
@@ -140,7 +140,7 @@ function worstOverflow(element: HTMLElement): number {
   )
 }
 
-/** A style change on a card header is `fitCardTitles` at work, not new content. */
+/** En stilendring på en kortheader er `fitCardTitles` i arbeid, ikke nytt innhold. */
 function isTitleFit(record: MutationRecord): boolean {
   return (
     record.type === 'attributes' &&
@@ -178,8 +178,8 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
     )
     const next = isZoneFitScaled(found) ? found : 1
     drawZoneFit(element, width, height, next, next !== 1)
-    // The titles last, in the box the zone is drawn in: a zone drawn smaller
-    // gives its title more room, and only what still does not fit shrinks.
+    // Titlene sist, i boksen sonen faktisk tegnes i: en sone tegnet mindre gir
+    // tittelen mer plass, og bare det som fortsatt ikke får plass, krymper.
     const titleFit = fitCardTitles(element)
     const title = isZoneFitScaled(titleFit) ? titleFit : 1
     if (next !== scaleRef.current) {
@@ -187,7 +187,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
       setScale(next)
     }
     setTitleScale(title)
-    // The smallest type anywhere in the zone is what the editor reports.
+    // Den minste skriften noe sted i sonen er det editoren melder.
     onScaleRef.current?.(next * title)
   }, [width, height])
 

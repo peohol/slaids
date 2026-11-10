@@ -379,8 +379,8 @@ describe('en temaendring som ville skjult innhold', () => {
       kind: 'titled-card',
       title: [{ text: 'Tittel' }],
     })
-    // As much text as the joined card takes, found rather than assumed: the
-    // longest that `set_zone_text` still accepts.
+    // Så mye tekst som kortet i ett stykke tar, funnet og ikke antatt: den
+    // lengste teksten `set_zone_text` fortsatt godtar.
     let low = 0
     let high = 4000
     while (high - low > 4) {
@@ -405,7 +405,7 @@ describe('en temaendring som ville skjult innhold', () => {
     expect(refused.details).toMatchObject({ nodeId: deck.nodeId })
     expect((await stored(context, deck.presentationId)).theme.titledCardStyle).toBe('joined')
 
-    // Shadows are paint: they can never hide anything, so they are never refused.
+    // Skygger er bare maling: de kan aldri skjule noe, så de avvises aldri.
     const shadowless = await ok<{ theme: ThemeView }>(context, 'set_theme', {
       presentationId: deck.presentationId,
       boxShadows: false,

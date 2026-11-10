@@ -1,6 +1,6 @@
 /**
- * The theme's two looks — shadows on or off, and how a card with a title draws
- * it — as the domain sees them: stored, migrated, measured and guarded.
+ * Temaets to utseendevalg – skygger av eller på, og hvordan et kort med tittel
+ * tegner tittelen – slik domenet ser dem: lagret, migrert, målt og voktet.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -75,13 +75,13 @@ describe('skygger', () => {
   it('er standardskyggen når de er på, og ingen når de er av', () => {
     expect(cardShadow(defaultTheme())).toBe(CARD_SHADOW)
     expect(cardShadow({ ...defaultTheme(), boxShadows: false })).toBe('none')
-    // A theme from before the choice existed had shadows.
+    // Et tema fra før valget fantes, hadde skygger.
     expect(cardShadow({})).toBe(CARD_SHADOW)
   })
 })
 
 describe('estimatoren', () => {
-  // Text that overflows under every style, so each part reports how far.
+  // Tekst som renner over i alle utseender, så hver del melder hvor langt.
   const content = card('Tittel '.repeat(40), 'ord '.repeat(3000))
 
   it('gir en fanetittel én hjørneradius mindre plass enn en tittel over hele kortet', () => {
@@ -108,7 +108,7 @@ describe('titteljustering', () => {
 })
 
 describe('lagring', () => {
-  /** A deck as version 17 wrote it: no looks in the theme. */
+  /** Et dekk slik versjon 17 lagret det: ingen utseendevalg i temaet. */
   function storedBeforeLooks(): Record<string, unknown> {
     const deck = createPresentation({ title: 'Gammel' })
     const { boxShadows: _shadows, titledCardStyle: _style, ...theme } = deck.theme
@@ -145,13 +145,13 @@ describe('lagring', () => {
 describe('å bytte utseende', () => {
   const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
 
-  /** A titled card filling the slide, with as much text as fits it joined. */
+  /** Et kort med tittel som fyller sliden, med så mye tekst som får plass i ett stykke. */
   function fullCard(): Presentation {
     const deck = createPresentation({ title: 'Fullt', firstSlideHasTitle: false })
     const slide = contentAt(deck, 1)
     const rect = computeSlideGeometry(slide, geometryForTheme(deck.theme)).rects.get(slide.root.id)
     if (!rect) throw new Error('the zone has no geometry')
-    // The longest body the estimator still calls fitting, found rather than assumed.
+    // Den lengste brødteksten estimatoren fortsatt sier får plass, funnet og ikke antatt.
     const withText = (words: number) => card('Tittel', 'ord '.repeat(words))
     let low = 0
     let high = 4000

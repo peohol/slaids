@@ -40,9 +40,8 @@ function isCurrent(value: number, current: number, steps: readonly ThemeScalePre
 }
 
 /**
- * What a screen reader hears for each card look. The dialog shows no names —
- * the pictures are the choice — so these are only the buttons' accessible
- * labels.
+ * Det en skjermleser hører for hvert kortutseende. Dialogen viser ingen navn –
+ * bildene er valget – så dette er bare radioknappenes tilgjengelige navn.
  */
 const TITLED_CARD_LOOK_LABELS: Record<TitledCardStyle, string> = {
   joined: 'Tittel og innhold i ett kort',
@@ -51,10 +50,10 @@ const TITLED_CARD_LOOK_LABELS: Record<TitledCardStyle, string> = {
 }
 
 /**
- * A small, stylised card in one of the looks, on the deck's own first colours.
- * A picture of the idea rather than a scaled slide: the real thing is drawn by
- * `ZoneContentFrame`, and this only has to tell three choices apart at a
- * glance.
+ * Et lite, stilisert kort i ett av utseendene, i dekkets egne første farger.
+ * Et bilde av ideen, ikke en forminsket slide: det ekte kortet tegnes av
+ * `ZoneContentFrame`, og dette skal bare skille tre valg fra hverandre med ett
+ * blikk.
  */
 function TitledCardLookPreview({
   look,
@@ -105,9 +104,9 @@ export function ThemeModal({
   const previewAccent = presentation.slides[0].accentColor
 
   /**
-   * The two looks are a person's choice of appearance, not a change to measure
-   * against the deck: a shadow hides nothing, and text a title style leaves too
-   * little room is drawn smaller, as in a zone dragged small.
+   * De to utseendevalgene er en persons valg av uttrykk, ikke en endring som
+   * skal måles mot dekket: en skygge skjuler ingenting, og tekst et
+   * tittelutseende gir for lite plass, tegnes mindre, som i en sone dratt liten.
    */
   const setLook = (
     label: string,
@@ -297,35 +296,43 @@ export function ThemeModal({
 
       <div className="field">
         <label id="theme-titled-card-label">Kort med tittel</label>
+        {/*
+          Vanlige radioknapper med forhåndsvisningen som etikett: nettleseren gir
+          gruppen ett tabulatorstopp, piltastene flytter og velger, og en
+          skjermleser hører valget slik den hører alle andre radioknapper.
+        */}
         <div
           className="inspector__actions"
           role="radiogroup"
           aria-labelledby="theme-titled-card-label"
         >
-          {TITLED_CARD_STYLES.map((look) => (
-            <button
-              key={look}
-              type="button"
-              role="radio"
-              aria-checked={theme.titledCardStyle === look}
-              aria-label={TITLED_CARD_LOOK_LABELS[look]}
-              title={TITLED_CARD_LOOK_LABELS[look]}
-              className={
-                theme.titledCardStyle === look
-                  ? 'btn card-look-choice btn--active'
-                  : 'btn card-look-choice'
-              }
-              data-testid={`theme-titled-card-${look}`}
-              onClick={() => setLook('theme-titled-card', { titledCardStyle: look })}
-            >
-              <TitledCardLookPreview
-                look={look}
-                theme={theme}
-                background={previewBackground}
-                accent={previewAccent}
-              />
-            </button>
-          ))}
+          {TITLED_CARD_STYLES.map((look) => {
+            const chosen = theme.titledCardStyle === look
+            return (
+              <label
+                key={look}
+                title={TITLED_CARD_LOOK_LABELS[look]}
+                className={chosen ? 'btn card-look-choice btn--active' : 'btn card-look-choice'}
+                data-testid={`theme-titled-card-${look}`}
+              >
+                <input
+                  type="radio"
+                  name="theme-titled-card"
+                  className="card-look-choice__input"
+                  value={look}
+                  checked={chosen}
+                  aria-label={TITLED_CARD_LOOK_LABELS[look]}
+                  onChange={() => setLook('theme-titled-card', { titledCardStyle: look })}
+                />
+                <TitledCardLookPreview
+                  look={look}
+                  theme={theme}
+                  background={previewBackground}
+                  accent={previewAccent}
+                />
+              </label>
+            )
+          })}
         </div>
         <p className="hint">
           Gjelder alle kort med tittel. Tekst som ikke lenger får plass, vises forminsket.

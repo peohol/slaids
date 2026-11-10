@@ -392,11 +392,11 @@ export interface PresentationTheme {
   /** Skriftstørrelse: one multiplier on every type size. */
   fontScale: number
   /**
-   * Whether cards, pictures, section pills and miniapp frames cast a drop
-   * shadow (`CARD_SHADOW`). Paint only: it moves nothing and hides nothing.
+   * Om kort, bilder, inndelingspiller og miniapp-rammer kaster skygge
+   * (`CARD_SHADOW`). Bare maling: flytter ingenting og skjuler ingenting.
    */
   boxShadows: boolean
-  /** How a card with a title draws it. See `TITLED_CARD_STYLES`. */
+  /** Hvordan et kort med tittel tegner tittelen. Se `TITLED_CARD_STYLES`. */
   titledCardStyle: TitledCardStyle
 }
 

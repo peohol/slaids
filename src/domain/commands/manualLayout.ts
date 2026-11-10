@@ -24,12 +24,12 @@
  *  - Narrow by construction. The inputs are built field by field rather than
  *    spread, so no checker, flag or option can ride along, and only geometry
  *    commands are here: nothing that places, converts or edits content.
- *  - One theme command, for the same reason: how a card with a title is drawn
- *    and whether boxes cast shadows (`setCardLookByHand`). A shadow is paint
- *    and hides nothing; a title style can leave a body less room, and a person
- *    switching style is choosing a look, so what no longer fits at normal size
- *    is drawn smaller rather than the switch refused. An agent's `set_theme`
- *    still measures the deck and refuses.
+ *  - Én temakommando, av samme grunn: hvordan et kort med tittel tegnes og
+ *    om bokser kaster skygge (`setCardLookByHand`). En skygge er bare maling
+ *    og skjuler ingenting; et tittelutseende kan gi innholdet mindre plass, og
+ *    en person som bytter utseende velger et uttrykk, så det som ikke lenger
+ *    får plass i normal størrelse tegnes mindre i stedet for at byttet
+ *    avvises. Agentens `set_theme` måler fortsatt dekket og avviser.
  *  - **Never reachable from an agent.** It is not re-exported from the command
  *    index, and `manualLayout.boundary.test.ts` fails if anything outside the
  *    editor UI imports it. There is no API parameter that does what this does,
@@ -88,10 +88,11 @@ export function rearrangeZonesByHand(
 }
 
 /**
- * `setTheme`, for the two looks a person picks in the theme dialog. Only those
- * two fields are passed on, and no checker: the geometry is still asked
- * (`findGeometryRegression`), which neither look can fail, because how small a
- * card may be does not depend on them (`ThemeMetrics.cardBodyOffset`).
+ * `setTheme` for de to utseendevalgene en person tar i temadialogen. Bare de
+ * to feltene sendes videre, og ingen fit-sjekk: geometrien kontrolleres
+ * fortsatt (`findGeometryRegression`), og den kan ingen av valgene feile,
+ * fordi hvor lite et kort kan være ikke avhenger av dem
+ * (`ThemeMetrics.cardBodyOffset`).
  */
 export function setCardLookByHand(
   presentation: Presentation,

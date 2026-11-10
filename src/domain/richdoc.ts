@@ -98,9 +98,9 @@ export function drawnAlign(align: unknown, block: AlignableBlock): TextAlign {
 }
 
 /**
- * Where a one-line title is drawn: its paragraph's alignment, or the title
- * default. A card whose title is a tab or a card of its own places that box
- * by it, so a title aligned left stands at the left.
+ * Hvor en tittel på én linje tegnes: avsnittets justering, eller titlenes
+ * standard. Et kort med tittelen som fane eller eget kort plasserer den boksen
+ * etter dette, så en venstrejustert tittel står til venstre.
  */
 export function titleAlign(doc: TitleDoc): TextAlign {
   return drawnAlign(doc.content?.[0]?.attrs?.textAlign, 'title')

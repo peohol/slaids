@@ -1,8 +1,8 @@
 /**
- * The theme's two looks: whether boxes cast shadows, and how a card with a
- * title draws it — joined to its body, as a tab behind it, or floating above
- * it. Switching style may leave text too little room; the zone is then drawn
- * smaller, the same in the editor and in presentation, and never refused.
+ * Temaets to utseendevalg: om bokser kaster skygge, og hvordan et kort med
+ * tittel tegner den – i ett med innholdet, som en fane bak det, eller svevende
+ * over det. Et bytte kan gi tekst for lite plass; da tegnes sonen mindre, likt
+ * i editoren og i presentasjon, og byttet avvises aldri.
  */
 
 import { expect, test, type Page } from './fixtures'
@@ -35,11 +35,16 @@ async function closeTheme(page: Page): Promise<void> {
 async function chooseLook(page: Page, look: TitledCardStyle): Promise<void> {
   await openTheme(page)
   await page.getByTestId(`theme-titled-card-${look}`).click()
-  await expect(page.getByTestId(`theme-titled-card-${look}`)).toHaveAttribute('aria-checked', 'true')
+  await expect(lookChoice(page, look)).toBeChecked()
   await closeTheme(page)
 }
 
-/** A slide of two columns with a titled card in the left one. */
+/** Radioknappen for ett kortutseende i temadialogen. */
+function lookChoice(page: Page, look: TitledCardStyle) {
+  return page.getByTestId(`theme-titled-card-${look}`).getByRole('radio')
+}
+
+/** En slide med to kolonner og et kort med tittel i den venstre. */
 async function titledCardDeck(page: Page, name: string, title: string, body = 'Innhold'): Promise<string> {
   await createPresentation(page, name)
   await enterZoneMode(page)
@@ -62,7 +67,7 @@ function zone(page: Page, nodeId: string) {
 interface CardParts {
   header: { left: number; right: number; top: number; bottom: number; width: number }
   body: { left: number; right: number; top: number; width: number }
-  /** How far the title runs past its header, in the header's own pixels. */
+  /** Hvor langt tittelen går forbi headeren, i headerens egne piksler. */
   titleOverflow: number
   headerShadow: string
   bodyShadow: string
@@ -71,9 +76,9 @@ interface CardParts {
 }
 
 /**
- * The card's header and body in slide units, measured *inside* the zone's
- * drawing — divided by the zone's own scale as well as the stage's, so the
- * numbers are the ones the layout was made with.
+ * Kortets header og innhold i slide-enheter, målt *inne i* sonens tegning –
+ * delt på sonens egen skala i tillegg til stagens, så tallene er de layouten
+ * ble laget med.
  */
 async function cardParts(page: Page, nodeId: string): Promise<CardParts> {
   return zone(page, nodeId).evaluate((element) => {
@@ -105,7 +110,7 @@ async function cardParts(page: Page, nodeId: string): Promise<CardParts> {
   })
 }
 
-/** How much smaller than normal the zone's card title is set, on its own. */
+/** Hvor mye mindre enn normalt sonens korttittel er satt, for seg selv. */
 async function titleFit(page: Page, nodeId: string): Promise<number> {
   const value = await zone(page, nodeId).locator('.zone-fit').first().getAttribute('data-title-fit')
   return value === null ? 1 : Number(value)
@@ -118,7 +123,7 @@ async function bodyFontSize(page: Page, nodeId: string): Promise<string> {
     .evaluate((element) => getComputedStyle(element).fontSize)
 }
 
-/** The air between the title's text and its header's edges, left and right. */
+/** Luften mellom tittelens tekst og headerens kanter, til venstre og høyre. */
 async function titleAir(page: Page, nodeId: string): Promise<{ left: number; right: number }> {
   return zone(page, nodeId).evaluate((element) => {
     const header = element.querySelector('.card-header') as HTMLElement
@@ -149,12 +154,12 @@ test.describe('kort med tittel og skygger', () => {
     await closeTheme(page)
     expect((await cardParts(page, card)).cardShadow).toBe('none')
 
-    // Every look draws its boxes without a shadow when shadows are off …
+    // Alle utseender tegner boksene uten skygge når skygger er av …
     await chooseLook(page, 'tab')
     const tab = await cardParts(page, card)
     expect([tab.headerShadow, tab.bodyShadow]).toEqual(['none', 'none'])
 
-    // … and both boxes of a split card cast one when they are on.
+    // … og begge boksene i et delt kort kaster skygge når de er på.
     await openTheme(page)
     await page.getByTestId('theme-shadows').click()
     await closeTheme(page)
@@ -181,8 +186,8 @@ test.describe('kort med tittel og skygger', () => {
 
     await chooseLook(page, 'tab')
     const tab = await cardParts(page, card)
-    // As wide as the title, centred like it, and standing up from behind the
-    // body: its lower corners run one radius down under the body's top edge.
+    // Like bred som tittelen, midtstilt som den, og stående opp bak innholdet:
+    // de nedre hjørnene går én radius ned under innholdets overkant.
     expect(tab.titleOverflow).toBeLessThanOrEqual(0)
     expect(tab.header.width).toBeLessThan(tab.body.width / 2)
     expect((tab.header.left + tab.header.right) / 2).toBeCloseTo((tab.body.left + tab.body.right) / 2, 0)
@@ -206,7 +211,7 @@ test.describe('kort med tittel og skygger', () => {
       const { errors } = watchForErrors(page)
       const card = await titledCardDeck(page, 'Lang tittel', 'Tittel')
       const bodyBefore = await bodyFontSize(page, card)
-      // A title far longer than any header: typed or pasted, it is all taken.
+      // En tittel langt lengre enn noen header: skrevet eller limt inn tas alt imot.
       const title = zone(page, card).locator('.card-header .tiptap')
       await caretInto(title)
       await page.keyboard.press('End')
@@ -215,11 +220,11 @@ test.describe('kort med tittel og skygger', () => {
       for (const look of ['joined', 'tab', 'floating'] as const) {
         await chooseLook(page, look)
         await expect.poll(() => titleFit(page, card), look).toBeLessThan(1)
-        // Only the title: the zone is drawn at normal size and its body text
-        // keeps its size.
+        // Bare tittelen: sonen tegnes i normal størrelse og innholdsteksten
+        // beholder sin størrelse.
         expect(await fitScale(page, card), look).toBe(1)
         expect(await bodyFontSize(page, card), look).toBe(bodyBefore)
-        // The title fits inside the header's padding, the same air either side.
+        // Tittelen får plass innenfor headerens polstring, med lik luft på begge sider.
         const air = await titleAir(page, card)
         expect(Math.abs(air.left - air.right), look).toBeLessThanOrEqual(1.5)
         expect(air.right, look).toBeGreaterThan(0)
@@ -242,6 +247,35 @@ test.describe('kort med tittel og skygger', () => {
     },
   )
 
+  test('lar kortutseendet velges med tastaturet', { tag: '@pr' }, async ({ page }) => {
+    const { errors } = watchForErrors(page)
+    const card = await titledCardDeck(page, 'Tastatur', 'Tittel')
+    await openTheme(page)
+    // Fokus på valget som gjelder; gruppen er ett tabulatorstopp.
+    await lookChoice(page, 'joined').focus()
+    await expect(lookChoice(page, 'joined')).toBeChecked()
+
+    // Piltastene flytter fokus og velger, og sliden følger med med en gang.
+    await page.keyboard.press('ArrowRight')
+    await expect(lookChoice(page, 'tab')).toBeFocused()
+    await expect(lookChoice(page, 'tab')).toBeChecked()
+    await expect(zone(page, card).locator('[data-titled-style="tab"]')).toHaveCount(1)
+
+    await page.keyboard.press('ArrowRight')
+    await expect(lookChoice(page, 'floating')).toBeChecked()
+    await page.keyboard.press('ArrowLeft')
+    await expect(lookChoice(page, 'tab')).toBeFocused()
+    await expect(lookChoice(page, 'tab')).toBeChecked()
+    await expect(lookChoice(page, 'floating')).not.toBeChecked()
+
+    // Tab går videre ut av gruppen i stedet for til neste valg i den.
+    await page.keyboard.press('Tab')
+    await expect(lookChoice(page, 'floating')).not.toBeFocused()
+    await closeTheme(page)
+    await expect(zone(page, card).locator('[data-titled-style="tab"]')).toHaveCount(1)
+    expect(errors).toEqual([])
+  })
+
   test('holder luften under en svevende tittel lik når innholdet forminskes', async ({ page }) => {
     const card = await titledCardDeck(page, 'Fullt kort', 'Tittel')
     await chooseLook(page, 'floating')
@@ -250,7 +284,7 @@ test.describe('kort med tittel og skygger', () => {
     await page.keyboard.press('End')
     await page.keyboard.insertText(' Mye tekst som ikke får plass.'.repeat(40))
     await expect.poll(() => fitScale(page, card)).toBeLessThan(1)
-    // Measured on screen, in slide units: the zone's own scale does not count.
+    // Målt på skjermen, i slide-enheter: sonens egen skala teller ikke.
     const gap = await zone(page, card).evaluate((element) => {
       const slide = element.closest('.slide') as HTMLElement
       const scale = slide.getBoundingClientRect().width / 1600

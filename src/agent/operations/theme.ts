@@ -123,9 +123,9 @@ export interface ThemeView {
   spacing: number
   /** Skriftstørrelse: one multiplier on every type size in the deck. */
   fontScale: number
-  /** Whether cards, pictures, section pills and miniapp frames cast a shadow. */
+  /** Om kort, bilder, inndelingspiller og miniapp-rammer kaster skygge. */
   boxShadows: boolean
-  /** How a card with a title draws it. */
+  /** Hvordan et kort med tittel tegner tittelen. */
   titledCardStyle: TitledCardStyle
 }
 

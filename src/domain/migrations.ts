@@ -695,9 +695,9 @@ const migrate16to17: MigrationFn = (data) => {
 }
 
 /**
- * A theme gains two looks: whether boxes cast shadows, and how a card with a
- * title draws it. Every deck stored before either existed had shadows and a
- * header joined to its body, so that is what is filled in.
+ * Et tema får to utseendevalg: om bokser kaster skygge, og hvordan et kort med
+ * tittel tegner den. Alle dekk lagret før valgene fantes, hadde skygger og en
+ * header i ett med innholdet, så det er det som fylles inn.
  */
 const migrate17to18: MigrationFn = (data) => {
   const theme = (data.theme ?? {}) as Raw
@@ -705,10 +705,10 @@ const migrate17to18: MigrationFn = (data) => {
 }
 
 /**
- * The two looks a theme stores, as a stored theme has them — or as every deck
- * before them looked, where a value is missing or not one the theme knows.
- * Shared by the migration that introduced them and by `repairPresentation`, so
- * the two cannot disagree about what a deck without them looks like.
+ * De to utseendevalgene et tema lagrer, slik et lagret tema har dem – eller
+ * slik alle dekk før dem så ut, der en verdi mangler eller er ukjent for
+ * temaet. Delt av migreringen som innførte dem og av `repairPresentation`, så
+ * de to ikke kan være uenige om hvordan et dekk uten dem ser ut.
  */
 function cardLookOf(theme: Raw): { boxShadows: boolean; titledCardStyle: TitledCardStyle } {
   const style = TITLED_CARD_STYLES.find((known) => known === theme.titledCardStyle)
