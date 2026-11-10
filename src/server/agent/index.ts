@@ -7,7 +7,7 @@
  * the handler a token lookup, a repository factory and an audit sink.
  *
  * A deployment without Supabase credentials answers `503` and says which
- * variables are missing. That is the storage-mode invariant from `CLAUDE.md`
+ * variables are missing. That is the storage-mode invariant from `AGENTS.md`
  * taken to its conclusion: there is no local mode for a server, so there is
  * nothing to quietly fall back to, and a REST layer that appeared to work
  * against nothing would be the worst of the available answers.

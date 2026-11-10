@@ -552,7 +552,7 @@ describe('scopes', () => {
   })
 
   it('gir aldri rett til å publisere som standard', async () => {
-    // `CLAUDE.md`: ordinary editing never carries the right to hand a
+    // `AGENTS.md`: ordinary editing never carries the right to hand a
     // presentation to the internet. A default that included `sharing:write`
     // would be this layer quietly deciding otherwise.
     expect(DEFAULT_OAUTH_SCOPES).not.toContain('sharing:write')

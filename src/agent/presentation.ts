@@ -378,7 +378,7 @@ function describeFailure(
  *    the caller can read again and retry.
  *  - **anything else** is the store itself failing, and in Supabase mode that is
  *    never answered with a quiet local write — see the storage-mode invariant in
- *    `CLAUDE.md`.
+ *    `AGENTS.md`.
  */
 export function storageFailure<T = never>(
   error: unknown,

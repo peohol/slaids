@@ -1,4 +1,4 @@
-# Slaids — Claude Code instructions
+# Slaids — Coding agent instructions
 
 Slaids er en nettleserbasert presentasjonseditor med rigid, matematisk sonelayout.
 
@@ -24,7 +24,7 @@ Slaids er en nettleserbasert presentasjonseditor med rigid, matematisk sonelayou
 
 ## Viktige, tverrgående invariants
 
-Dette er bare de få reglene som Claude må ha i kontekst på nesten alle oppgaver. Detaljene og begrunnelsene hører hjemme i `IMPLEMENTATION_PLAN.md` og koden.
+Dette er bare de få reglene som kodeagenter må ha i kontekst på nesten alle oppgaver. Detaljene og begrunnelsene hører hjemme i `IMPLEMENTATION_PLAN.md` og koden.
 
 - Logisk designrom er `1600 × 900`; viewport skalerer det uniformt.
 - Layout er et rekursivt tre: `split` har `children`, `leaf` har `content`; `children.length === weights.length`; weights er heltall 1–10 og kvantiseres sentralt.
@@ -70,12 +70,12 @@ npm run e2e
 
 ## Vedlikehold av denne filen — viktig
 
-`CLAUDE.md` er et kort, høysignal prosjektbrief som lastes inn i hver Claude Code-sesjon. Den er **ikke** arkitekturdokumentasjon, changelog, feiljournal, scratchpad eller et sted å lagre begrunnelsen for hver implementasjonsdetalj.
+`AGENTS.md` er et kort prosjektbrief med felles instruksjoner for kodeagenter. Den er **ikke** arkitekturdokumentasjon, changelog, feiljournal, scratchpad eller et sted å lagre begrunnelsen for hver implementasjonsdetalj.
 
-- **Ikke endre `CLAUDE.md` som del av vanlig feature-, bugfix- eller refaktoreringsarbeid.** Endre den bare når brukeren uttrykkelig ber om å endre prosjektinstruksene, eller når en varig, tverrgående arbeidsregel faktisk har endret seg.
-- Når en ny regel foreslås, spør først: Kan den håndheves i typer, kode, test, lint eller CI? I så fall gjør det der. Er den produkt-/arkitekturspesifikasjon? Da hører den hjemme i `IMPLEMENTATION_PLAN.md`. Er den lokal for ett subsystem? Dokumenter den nær subsystemet. Bare varige instrukser Claude trenger på tvers av oppgaver hører hjemme her.
-- **Ikke append en ny regel bare fordi Claude gjorde én feil.** Rett årsaken i kode/test/verktøy når mulig. Legg bare til en instruks hvis samme feilklasse realistisk kan gjenta seg og ikke kan håndheves mekanisk.
+- **Ikke endre `AGENTS.md` som del av vanlig feature-, bugfix- eller refaktoreringsarbeid.** Endre den bare når brukeren uttrykkelig ber om å endre prosjektinstruksene, eller når en varig, tverrgående arbeidsregel faktisk har endret seg.
+- Når en ny regel foreslås, spør først: Kan den håndheves i typer, kode, test, lint eller CI? I så fall gjør det der. Er den produkt-/arkitekturspesifikasjon? Da hører den hjemme i `IMPLEMENTATION_PLAN.md`. Er den lokal for ett subsystem? Dokumenter den nær subsystemet. Bare varige instrukser kodeagenter trenger på tvers av oppgaver hører hjemme her.
+- **Ikke append en ny regel bare fordi en kodeagent gjorde én feil.** Rett årsaken i kode/test/verktøy når mulig. Legg bare til en instruks hvis samme feilklasse realistisk kan gjenta seg og ikke kan håndheves mekanisk.
 - Ikke legg inn løste bughistorier, PR-spesifikke detaljer, midlertidige migreringssteg, konkrete feilmeldinger eller lange designbegrunnelser.
 - Ved redigering: erstatt eller kondenser eksisterende tekst fremfor å legge til en overlappende regel. Fjern foreldede regler samtidig.
 - Hold filen under **200 linjer**. Hvis den nærmer seg grensen, flytt detaljer til den normative planen, subsystem-dokumentasjon eller mekaniske tester før noe nytt legges til.
-- Unngå duplisering: én regel skal ha én autoritativ plassering. `CLAUDE.md` kan peke til den, men skal ikke utvikle en parallell spesifikasjon.
+- Unngå duplisering: én regel skal ha én autoritativ plassering. `AGENTS.md` kan peke til den, men skal ikke utvikle en parallell spesifikasjon.

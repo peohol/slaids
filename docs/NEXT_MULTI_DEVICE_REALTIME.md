@@ -43,7 +43,7 @@ Innfør en liten serverlagret brukerstatus, separat fra presentasjonsdokumentet.
 - En allerede åpen enhet skal **ikke** tvinges til å følge slidevalget fra en annen enhet. Den serverlagrede arbeidsposisjonen brukes til neste åpning/ny sesjon, ikke som live fjernstyring av navigasjonen.
 - Local/Dexie-modus kan beholde lokal preferanse som fallback; cross-device-garantien gjelder Supabase-modus.
 
-Schema/RLS skal følge eksisterende eiermodell. Slaids-migrasjoner deployes med prosjektets `scripts/deploy-migrations.sh`, aldri med forbudte globale Supabase-kommandoer nevnt i `CLAUDE.md`.
+Schema/RLS skal følge eksisterende eiermodell. Slaids-migrasjoner deployes med prosjektets `scripts/deploy-migrations.sh`, aldri med forbudte globale Supabase-kommandoer nevnt i `AGENTS.md`.
 
 ## 3. Del B — realtime signal om ny autoritativ versjon
 
@@ -198,7 +198,7 @@ Minst disse scenariene skal være dekket av tester der det er praktisk og av E2E
 
 Før kode:
 
-1. Les `CLAUDE.md`, relevante persistens-/autosave-/store-filer og gjeldende `IMPLEMENTATION_PLAN.md`.
+1. Les `AGENTS.md`, relevante persistens-/autosave-/store-filer og gjeldende `IMPLEMENTATION_PLAN.md`.
 2. Oppdater `IMPLEMENTATION_PLAN.md` med de varige reglene som faktisk skal implementeres: cross-device workspace-state, autoritativ serverversjon, realtime-status, rebase/konfliktprinsipp og same-field lease.
 3. Bruk dette dokumentet som sjekkliste og slett/arkiver det når leveransen er ferdig dersom all varig kunnskap da finnes i normativ plan, kode og tester.
 
