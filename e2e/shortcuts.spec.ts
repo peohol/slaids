@@ -92,15 +92,15 @@ test.describe('keyboard shortcuts', () => {
     await expect(field).toHaveText('Første andre')
   })
 
-  test('substitutes dashes, ellipses and separators while typing', async ({ page }) => {
+  test('substitutes dashes, arrows and separators while typing', async ({ page }) => {
     await createPresentation(page, 'Typografi')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'container')
 
     const field = stage(page).locator('.tiptap').last()
     await field.click()
-    await page.keyboard.type('Del 1 - to og... tre * fire')
-    await expect(field).toHaveText('Del 1 – to og… tre · fire')
+    await page.keyboard.type('Del 1 - to -> tre * fire')
+    await expect(field).toHaveText('Del 1 – to → tre · fire')
 
     // A hyphen without the spaces is a hyphen, and a line-initial dash is a list.
     await page.keyboard.press('Enter')

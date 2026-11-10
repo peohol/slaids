@@ -7,6 +7,7 @@
  * one place that decides which of them is live.
  */
 
+import type { AutocorrectRule } from '../domain/autocorrect'
 import type { SharedPresentationSnapshot } from '../domain/sharing'
 import type {
   AssetRef,
@@ -203,6 +204,15 @@ export interface SlaidsRepository {
   listTemplates(): Promise<LayoutTemplate[]>
   saveTemplate(template: LayoutTemplate): Promise<void>
   deleteTemplate(id: string): Promise<void>
+
+  /**
+   * This user's autoerstatt rules (`domain/autocorrect.ts`), repaired. A user
+   * who has never saved a list gets `DEFAULT_AUTOCORRECT_RULES`; one who saved
+   * an empty list gets an empty list, because that was a choice.
+   */
+  loadAutocorrectRules(): Promise<AutocorrectRule[]>
+  /** Replace this user's whole list. Stored repaired, never as given. */
+  saveAutocorrectRules(rules: readonly AutocorrectRule[]): Promise<void>
 
   putAsset(presentationId: string, ref: AssetRef, blob: Blob): Promise<void>
   getAsset(id: string): Promise<StoredAsset | null>

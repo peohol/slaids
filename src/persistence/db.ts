@@ -40,6 +40,15 @@ export interface AssetRecord {
 }
 
 export type TemplateRecord = LayoutTemplate
+
+/**
+ * One of the user's own settings, by name. Local mode has one user, so the
+ * name is the whole key; the value is repaired by whoever reads it.
+ */
+export interface SettingRecord {
+  key: string
+  value: unknown
+}
 export type FolderRecord = Folder
 
 export class SlaidsDatabase extends Dexie {
@@ -47,6 +56,7 @@ export class SlaidsDatabase extends Dexie {
   assets!: Table<AssetRecord, string>
   templates!: Table<TemplateRecord, string>
   folders!: Table<FolderRecord, string>
+  settings!: Table<SettingRecord, string>
 
   constructor(name = 'slaids') {
     super(name)
@@ -56,6 +66,7 @@ export class SlaidsDatabase extends Dexie {
       templates: 'id, name, createdAt',
       folders: 'id, name, createdAt',
     })
+    this.version(2).stores({ settings: 'key' })
   }
 }
 

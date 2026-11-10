@@ -1,13 +1,15 @@
 /**
- * The plain-`<input>` counterpart to `TypographyExtension`: the same three
- * substitutions, reached by typing rather than by calling a command, since
+ * The plain-`<input>` counterpart to `TypographyExtension`: the same
+ * autoerstatt rules, reached by typing rather than by calling a command, since
  * that is the one thing an input rule cannot be driven by directly.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useState } from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { defaultAutocorrectRules } from '../../domain/autocorrect'
+import { resetAutocorrect, useAutocorrect } from '../../state/autocorrect'
 import { useTypedSubstitution } from './useTypedSubstitution'
 
 function Field() {
@@ -19,7 +21,12 @@ function Field() {
 let container: HTMLDivElement | null = null
 let root: Root | null = null
 
+beforeEach(() => {
+  useAutocorrect.setState({ rules: defaultAutocorrectRules(), loaded: true })
+})
+
 afterEach(() => {
+  resetAutocorrect()
   if (root) act(() => root!.unmount())
   container?.remove()
   root = null
@@ -61,10 +68,26 @@ describe('useTypedSubstitution', () => {
     expect(input.value).toBe('Del 1 – konklusjon')
   })
 
-  it('rewrites three dots to an ellipsis', () => {
+  it('rewrites an arrow, and lets the longest rule win', () => {
+    const input = mount()
+    type(input, 'a -> b --> c')
+    expect(input.value).toBe('a → b ⟶ c')
+  })
+
+  it('follows the user\'s own rules, read at the keystroke', () => {
     const input = mount()
     type(input, 'Og så videre...')
-    expect(input.value).toBe('Og så videre…')
+    expect(input.value).toBe('Og så videre...')
+    useAutocorrect.setState({ rules: [{ from: '...', to: '…' }], loaded: true })
+    type(input, ' og...')
+    expect(input.value).toBe('Og så videre... og…')
+  })
+
+  it('substitutes nothing before the rules have been read', () => {
+    resetAutocorrect()
+    const input = mount()
+    type(input, 'Del 1 - konklusjon')
+    expect(input.value).toBe('Del 1 - konklusjon')
   })
 
   it('rewrites a spaced asterisk to a middle dot', () => {

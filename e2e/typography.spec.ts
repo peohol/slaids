@@ -18,15 +18,16 @@ const SVG =
   `<rect width="200" height="120" fill="#4d6680"/></svg>`
 
 /**
- * Type the three substitutions into a field and read back what it holds.
+ * Type three of the default autoerstatt rules into a field and read back what
+ * it holds.
  *
  * One phrase carrying all three, so a field is either right about every rule
  * or visibly wrong about one of them. It stays short: a title is one line that
  * refuses to overflow, and a phrase that did not fit would be rolled back and
  * fail for a reason that has nothing to do with typography.
  */
-const TYPED = 'A - b... c * d'
-const WRITTEN = 'A – b… c · d'
+const TYPED = 'A - b -> c * d'
+const WRITTEN = 'A – b → c · d'
 
 async function typeAndRead(page: Page, field: ReturnType<Page['locator']>): Promise<string> {
   await field.click()
@@ -38,6 +39,39 @@ async function typeAndRead(page: Page, field: ReturnType<Page['locator']>): Prom
 }
 
 test.describe('autoerstatning', () => {
+  test('brukerens egne regler gjelder med en gang, også etter omlasting', async ({ page }) => {
+    await createPresentation(page, 'Egne regler')
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[0].id, 'container')
+    const field = stage(page).locator('.tiptap').last()
+
+    await page.getByTestId('toolbar-menu-tools').click()
+    await page.getByTestId('context-menu').getByTestId('menu-autocorrect').click()
+    const dialog = page.getByTestId('autocorrect-modal')
+    await expect(dialog.getByTestId('autocorrect-rule')).toHaveCount(8)
+    // The defaults are mdeditz's eight; a new rule is typed straight into its row.
+    await dialog.getByTestId('autocorrect-add').click()
+    await page.keyboard.type('...')
+    await dialog.getByTestId('autocorrect-to').last().fill('…')
+    await dialog.getByTestId('autocorrect-remove').first().click()
+    await dialog.getByTestId('autocorrect-save').click()
+    await expect(dialog).toBeHidden()
+
+    await field.click()
+    await page.keyboard.type('Og så videre... A - b')
+    await expect(field).toHaveText('Og så videre… A - b')
+
+    await page.reload()
+    await page.getByTestId('toolbar-menu-tools').click()
+    await page.getByTestId('context-menu').getByTestId('menu-autocorrect').click()
+    await expect(dialog.getByTestId('autocorrect-from').last()).toHaveValue('...')
+    await expect(dialog.getByTestId('autocorrect-from').first()).toHaveValue('␣*␣')
+    await dialog.getByTestId('autocorrect-defaults').click()
+    await dialog.getByTestId('autocorrect-save').click()
+    await expect(dialog).toBeHidden()
+  })
+
+
   test('erstatter mens man skriver i innhold, korttittel og slidetittel', async ({ page }) => {
     await createPresentation(page, 'Autoerstatning')
     await page.getByTestId('add-slide').click()

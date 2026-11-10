@@ -75,6 +75,7 @@ export interface TopToolbarProps {
   ideasOpen: boolean
   sandboxOpen: boolean
   onShowShortcuts: () => void
+  onEditAutocorrect: () => void
   onPresent: () => void
   onOpenTheme: () => void
   /** The deck's shared visual premise for its pictures; see `ImageBriefModal`. */
@@ -281,6 +282,7 @@ export function TopToolbar(props: TopToolbarProps) {
                 onIdeas: props.onToggleIdeas,
                 onSandbox: props.onToggleSandbox,
                 onShowShortcuts: props.onShowShortcuts,
+                onEditAutocorrect: props.onEditAutocorrect,
               }),
               SEPARATOR,
               appearanceSubmenu(appearance, setAppearance),

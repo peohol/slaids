@@ -34,6 +34,7 @@ function render(props: Partial<TopToolbarProps>): Document {
         ideasOpen={false}
         sandboxOpen={false}
         onShowShortcuts={noop}
+        onEditAutocorrect={noop}
         onBack={noop}
         onRename={noop}
         onToggleTitle={noop}

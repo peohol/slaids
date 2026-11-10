@@ -19,6 +19,11 @@
  */
 
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
+import {
+  defaultAutocorrectRules,
+  normalizeAutocorrectRules,
+  type AutocorrectRule,
+} from '../domain/autocorrect'
 import { newShareToken } from '../domain/ids'
 import { migratePresentation } from '../domain/migrations'
 import { presentationByteSize } from '../domain/presentation'
@@ -50,6 +55,7 @@ export const PRESENTATIONS_TABLE = 'slaids_presentations'
 export const FOLDERS_TABLE = 'slaids_folders'
 export const TEMPLATES_TABLE = 'slaids_templates'
 export const ASSETS_TABLE = 'slaids_assets'
+export const USER_SETTINGS_TABLE = 'slaids_user_settings'
 export const ASSETS_BUCKET = 'slaids-assets'
 
 /** Postgres `unique_violation`, i.e. the row already exists. */
@@ -1142,6 +1148,32 @@ export class SupabaseSlaidsRepository
       this.client.from(TEMPLATES_TABLE).delete().eq('id', id),
     )
     if (error) fail('Kunne ikke slette malen', error)
+  }
+
+  /* ---------------------------------------------------------------- *
+   * The user's own settings
+   * ---------------------------------------------------------------- */
+
+  async loadAutocorrectRules(): Promise<AutocorrectRule[]> {
+    const { data, error } = await this.scoped(
+      this.client.from(USER_SETTINGS_TABLE).select('autocorrect'),
+    ).maybeSingle()
+    if (error) fail('Kunne ikke hente autoerstatt-reglene', error)
+    const stored = (data as { autocorrect: unknown } | null)?.autocorrect
+    return stored === null || stored === undefined
+      ? defaultAutocorrectRules()
+      : normalizeAutocorrectRules(stored)
+  }
+
+  async saveAutocorrectRules(rules: readonly AutocorrectRule[]): Promise<void> {
+    // An upsert is safe here, unlike for rows keyed by a minted id: the key
+    // *is* the owner, so the only row it can ever reach is this user's own.
+    const { error } = await this.client.from(USER_SETTINGS_TABLE).upsert({
+      owner_id: await this.ownerId(),
+      autocorrect: normalizeAutocorrectRules(rules),
+      updated_at: new Date().toISOString(),
+    })
+    if (error) fail('Kunne ikke lagre autoerstatt-reglene', error)
   }
 
   /* ---------------------------------------------------------------- *

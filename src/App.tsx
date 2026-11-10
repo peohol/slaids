@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { LibraryView } from './ui/library/LibraryView'
 import { EditorView } from './ui/editor/EditorView'
 import { AuthGate } from './ui/auth/AuthGate'
@@ -8,9 +8,14 @@ import { AssetSourceProvider } from './state/assetSource'
 import { repositoryAssetSource } from './state/assetSources'
 import { lastOpenPresentationKey, readPref, writePref } from './state/prefs'
 import { useSessionStore } from './state/session'
+import { loadAutocorrect } from './state/autocorrect'
 
 function Workspace({ userId }: { userId: string | null }) {
   const lastOpenKey = lastOpenPresentationKey(userId)
+  // The rules are the signed-in user's; the workspace is remounted per user.
+  useEffect(() => {
+    void loadAutocorrect()
+  }, [])
   const [openId, setOpenId] = useState<string | null>(() =>
     readPref<string | null>(lastOpenKey, null),
   )

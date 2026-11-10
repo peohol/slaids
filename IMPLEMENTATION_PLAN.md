@@ -2678,13 +2678,24 @@ ingen plass i målingen.
 
 ### Autoerstatning mens man skriver
 
-` - ` blir ` – `, `...` blir `…` og ` * ` blir ` · `, overalt hvor noen skriver
-tekst: innholdsfelt, slidetittel, korttittel, en seksjons to linjer, en
-bildetekst – og de to helt vanlige `<input>`-feltene som også ender opp på en
-slide (ny seksjon, og referansens tittel og forfattere). `TEXT_SUBSTITUTIONS` er
-den ene lista over hva som erstattes, og `substitutionPattern` den ene
-beskrivelsen av hva en erstatning treffer; input-regelen i editoren og
-`useTypedSubstitution` for et vanlig felt leser begge den samme.
+Reglene er **brukerens egne**, samme modell som i mdeditz: en liste med par
+(`from` → `to`) som brukeren selv oppretter, endrer og sletter under
+**Verktøy → Autoerstatt**. En bruker som aldri har lagret en liste får
+`DEFAULT_AUTOCORRECT_RULES` (mdeditz' regler: ` - ` → ` – `, ` * ` → ` · `,
+to mellomrom → ett, `--` → `–`, `–-` → `—`, `->` → `→`, `–>` → `⟶`,
+`—-` → `―`); en lagret tom liste er et valg og står. Lista lagres per bruker
+(`slaids_user_settings.autocorrect` i Supabase, `settings` i Dexie) og repareres
+av `normalizeAutocorrectRules` ved hver lesing og skriving
+(`src/domain/autocorrect.ts`).
+
+Reglene gjelder overalt hvor noen skriver tekst: innholdsfelt, slidetittel,
+korttittel, en seksjons to linjer, en bildetekst – og de helt vanlige
+`<input>`-feltene som også ender opp på en slide (ny seksjon, og referansens
+tittel og forfattere). `findAutocorrectRule` er den ene beskrivelsen av hva som
+treffer (lengste regel vinner, bare på teksten rett foran markøren);
+input-regelen i editoren og `useTypedSubstitution` for et vanlig felt leser
+begge den, og begge leser brukerens liste ved tastetrykket, så en lagret endring
+gjelder også felt som allerede er åpne.
 
 **Et felt der man skriver må ta vare på mellomrommene sine.** Å kollapse dem er
 ikke bare et rendringsvalg: et mellomrom sist på linja ville vært usynlig, så
@@ -3893,7 +3904,7 @@ Krav som gjelder:
 
 ### Datamodell
 
-Fire tabeller i `public`, alle med `owner_id uuid → auth.users`. RLS gir en
+Fem tabeller i `public`, alle med `owner_id uuid → auth.users`. RLS gir en
 aktiv Slaids-bruker tilgang til rader der `owner_id` er brukerens egen UUID, og
 ingen andre noe som helst:
 
@@ -3903,6 +3914,7 @@ ingen andre noe som helst:
 | `slaids_presentations`  | hele `Presentation` som `document jsonb`, pluss `title`, `folder_id`, `slide_count`, `byte_size`, `version` og `deleted_at` (søppelkassen, § 21) |
 | `slaids_templates`      | hele `LayoutTemplate` som `template jsonb`                |
 | `slaids_assets`         | hele `AssetRef` som `ref jsonb` + `object_path` i Storage  |
+| `slaids_user_settings`  | én rad per bruker (`owner_id` er nøkkelen): brukerens egne innstillinger, nå `autocorrect jsonb` (§ «Autoerstatning mens man skriver») |
 
 Slides, soner og referanser normaliseres **ikke** ut i egne tabeller. Dokumentet
 er domenemodellen Slaids allerede validerer og migrerer; en oppsplitting ville

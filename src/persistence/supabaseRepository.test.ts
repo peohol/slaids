@@ -14,7 +14,9 @@ import {
   PRESENTATIONS_TABLE,
   SupabaseSlaidsRepository,
   TEMPLATES_TABLE,
+  USER_SETTINGS_TABLE,
 } from './supabaseRepository'
+import { DEFAULT_AUTOCORRECT_RULES } from '../domain/autocorrect'
 import {
   TEST_OWNER_ID,
   createFakeDatabase,
@@ -637,6 +639,44 @@ describe('SupabaseSlaidsRepository – maler', () => {
   })
 })
 
+describe('SupabaseSlaidsRepository – autoerstatt-regler', () => {
+  it('gir standardreglene til en bruker som aldri har lagret noen', async () => {
+    const { repository } = repositoryFor({ resolve: () => ({ data: null }) })
+    expect(await repository.loadAutocorrectRules()).toEqual(DEFAULT_AUTOCORRECT_RULES)
+    const unset = repositoryFor({ resolve: () => ({ data: { autocorrect: null } }) })
+    expect(await unset.repository.loadAutocorrectRules()).toEqual(DEFAULT_AUTOCORRECT_RULES)
+  })
+
+  it('gir en tom liste til den som har valgt den, og reparerer det som er lagret', async () => {
+    const empty = repositoryFor({ resolve: () => ({ data: { autocorrect: [] } }) })
+    expect(await empty.repository.loadAutocorrectRules()).toEqual([])
+    const odd = repositoryFor({
+      resolve: () => ({ data: { autocorrect: [{ from: '(c)', to: '©' }, { from: '', to: 'x' }] } }),
+    })
+    expect(await odd.repository.loadAutocorrectRules()).toEqual([{ from: '(c)', to: '©' }])
+  })
+
+  it('lagrer hele lista reparert, på brukerens egen rad', async () => {
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: null }) })
+    await repository.saveAutocorrectRules([
+      { from: '(c)', to: '©' },
+      { from: '(c)', to: 'C' },
+    ])
+    const write = fake.queries.at(-1)!
+    expect(write.table).toBe(USER_SETTINGS_TABLE)
+    expect(write.op).toBe('upsert')
+    expect(write.values).toMatchObject({
+      owner_id: TEST_OWNER_ID,
+      autocorrect: [{ from: '(c)', to: '©' }],
+    })
+  })
+
+  it('melder fra når lagringen feiler', async () => {
+    const { repository } = repositoryFor({ resolve: () => ({ error: { message: 'nede', code: '' } }) })
+    await expect(repository.saveAutocorrectRules([])).rejects.toBeInstanceOf(RepositoryError)
+  })
+})
+
 describe('SupabaseSlaidsRepository – filer', () => {
   it('legger filen under brukerens UUID og knytter raden til presentasjonen', async () => {
     const ref = sampleAsset()
@@ -809,6 +849,7 @@ describe('SupabaseSlaidsRepository – pinnet til én eier', () => {
     await repository.listAssets(presentation.id)
     await repository.listFolders()
     await repository.listTemplates()
+    await repository.loadAutocorrectRules()
 
     // Every one of them, not most of them: a single unfiltered read against a
     // key that bypasses RLS is a read of somebody else's rows.

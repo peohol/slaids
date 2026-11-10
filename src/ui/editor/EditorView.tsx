@@ -141,6 +141,7 @@ import { SandboxWindow } from './SandboxWindow'
 import { SplitModal, type SplitModalResult } from './SplitModal'
 import { splitCheck, type SplitCheck } from './splitDraft'
 import { ShortcutsModal } from './ShortcutsModal'
+import { AutocorrectModal } from './AutocorrectModal'
 import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
 import { TextToolbar } from './TextToolbar'
@@ -286,6 +287,7 @@ export function EditorView({
   const [derivedView, setDerivedView] = useState<{ id: string; from: string } | null>(null)
   const [removingTitle, setRemovingTitle] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [autocorrectOpen, setAutocorrectOpen] = useState(false)
   /** Settled web font loads, keyed by the theme they belong to. */
   const [fontLoad, setFontLoad] = useState<{ fonts: string; failed: number } | null>(null)
   /** Titles removed in this session, so toggling the zone back on restores the text. */
@@ -1951,6 +1953,7 @@ export function EditorView({
       ideasOpen,
       sandboxOpen,
       onShowShortcuts: () => setShortcutsOpen(true),
+      onEditAutocorrect: () => setAutocorrectOpen(true),
       onPresent: () => setPresenting(true),
       onOpenTheme: () => setThemeOpen(true),
       onOpenImageBrief: () => setImageStep('brief'),
@@ -2164,7 +2167,15 @@ export function EditorView({
         />
       )}
       {imageStep === 'deposit' && <ImageDepositModal onClose={() => setImageStep(null)} />}
-      <ShortcutsModal open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <ShortcutsModal
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+        onEditAutocorrect={() => {
+          setShortcutsOpen(false)
+          setAutocorrectOpen(true)
+        }}
+      />
+      <AutocorrectModal open={autocorrectOpen} onOpenChange={setAutocorrectOpen} />
       {imageOpen && (
         <ImageUploadModal
           onOpenChange={(open) => setImageOpen(open ? imageOpen : false)}

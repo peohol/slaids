@@ -33,6 +33,7 @@ import type {
   SlaidsRepository,
   StoredAsset,
 } from './repository'
+import type { AutocorrectRule } from '../domain/autocorrect'
 import type { SharedPresentationSnapshot } from '../domain/sharing'
 import type {
   AssetRef,
@@ -198,6 +199,10 @@ export const repository: SlaidsRepository = {
   saveTemplate: (template: LayoutTemplate): Promise<void> =>
     on((repo) => repo.saveTemplate(template)),
   deleteTemplate: (id: string): Promise<void> => on((repo) => repo.deleteTemplate(id)),
+
+  loadAutocorrectRules: (): Promise<AutocorrectRule[]> => on((repo) => repo.loadAutocorrectRules()),
+  saveAutocorrectRules: (rules: readonly AutocorrectRule[]): Promise<void> =>
+    on((repo) => repo.saveAutocorrectRules(rules)),
 
   putAsset: (presentationId: string, ref: AssetRef, blob: Blob): Promise<void> =>
     on((repo) => repo.putAsset(presentationId, ref, blob)),

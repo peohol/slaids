@@ -2432,6 +2432,38 @@
   color: var(--chrome-text-dim);
 }
 
+/* Autoerstatt: one rule per row, typed → written. */
+.autocorrect-rules {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.autocorrect-rule {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.autocorrect-rule .input {
+  font-variant-ligatures: none;
+}
+
+.autocorrect-rule__arrow {
+  color: var(--chrome-text-dim);
+}
+
+.autocorrect-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
 .shortcuts kbd {
   display: inline-block;
   padding: 2px 7px;

@@ -22,6 +22,7 @@ import { classifyAuthError, describeAuthError, type AuthFailure } from '../supab
 import { describeIncompleteConfig, readSupabaseConfigState } from '../supabase/config'
 import { resetRepositoryCaches } from '../persistence/activeRepository'
 import { readUserAccess, type SlaidsRole } from '../persistence/slaidsUsers'
+import { resetAutocorrect } from './autocorrect'
 import { clearAssetCache } from './assets'
 import { lastOpenPresentationKey, writePref } from './prefs'
 import { useEditorStore } from './store'
@@ -89,6 +90,7 @@ export function normalizeEmail(email: string): string {
 function clearUserScopedState(userId: string): void {
   resetRepositoryCaches()
   clearAssetCache()
+  resetAutocorrect()
   const editor = useEditorStore.getState()
   editor.setPresentation(null)
   editor.setLoadError(null)
