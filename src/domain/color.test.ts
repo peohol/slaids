@@ -9,19 +9,59 @@ import {
   hslLightness,
   hslToHex,
   MIN_TEXT_CONTRAST,
+  PALETTE_COLUMNS,
   PALETTE_HUES,
+  PALETTE_HUES_PER_ROW,
   PALETTE_LIGHTNESS,
+  PALETTE_SATURATION,
+  TEXT_LIGHTNESS_THRESHOLD,
   isDarkColor,
+  isPaletteColor,
+  paletteShade,
   normalizeHex,
   relativeLuminance,
   withAlpha,
 } from './color'
 
 describe('palette', () => {
-  it('has four hue rows of twelve plus a black/white row', () => {
-    expect(PALETTE).toHaveLength(5)
-    for (const row of PALETTE.slice(0, 4)) expect(row).toHaveLength(12)
-    expect(PALETTE[4]).toEqual([BLACK, WHITE])
+  const hueRows = PALETTE.slice(0, -1)
+
+  it('groups the hues by row, each running from darkest to lightest, then black and white', () => {
+    expect(hueRows).toHaveLength(Math.ceil(PALETTE_HUES.length / PALETTE_HUES_PER_ROW))
+    const runs = hueRows.flatMap((row) => {
+      expect(row).toHaveLength(PALETTE_HUES_PER_ROW * PALETTE_LIGHTNESS.length)
+      return Array.from({ length: PALETTE_HUES_PER_ROW }, (_, index) =>
+        row.slice(index * PALETTE_LIGHTNESS.length, (index + 1) * PALETTE_LIGHTNESS.length),
+      )
+    })
+    expect(runs).toEqual(
+      PALETTE_HUES.map((hue) => PALETTE_LIGHTNESS.map((l) => hslToHex(hue, PALETTE_SATURATION, l))),
+    )
+    for (const run of runs) {
+      const lightness = run.map(hslLightness)
+      expect(lightness).toEqual([...lightness].sort((a, b) => a - b))
+    }
+    expect(PALETTE.at(-1)).toEqual([BLACK, WHITE])
+  })
+
+  it('is as wide as its widest row', () => {
+    expect(PALETTE_COLUMNS).toBe(PALETTE_HUES_PER_ROW * PALETTE_LIGHTNESS.length)
+  })
+
+  it('has every hue once at each lightness step', () => {
+    for (const l of PALETTE_LIGHTNESS) {
+      const shade = paletteShade(l)
+      expect(shade).toHaveLength(PALETTE_HUES.length)
+      for (const color of shade) expect(PALETTE.flat()).toContain(color)
+    }
+    expect(new Set(PALETTE.flat()).size).toBe(PALETTE.flat().length)
+  })
+
+  it('knows its own colours in any hex spelling, and nothing else', () => {
+    for (const color of PALETTE.flat()) expect(isPaletteColor(color.toUpperCase())).toBe(true)
+    expect(isPaletteColor('#fff')).toBe(true)
+    expect(isPaletteColor('#123456')).toBe(false)
+    expect(isPaletteColor('papayawhip')).toBe(false)
   })
 
   it('is deterministic', () => {
@@ -63,11 +103,12 @@ describe('contrast', () => {
     for (const l of PALETTE_LIGHTNESS) expect(hslLightness(hslToHex(90, 25, l))).toBeCloseTo(l, 0)
   })
 
-  it('gives every swatch in a palette row the same text colour, chosen by lightness', () => {
-    expect(PALETTE[0].map(bestTextColor)).toEqual(PALETTE[0].map(() => WHITE))
-    expect(PALETTE[1].map(bestTextColor)).toEqual(PALETTE[1].map(() => WHITE))
-    expect(PALETTE[2].map(bestTextColor)).toEqual(PALETTE[2].map(() => BLACK))
-    expect(PALETTE[3].map(bestTextColor)).toEqual(PALETTE[3].map(() => BLACK))
+  it('gives every swatch of one lightness the same text colour, chosen by lightness', () => {
+    for (const l of PALETTE_LIGHTNESS) {
+      const shade = paletteShade(l)
+      const expected = l < TEXT_LIGHTNESS_THRESHOLD ? WHITE : BLACK
+      expect(shade.map(bestTextColor)).toEqual(shade.map(() => expected))
+    }
   })
 
   it('picks white on dark and black on light backgrounds', () => {

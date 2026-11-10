@@ -11,7 +11,9 @@ import {
   zoneRects,
   openSlideMenu,
   addPage,
+  pickSystemColor,
 } from './helpers'
+import { PALETTE, PALETTE_COLUMNS } from '../src/domain/color'
 
 /**
  * Sections, and the front page that is the first of them.
@@ -193,6 +195,63 @@ test.describe('seksjonsfarger', () => {
     await page.getByTestId('palette-inherited').click()
     await page.keyboard.press('Escape')
     await expect(headingPillColor(page)).resolves.toBe('rgb(77, 128, 102)')
+
+    expect(guard.errors).toEqual([])
+  })
+
+  test('ordner fargene etter fargetone, og tar imot en hvilken som helst farge fra systemets fargevelger', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Egen farge')
+    await selectPage(page, 0)
+    await expect(sectionStage(page)).toBeVisible()
+
+    const palette = page
+      .getByTestId('inspector')
+      .locator('section')
+      .filter({ hasText: 'Bakgrunnsfarge' })
+      .getByTestId('palette')
+
+    // Radene i rutenettet er palettens egne rader, i samme rekkefølge, hver på
+    // én linje i inspektørens bredde – ingen rad brytes og skiller en
+    // fargetone fra nyansene sine. Kolonnene er felles, så svart, hvit og
+    // knappen for egen farge står under de første fargene.
+    const rows = await palette.locator('.palette__row').evaluateAll((elements) =>
+      elements.map((row) =>
+        [...row.querySelectorAll<HTMLElement>('button')].map((button) => {
+          const box = button.getBoundingClientRect()
+          return { color: button.dataset.color ?? 'custom', x: Math.round(box.x), y: Math.round(box.y) }
+        }),
+      ),
+    )
+    expect(rows.map((row) => row.map((swatch) => swatch.color))).toEqual(
+      PALETTE.map((row, index) => (index === PALETTE.length - 1 ? [...row, 'custom'] : [...row])),
+    )
+    for (const row of rows) expect(new Set(row.map((swatch) => swatch.y)).size).toBe(1)
+    const columns = rows[0].map((swatch) => swatch.x)
+    expect(columns).toHaveLength(PALETTE_COLUMNS)
+    expect(rows.at(-1)?.map((swatch) => swatch.x)).toEqual(columns.slice(0, rows.at(-1)?.length))
+
+    // En farge utenfor paletten, fra systemets fargevelger. Mens en
+    // palettfarge er valgt, er det den som er markert.
+    await sectionColor(page, 'Bakgrunnsfarge', PALETTE[1][0])
+    const custom = palette.getByTestId('palette-custom')
+    await expect(custom).toHaveAttribute('aria-pressed', 'false')
+    await pickSystemColor(page, custom, '#123456')
+    await expect.poll(() => stageBackground(page)).toBe('rgb(18, 52, 86)')
+    await expect(custom).toHaveAttribute('aria-pressed', 'true')
+    await expect(palette.locator('[aria-pressed="true"]')).toHaveCount(1)
+
+    // Den er lagret som enhver annen farge.
+    await waitForSaved(page)
+    await page.reload()
+    await expect(page.getByTestId('editor')).toBeVisible()
+    await selectPage(page, 0)
+    await expect.poll(() => stageBackground(page)).toBe('rgb(18, 52, 86)')
+    await expect(palette.getByTestId('palette-custom')).toHaveAttribute('aria-pressed', 'true')
+
+    // En palettfarge tar over igjen.
+    await sectionColor(page, 'Bakgrunnsfarge', PALETTE[0][0])
+    await expect(palette.getByTestId('palette-custom')).toHaveAttribute('aria-pressed', 'false')
 
     expect(guard.errors).toEqual([])
   })

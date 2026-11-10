@@ -654,3 +654,34 @@ export async function chooseFolderAction(page: Page, folderName: string, entryTe
   await menu.getByTestId(entryTestId).click()
   await expect(menu).toBeHidden()
 }
+
+/**
+ * Choose `hex` in the system colour picker opened by pressing `trigger`.
+ *
+ * A headless browser draws no native picker, so this checks that the press
+ * asked for one, over the swatch that was pressed, and then answers as the
+ * picker would: a value and a `change` on the field it opened from.
+ */
+export async function pickSystemColor(page: Page, trigger: Locator, hex: string): Promise<void> {
+  await page.evaluate(() => {
+    const opened = window as unknown as { pickerOpened: number }
+    opened.pickerOpened = 0
+    HTMLInputElement.prototype.showPicker = function () {
+      opened.pickerOpened += 1
+    }
+  })
+  await trigger.scrollIntoViewIfNeeded()
+  const swatch = await trigger.boundingBox()
+  if (!swatch) throw new Error('the custom colour swatch has no box')
+  await trigger.click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { pickerOpened: number }).pickerOpened)).toBe(1)
+  const field = page.locator('input.system-color-field')
+  const anchor = await field.boundingBox()
+  if (!anchor) throw new Error('the colour field has no box')
+  expect(Math.abs(anchor.x - swatch.x)).toBeLessThan(1)
+  expect(Math.abs(anchor.y - swatch.y)).toBeLessThan(1)
+  await field.evaluate((input: HTMLInputElement, value) => {
+    input.value = value
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  }, hex)
+}

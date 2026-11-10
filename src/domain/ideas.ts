@@ -19,7 +19,7 @@
  * started.
  */
 
-import { PALETTE, normalizeHex } from './color'
+import { PALETTE_LIGHTNESS, normalizeHex, paletteShade } from './color'
 import { newIdeaCategoryId, newIdeaId } from './ids'
 
 /** Same limits as the sibling app, so a note stays a note. */
@@ -48,8 +48,8 @@ export interface IdeaCategory {
 export type IdeaRow = Idea | IdeaCategory
 
 /**
- * The colours a new category may get: one row of the shared palette, which is
- * muted enough to sit behind text without shouting.
+ * The colours a new category may get: every palette hue at the second-darkest
+ * step, which is muted enough to sit behind text without shouting.
  *
  * Reordered by a stride around the hue circle rather than taken in order. The
  * colours are handed out first-free, and in hue order the first three lists
@@ -57,8 +57,9 @@ export type IdeaRow = Idea | IdeaCategory
  * A stride of 5 over 12 hues visits every one of them exactly once and starts
  * red, green, magenta, so the categories you actually make look distinct.
  */
-export const CATEGORY_COLORS = PALETTE[1].map(
-  (_, index) => PALETTE[1][(index * 5) % PALETTE[1].length],
+const CATEGORY_SHADE = paletteShade(PALETTE_LIGHTNESS[1])
+export const CATEGORY_COLORS = CATEGORY_SHADE.map(
+  (_, index) => CATEGORY_SHADE[(index * 5) % CATEGORY_SHADE.length],
 )
 
 /**
