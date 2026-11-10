@@ -1,6 +1,9 @@
 /**
  * The editor's mark on a zone whose content is drawn smaller than normal.
  *
+ * Merket står rundt det som faktisk er forminsket: hele sonen, eller i et kort
+ * med tittel bare tittelen eller bare innholdet (`ZoneFitBox`).
+ *
  * A dashed orange line just inside the zone, and a small badge on its corner
  * where there is room for one. Deliberately unlike the selection — a solid
  * line in the chrome's accent — so «this is the one I picked» and «this one
@@ -36,14 +39,16 @@ export function ShrunkZoneMarker({
 }: {
   /** Screen pixels per slide unit, as the stage draws the slide. */
   stageScale: number
-  /** The zone's size in slide units, to tell whether a badge fits. */
+  /** Størrelsen på det merkede feltet i slide-enheter, for å se om merket får plass. */
   width: number
   height: number
 }) {
   const unit = 1 / (stageScale || 1)
   // «Where there is room»: a badge on a zone hardly bigger than the badge
-  // would cover the very content it is warning about.
-  const roomForBadge = Math.min(width, height) * stageScale >= BADGE_PX * 3
+  // would cover the very content it is warning about. Merket står på hjørnet,
+  // utenfor feltet, så et felt halvannen gang så høyt som merket – en
+  // korttittel – har plass til det.
+  const roomForBadge = Math.min(width, height) * stageScale >= BADGE_PX * 1.5
   return (
     <div
       className="zone-shrunk"
