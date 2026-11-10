@@ -18,11 +18,12 @@ import { isDocEmpty } from '../../domain/richdoc'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import { sameField } from './textTarget'
-import type { ImageCaption, RichDoc, ZoneContent } from '../../domain/types'
+import type { ImageCaption, Rect, RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
 import { CaptionBox } from '../slide/ImagePanelView'
 import { EditableImagePanel } from './EditableImagePanel'
 import { RichTextEditor } from './RichTextEditor'
+import { useSubfieldDrag } from './useSubfieldDrag'
 
 export function EditableZoneContent({
   content,
@@ -30,11 +31,17 @@ export function EditableZoneContent({
   slideId,
   editable = true,
   caret = null,
+  rect = null,
   onPickImage,
 }: {
   content: ZoneContent
   nodeId: string
   slideId: string
+  /**
+   * Sonens rektangel på sliden. Der måles den myke grensen når en delestrek
+   * dras (`useSubfieldDrag`); uten den kan streken dras, men uten magnet.
+   */
+  rect?: Rect | null
   /**
    * Whether the fields may be typed into where they are drawn.
    *
@@ -56,6 +63,9 @@ export function EditableZoneContent({
   onPickImage: (nodeId: string) => void
 }) {
   const run = useEditorStore((state) => state.run)
+  // Delestrekene kan dras der feltene kan skrives i; på et kompakt arbeidsområde
+  // åpnes et felt på en lesbar flate i stedet, og streken er tre piksler tynn.
+  const subfields = useSubfieldDrag({ content, nodeId, slideId, rect, enabled: editable })
 
   const renderCaption = (caption: ImageCaption) => (
     <CaptionBox caption={caption}>
@@ -72,7 +82,8 @@ export function EditableZoneContent({
   return (
     <div className="zone-host">
       <ZoneContentFrame
-        content={content}
+        content={subfields.content}
+        renderDivider={subfields.renderDivider}
         renderTitle={(card) => (
           <FieldEditor
             doc={card.title}

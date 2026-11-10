@@ -30,6 +30,9 @@
  *    en person som bytter utseende velger et uttrykk, så det som ikke lenger
  *    får plass i normal størrelse tegnes mindre i stedet for at byttet
  *    avvises. Agentens `set_theme` måler fortsatt dekket og avviser.
+ *  - Delingen inni et kort eller en beholder (`setBodyWeightsByHand`): en
+ *    delestrek en person drar, er det samme som en sonegrense en person drar,
+ *    bare ett nivå lenger inn.
  *  - **Never reachable from an agent.** It is not re-exported from the command
  *    index, and `manualLayout.boundary.test.ts` fails if anything outside the
  *    editor UI imports it. There is no API parameter that does what this does,
@@ -40,6 +43,7 @@ import type { GeometryOptions } from '../geometry'
 import type { Result } from '../result'
 import type { LayoutNode, NodeId, Presentation, PresentationTheme } from '../types'
 import { rearrangeZones } from './arrangement'
+import { setBodyWeights } from './content'
 import { setSplitWeights } from './layout'
 import { setTheme } from './slides'
 import type { StructuralOutcome } from './types'
@@ -84,6 +88,24 @@ export function rearrangeZonesByHand(
     nodeId: input.nodeId,
     layout: input.layout,
     ...geometryOnly(input),
+  })
+}
+
+/**
+ * `setBodyWeights` for forholdstallene en person drar en delestrek til, eller
+ * skriver inn, inni et kort eller en beholder. Avvises for alt kommandoen
+ * avviser, bortsett fra tekst som ikke lenger får plass i normal størrelse –
+ * den tegnes mindre (`ui/slide/ZoneFitBox.tsx`), slik den gjør når en sone
+ * dras for liten.
+ */
+export function setBodyWeightsByHand(
+  presentation: Presentation,
+  input: { slideId: string; nodeId: NodeId; weights: number[] },
+): Result<Presentation> {
+  return setBodyWeights(presentation, {
+    slideId: input.slideId,
+    nodeId: input.nodeId,
+    weights: input.weights,
   })
 }
 

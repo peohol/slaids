@@ -178,6 +178,8 @@
 
 .subfield-divider {
   flex: 0 0 auto;
+  /* Editorens dra-håndtak legges inni streken; dette flytter ingenting. */
+  position: relative;
 }
 
 /* ----------------------------------------------------------------- *

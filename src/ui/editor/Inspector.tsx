@@ -11,11 +11,11 @@
 
 import {
   setBodyAxis,
-  setBodyWeights,
   setCardColor,
   setImageCaption,
   setSubfieldCount,
 } from '../../domain/commands'
+import { setBodyWeightsByHand } from '../../domain/commands/manualLayout'
 import {
   bodyOf,
   CAPTION_POSITION_LABELS,
@@ -343,12 +343,14 @@ export function Inspector({
                           if (!Number.isFinite(parsed) || parsed <= 0) return
                           const weights = [...body.weights]
                           weights[index] = parsed
+                          // Et tall en person skriver inn er et valg for hånd, som
+                          // et drag av delestreken: tekst som ikke lenger får
+                          // plass i normal størrelse tegnes mindre.
                           run('subfield-weights', (current) =>
-                            setBodyWeights(current, {
+                            setBodyWeightsByHand(current, {
                               slideId: slide.id,
                               nodeId: selectedNodeId,
                               weights,
-                              ...domFitCheckers,
                             }),
                           )
                         }}

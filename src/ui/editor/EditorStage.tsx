@@ -833,6 +833,7 @@ export function EditorStage({
                         slideId={slide.id}
                         editable={canTypeIn(textEditing, leaf.id)}
                         caret={caret}
+                        rect={rect}
                         onPickImage={onPickImage}
                       />
                     )}

@@ -48,6 +48,21 @@ function oneTextLine(tokens: ThemeMetrics): number {
 }
 
 /**
+ * Det korteste et delfelt kan dras til av en person, langs delingens retning:
+ * én linje brødtekst – samme linje en tom tekstsone minst må romme.
+ *
+ * Et delfelt har ikke noe eget minstemål i domenet; det deler kortets
+ * innholdsflate etter forholdstall, og fit-regelen passer på teksten. Men en
+ * hånd som drar en delestrek trenger et gulv, slik en sone har sitt
+ * (`minimumSizeFor`), ellers kan feltet krympe til ingenting og hele sonens
+ * tekst tegnes mikroskopisk. Én linje i begge retninger er det minste et felt
+ * kan være og fortsatt vise at det er et tekstfelt.
+ */
+export function minimumSubfieldLength(tokens: ThemeMetrics = themeMetrics()): number {
+  return oneTextLine(tokens)
+}
+
+/**
  * The smallest rect a kind of content can be drawn in.
  *
  * Written as a `switch` without a default on purpose: a content kind added to
