@@ -135,6 +135,43 @@ async function titleAir(page: Page, nodeId: string): Promise<{ left: number; rig
   })
 }
 
+/**
+ * De forminskede feltenes merker, og kortets header og innhold, i skjermpiksler
+ * – så et merke kan sammenlignes med feltet det står rundt.
+ */
+async function marks(page: Page, nodeId: string) {
+  return zone(page, nodeId).evaluate((element) => {
+    const box = (node: Element) => {
+      const r = node.getBoundingClientRect()
+      return { left: r.left, top: r.top, width: r.width, height: r.height }
+    }
+    return {
+      marks: [...element.querySelectorAll('.zone-fit__mark')].map(box),
+      header: box(element.querySelector('.card-header') as HTMLElement),
+      body: box(element.querySelector('.card-body') as HTMLElement),
+    }
+  })
+}
+
+type Box = { left: number; top: number; width: number; height: number }
+
+function sameBox(a: Box, b: Box): boolean {
+  return (['left', 'top', 'width', 'height'] as const).every((key) => Math.abs(a[key] - b[key]) <= 1)
+}
+
+async function headerHeight(page: Page, nodeId: string): Promise<number> {
+  return zone(page, nodeId)
+    .locator('.card-header')
+    .evaluate((element) => (element as HTMLElement).offsetHeight)
+}
+
+async function titleFontSize(page: Page, nodeId: string): Promise<string> {
+  return zone(page, nodeId)
+    .locator('.card-header p')
+    .first()
+    .evaluate((element) => getComputedStyle(element).fontSize)
+}
+
 async function fitScale(page: Page, nodeId: string): Promise<number> {
   const value = await zone(page, nodeId).locator('.zone-fit').first().getAttribute('data-fit-scale')
   return value === null ? 1 : Number(value)
@@ -232,6 +269,12 @@ test.describe('kort med tittel og skygger', () => {
 
       await enterZoneMode(page)
       await expect(zone(page, card).getByTestId('zone-shrunk-marker')).toHaveCount(1)
+      // Bare tittelen er merket, ikke hele kortet, med strek og merke.
+      const marked = await marks(page, card)
+      expect(marked.marks).toHaveLength(1)
+      // Den siste løkken endte på svevende tittel, der hele headeren synes.
+      expect(sameBox(marked.marks[0], marked.header)).toBe(true)
+      await expect(zone(page, card).locator('.zone-shrunk__badge')).toHaveCount(1)
       const drawn = await titleFit(page, card)
 
       await page.getByTestId('present').click()
@@ -275,6 +318,58 @@ test.describe('kort med tittel og skygger', () => {
     await expect(zone(page, card).locator('[data-titled-style="tab"]')).toHaveCount(1)
     expect(errors).toEqual([])
   })
+
+  test(
+    'forminsker bare innholdet når det er for mye tekst, og merker bare det, likt i presentasjon',
+    { tag: '@pr' },
+    async ({ page }) => {
+      const { errors } = watchForErrors(page)
+      const card = await titledCardDeck(page, 'Fullt innhold', 'Tittel')
+      const titleBefore = await titleFontSize(page, card)
+      const field = zone(page, card).locator('.tiptap').last()
+      await caretInto(field)
+      await page.keyboard.press('End')
+      await page.keyboard.insertText(' Mye tekst som ikke får plass.'.repeat(40))
+
+      for (const look of ['joined', 'tab', 'floating'] as const) {
+        await chooseLook(page, look)
+        await expect.poll(() => fitScale(page, card), look).toBeLessThan(1)
+
+        // Tittelen er urørt: samme skrift, ingen egen forminsking, og headeren
+        // tegnes i sin egen størrelse, ikke skalert sammen med innholdet.
+        expect(await titleFit(page, card), look).toBe(1)
+        expect(await titleFontSize(page, card), look).toBe(titleBefore)
+        const drawnHeader = await zone(page, card)
+          .locator('.card-header')
+          .evaluate((header) => header.getBoundingClientRect().height)
+        const slideScale = await stage(page).evaluate((slide) => slide.getBoundingClientRect().width / 1600)
+        expect(drawnHeader / slideScale, look).toBeCloseTo(await headerHeight(page, card), 0)
+
+        // Bare innholdet er merket.
+        await enterZoneMode(page)
+        const marked = await marks(page, card)
+        expect(marked.marks, look).toHaveLength(1)
+        expect(sameBox(marked.marks[0], marked.body), look).toBe(true)
+        const drawn = await fitScale(page, card)
+
+        // Likt i presentasjon, uten merke.
+        await page.getByTestId('present').click()
+        const presented = page.locator(
+          `[data-testid="present-view"] .slide-zone[data-node-id="${card}"] .zone-fit`,
+        )
+        await expect(presented).toBeVisible()
+        await expect
+          .poll(async () => Number((await presented.getAttribute('data-fit-scale')) ?? 1), look)
+          .toBeCloseTo(drawn, 2)
+        await expect(presented).not.toHaveAttribute('data-title-fit')
+        await expect(page.locator('[data-testid="present-view"] [data-testid="zone-shrunk-marker"]')).toHaveCount(0)
+        await page.keyboard.press('Escape')
+        await expect(page.getByTestId('present-view')).toBeHidden()
+        await enterContentMode(page)
+      }
+      expect(errors).toEqual([])
+    },
+  )
 
   test('holder luften under en svevende tittel lik når innholdet forminskes', async ({ page }) => {
     const card = await titledCardDeck(page, 'Fullt kort', 'Tittel')

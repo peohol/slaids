@@ -12,9 +12,11 @@ export type ContentDisposition = 'sandbox' | 'delete'
  *
  * Omitting them turns fit validation off for that call, which is deliberate:
  * loading, migrating and repairing a document must never be blocked by a rule
- * about how much text fits. Callers that *edit* a presentation pass both — the
- * UI and any future REST/MCP caller through one shared bundle, so neither can
- * accidentally validate zones but not slide titles.
+ * about how much text fits, and a person editing in the app is never refused
+ * for lack of room either — what does not fit is drawn smaller
+ * (`HUMAN_EDIT` in `manualLayout.ts`). An agent's calls always pass both
+ * (`structuralOptions` in `agent/presentation.ts`), so an agent can never
+ * validate zones but not slide titles, or skip the rule.
  */
 export interface StructuralOptions {
   geometry?: GeometryOptions

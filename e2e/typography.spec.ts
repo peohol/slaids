@@ -22,9 +22,9 @@ const SVG =
  * it holds.
  *
  * One phrase carrying all three, so a field is either right about every rule
- * or visibly wrong about one of them. It stays short: a title is one line that
- * refuses to overflow, and a phrase that did not fit would be rolled back and
- * fail for a reason that has nothing to do with typography.
+ * or visibly wrong about one of them. It stays short: a title is one line, and
+ * a phrase that did not fit would be set smaller — a change that has nothing
+ * to do with what is under test.
  */
 const TYPED = 'A - b -> c * d'
 const WRITTEN = 'A – b → c · d'

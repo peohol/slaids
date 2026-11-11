@@ -1,12 +1,11 @@
 /**
- * The hand-made geometry commands stay in the editor's hands.
+ * Det en person gjør, blir i appens grensesnitt.
  *
- * `manualLayout.ts` is the one way a zone can be stored smaller than its
- * content needs at normal size, and the rule is that only a person's own drag
- * or size button can take it: an agent asked to do the same is refused. That
- * rule is only as good as the module graph, and an import that crossed it
- * would compile, pass every other test and quietly hand an agent operation the
- * way around the fit guard. So it is checked here, mechanically.
+ * `manualLayout.ts` er veien rundt fit-sjekken: en person får lov til å gjøre
+ * innholdet for stort for plassen (det tegnes mindre), en agent blir avvist.
+ * Regelen er ikke bedre enn modulgrafen, og en import som krysset den, ville
+ * kompilert, bestått alle andre tester og stille gitt en agentoperasjon veien
+ * rundt fit-sjekken. Derfor kontrolleres den her, mekanisk.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -16,8 +15,8 @@ import * as commands from './index'
 import * as manual from './manualLayout'
 
 const ROOT = join(process.cwd(), 'src')
-/** The only part of the app that may resize a zone by hand: the editor's UI. */
-const ALLOWED = [join(ROOT, 'ui', 'editor')]
+/** Den eneste delen av appen der en person handler selv: grensesnittet. */
+const ALLOWED = [join(ROOT, 'ui')]
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -32,8 +31,8 @@ function importsManualLayout(file: string): boolean {
   return [...source.matchAll(/\bfrom\s+'([^']+)'/g)].some((match) => /(^|\/)manualLayout$/.test(match[1]))
 }
 
-describe('menneskelig soneredigering', () => {
-  it('importeres bare av editorens grensesnitt', () => {
+describe('menneskelige endringer', () => {
+  it('importeres bare av appens grensesnitt', () => {
     const offenders = sourceFiles(ROOT)
       .filter((file) => !/\.test\.tsx?$/.test(file))
       .filter(importsManualLayout)

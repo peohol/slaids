@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { LibraryView } from './ui/library/LibraryView'
+import { LibraryView, type OpenOptions } from './ui/library/LibraryView'
 import { EditorView } from './ui/editor/EditorView'
 import { AuthGate } from './ui/auth/AuthGate'
 import { Toaster } from './ui/components/Toaster'
@@ -19,10 +19,17 @@ function Workspace({ userId }: { userId: string | null }) {
   const [openId, setOpenId] = useState<string | null>(() =>
     readPref<string | null>(lastOpenKey, null),
   )
+  /**
+   * Om temaeditoren skal åpnes straks dekket er lastet. Bare et nettopp
+   * opprettet dekk ber om det, og bare for denne åpningen: valget lagres ikke,
+   * så en omlasting åpner dekket slik det ellers åpnes.
+   */
+  const [themeOnOpen, setThemeOnOpen] = useState(false)
 
   const open = useCallback(
-    (id: string) => {
+    (id: string, options: OpenOptions = {}) => {
       writePref(lastOpenKey, id)
+      setThemeOnOpen(options.openTheme ?? false)
       setOpenId(id)
     },
     [lastOpenKey],
@@ -30,10 +37,15 @@ function Workspace({ userId }: { userId: string | null }) {
 
   const close = useCallback(() => {
     writePref<string | null>(lastOpenKey, null)
+    setThemeOnOpen(false)
     setOpenId(null)
   }, [lastOpenKey])
 
-  return openId ? <EditorView presentationId={openId} onClose={close} /> : <LibraryView onOpen={open} />
+  return openId ? (
+    <EditorView presentationId={openId} onClose={close} openThemeOnLoad={themeOnOpen} />
+  ) : (
+    <LibraryView onOpen={open} />
+  )
 }
 
 /**

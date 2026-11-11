@@ -13,7 +13,7 @@ import { findLeaf } from '../../domain/layout'
 import { ok } from '../../domain/result'
 import type { NodeId } from '../../domain/types'
 import { readStructuralClipboard, writeStructuralClipboard } from '../../state/clipboard'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { materializeClipboardContent } from '../../state/pasteAssets'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
@@ -82,7 +82,7 @@ export async function pasteClipboardIntoZone(nodeId: NodeId): Promise<void> {
   // undone separately, the document would reference assets the
   // presentation no longer lists, and export would quietly drop them.
   useEditorStore.getState().runStructural('paste-content', (presentation) => {
-    const placed = setZoneContent(presentation, { slideId, nodeId, content, ...domFitCheckers })
+    const placed = setZoneContent(presentation, { slideId, nodeId, content, ...HUMAN_EDIT })
     if (!placed.ok) return placed
     let next = placed.value.presentation
     for (const ref of refs) {

@@ -57,11 +57,14 @@ const TASKS: Task[] = [
   {
     name: 'Ny presentasjon',
     baseline: '2',
-    budget: 2,
+    budget: 3,
+    accepted:
+      'Temaeditoren åpnes over det nye dekket, og «Ferdig» lukker den. Fonter og farger ble før valgt i selve opprettelsesdialogen (§ 15.1).',
     run: async (page) => {
       await page.getByTestId('new-presentation').click()
       await page.getByTestId('presentation-title-input').fill('Oppgavematrise')
       await page.getByTestId('create-presentation').click()
+      await page.getByTestId('theme-done').click()
       await expect(page.getByTestId('stage-slide')).toBeVisible()
     },
   },

@@ -632,7 +632,7 @@ export function SplitModal({
                   ))}
                 </div>
                 <span className="hint">
-                  Får innholdet ikke plass der, flyttes det til sandkassen i stedet.
+                  Får innholdet ikke plass der i normal størrelse, tegnes det mindre.
                 </span>
               </div>
             )}
