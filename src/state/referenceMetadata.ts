@@ -3,7 +3,21 @@ import type { Reference } from '../domain/types'
 
 type ReferenceMetadata = Omit<Reference, 'id'>
 
-type ReferenceIdentifier = { kind: 'doi' | 'pmid'; value: string }
+export type ReferenceIdentifier = { kind: 'doi' | 'pmid'; value: string }
+
+/** Vertsnavn der stien er selve identifikatoren. */
+const IDENTIFIER_HOSTS: Readonly<Record<string, ReferenceIdentifier['kind']>> = {
+  'doi.org': 'doi',
+  'dx.doi.org': 'doi',
+  'www.doi.org': 'doi',
+  'pubmed.ncbi.nlm.nih.gov': 'pmid',
+}
+
+/** Den eldre PubMed-adressen, `www.ncbi.nlm.nih.gov/pubmed/<PMID>`. */
+const LEGACY_PUBMED_HOSTS = new Set(['www.ncbi.nlm.nih.gov', 'ncbi.nlm.nih.gov'])
+
+/** En lenke som skrives uten `https://`, men likevel er entydig. */
+const SCHEMELESS_LINK = /^(?:(?:www\.|dx\.)?doi\.org|pubmed\.ncbi\.nlm\.nih\.gov|(?:www\.)?ncbi\.nlm\.nih\.gov\/pubmed)\//i
 
 export function parseReferenceIdentifier(input: string): ReferenceIdentifier | null {
   let value = input.trim()
@@ -13,15 +27,10 @@ export function parseReferenceIdentifier(input: string): ReferenceIdentifier | n
     try {
       const url = new URL(value)
       const path = decodeURIComponent(url.pathname.slice(1))
-      if (url.hostname === 'doi.org' || url.hostname === 'dx.doi.org') {
-        expectedKind = 'doi'
-        value = path
-      } else if (url.hostname === 'pubmed.ncbi.nlm.nih.gov') {
-        expectedKind = 'pmid'
-        value = path.replace(/\/$/, '')
-      } else {
-        return null
-      }
+      const legacyPubmed = LEGACY_PUBMED_HOSTS.has(url.hostname) ? /^pubmed\/(\d+)\/?$/.exec(path) : null
+      expectedKind = legacyPubmed ? 'pmid' : IDENTIFIER_HOSTS[url.hostname]
+      if (!expectedKind) return null
+      value = legacyPubmed ? legacyPubmed[1] : expectedKind === 'pmid' ? path.replace(/\/$/, '') : path
     } catch {
       return null
     }
@@ -38,6 +47,76 @@ export function parseReferenceIdentifier(input: string): ReferenceIdentifier | n
 
   const pmid = value.replace(/^(?:pmid|pubmed(?:\s*id)?)\s*:\s*/i, '')
   return expectedKind !== 'doi' && /^[1-9]\d{0,8}$/.test(pmid) ? { kind: 'pmid', value: pmid } : null
+}
+
+/**
+ * En DOI- eller PubMed-*lenke*, ikke en løs identifikator.
+ *
+ * Brukes der lenken står i vanlig tekst: et tall eller en `10.`-streng midt i en
+ * setning er ikke en bestilling av en referanse, men en adresse til doi.org
+ * eller PubMed er det. Adressen kan skrives med eller uten `https://`.
+ */
+export function parseReferenceLink(input: string): ReferenceIdentifier | null {
+  const value = input.trim()
+  if (/^https?:\/\//i.test(value)) return parseReferenceIdentifier(value)
+  return SCHEMELESS_LINK.test(value) ? parseReferenceIdentifier(`https://${value}`) : null
+}
+
+/**
+ * Alle lenkene i en innlimt tekst, eller `null` hvis teksten er noe annet.
+ *
+ * Teksten må bestå av lenker og skilletegn alene. Et avsnitt som tilfeldigvis
+ * inneholder en lenke, limes inn som det er.
+ */
+export function parseReferenceLinks(input: string): ReferenceIdentifier[] | null {
+  // Skilletegn tas bare mellom lenkene: en eldre DOI kan selv inneholde `;`.
+  const tokens = input
+    .split(/\s+/)
+    .map((token) => token.replace(/^[,;]+|[,;]+$/g, ''))
+    .filter(Boolean)
+  if (tokens.length === 0) return null
+  const identifiers: ReferenceIdentifier[] = []
+  for (const token of tokens) {
+    const identifier = parseReferenceLink(token)
+    if (!identifier) return null
+    identifiers.push(identifier)
+  }
+  return identifiers
+}
+
+const TRAILING_PUNCTUATION = /[.,;:!?'"»”’\]}]$/
+
+/**
+ * Skiller en lenke i løpende tekst fra tegnsettingen etter den.
+ *
+ * «… se https://doi.org/10.1/abc). Neste» skal gi lenken uten `).`, men en DOI
+ * kan selv inneholde parenteser – `10.1016/S0140-6736(20)30183-5` – så en
+ * avsluttende `)` hører til lenken så lenge den lukker en parentes i den.
+ */
+export function splitTrailingPunctuation(token: string): { link: string; rest: string } {
+  let link = token
+  for (;;) {
+    const last = link.at(-1)
+    if (!last) break
+    const unbalanced = last === ')' && link.split(')').length > link.split('(').length
+    if (!unbalanced && !TRAILING_PUNCTUATION.test(last)) break
+    link = link.slice(0, -1)
+  }
+  return { link, rest: token.slice(link.length) }
+}
+
+/** Nøkkelen to referanser til samme verk deler. DOI-er skiller ikke store og små bokstaver. */
+export function identifierKey(identifier: ReferenceIdentifier): string {
+  return `${identifier.kind}:${identifier.value.toLowerCase()}`
+}
+
+/** Lenken en referanse lagres med. */
+export function identifierUrl(identifier: ReferenceIdentifier): string {
+  return identifier.kind === 'doi' ? doiUrl(identifier.value) : `https://pubmed.ncbi.nlm.nih.gov/${identifier.value}/`
+}
+
+function doiUrl(doi: string): string {
+  return `https://doi.org/${encodeURIComponent(doi).replace('%2F', '/')}`
 }
 
 const crossrefDate = z.object({ 'date-parts': z.array(z.array(z.number().nullable())) }).nullish()
@@ -73,6 +152,7 @@ const europePmcResponse = z.object({
     result: z.array(z.object({
       id: z.string(),
       source: z.string(),
+      doi: z.string().optional(),
       title: z.string().optional(),
       pubYear: z.string().optional(),
       authorString: z.string().optional(),
@@ -113,7 +193,7 @@ async function requestJson(url: string | URL, signal: AbortSignal): Promise<unkn
 async function lookupDoi(doi: string, signal: AbortSignal): Promise<ReferenceMetadata | null> {
   const encoded = encodeURIComponent(doi)
   const resolverPath = encoded.replace('%2F', '/')
-  const url = `https://doi.org/${resolverPath}`
+  const url = doiUrl(doi)
   const crossref = await requestJson(`https://api.crossref.org/works/${encoded}`, signal)
   if (crossref !== null) {
     const { message } = crossrefResponse.parse(crossref)
@@ -159,7 +239,9 @@ async function lookupPmid(pmid: string, signal: AbortSignal): Promise<ReferenceM
     title: plainText(article.title),
     authors: authorList(authors) || plainText(article.authorString),
     year: article.pubYear ?? '',
-    url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
+    // DOI-lenken er den varige adressen til selve artikkelen, så den brukes når
+    // PubMed kjenner den. Ellers lenkes det til PubMed-posten.
+    url: identifierUrl(article.doi?.trim() ? { kind: 'doi', value: article.doi.trim() } : { kind: 'pmid', value: pmid }),
   }
 }
 

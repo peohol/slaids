@@ -154,6 +154,8 @@ layoutet er nestet.
   referanseslides, som vises som skrivebeskyttede slides i filmstripen
 - oppslag fra DOI eller PubMed-ID i referansedialogen fyller inn tittel,
   forfattere, år og lenke i et redigerbart utkast
+- DOI- og PubMed-lenker som limes inn eller skrives i teksten, blir straks et
+  citation-nummer; referansen fylles ut i bakgrunnen mens man skriver videre
 - sandkasse for innhold som midlertidig er utenfor en sone, med fit-bevisst DnD
 - strukturell utklippstavle (Ctrl+C/X/V i sonemodus), normalisert ekstern paste
   og Ctrl+Shift+V for ren tekst

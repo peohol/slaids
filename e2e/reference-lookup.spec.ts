@@ -105,3 +105,63 @@ test('DOI som Crossref ikke kjenner slås opp i DataCite', async ({ page }) => {
   await expect(dialog.getByLabel('År')).toHaveValue('2020')
   await expect(dialog.getByLabel('Hyperkobling')).toHaveValue('https://doi.org/10.1234/datasett')
 })
+
+test('innlimt DOI-lenke i teksten blir et nummer med en gang og fylles ut i bakgrunnen', { tag: '@pr' }, async ({ page }) => {
+  let answer: (() => Promise<void>) | null = null
+  await page.route('https://api.crossref.org/works/**', (route) => {
+    answer = () =>
+      route.fulfill({
+        headers: cors,
+        json: { message: { title: ['Søvn og læring'], author: [{ given: 'Anna', family: 'Hansen' }], published: { 'date-parts': [[2021]] } } },
+      })
+  })
+  await createPresentation(page, 'Referanselenker')
+  const [zone] = await zoneRects(page)
+  await addContentToZone(page, zone.id, 'untitled-card')
+  const field = stage(page).locator('.subfield .tiptap').first()
+  await field.click()
+  await page.keyboard.type('Søvn bedrer læring ')
+  await field.evaluate((element, text) => {
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', text)
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+  }, 'https://doi.org/10.1234/sovn')
+
+  const citation = field.locator('[data-citation]')
+  await expect(citation).toHaveText('1')
+  await expect(citation).toHaveAttribute('data-importing', '')
+  await expect(field).not.toContainText('doi.org')
+
+  // Skrivingen fortsetter mens oppslaget pågår.
+  await page.keyboard.type(' og hukommelse')
+  await expect(field).toHaveText('Søvn bedrer læring1 og hukommelse')
+  await expect.poll(() => answer !== null).toBe(true)
+  await answer!()
+  await expect(citation).not.toHaveAttribute('data-importing')
+
+  await page.getByTestId('insert-reference').click()
+  const dialog = page.getByTestId('reference-modal')
+  await expect(dialog.getByTestId('reference-row')).toContainText('Søvn og læring')
+})
+
+test('skrevet PubMed-lenke blir et nummer når den avsluttes med mellomrom', async ({ page }) => {
+  await page.route('https://www.ebi.ac.uk/europepmc/webservices/rest/search?*', (route) =>
+    route.fulfill({
+      headers: cors,
+      json: { resultList: { result: [{ id: '12345678', source: 'MED', title: 'En artikkel', doi: '10.5555/artikkel' }] } },
+    }),
+  )
+  await createPresentation(page, 'Skrevne lenker')
+  const [zone] = await zoneRects(page)
+  await addContentToZone(page, zone.id, 'untitled-card')
+  const field = stage(page).locator('.subfield .tiptap').first()
+  await field.click()
+  await page.keyboard.type('Som vist pubmed.ncbi.nlm.nih.gov/12345678 i studien')
+  await expect(field).toHaveText('Som vist1 i studien')
+  await expect(field.locator('[data-citation]')).not.toHaveAttribute('data-importing')
+
+  await page.getByTestId('insert-reference').click()
+  const row = page.getByTestId('reference-modal').getByTestId('reference-row')
+  await expect(row).toContainText('En artikkel')
+  await expect(row).toContainText('doi.org/10.5555/artikkel')
+})

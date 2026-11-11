@@ -137,6 +137,17 @@ interface EditorStore {
    * is cleared, and the dialog that asked for it says so beforehand.
    */
   replaceDocument: (presentation: Presentation) => void
+  /**
+   * Fullfør noe i dokumentet uten at det blir et angresteg.
+   *
+   * For utfylling som skjer av seg selv etter at brukeren har handlet – som en
+   * referanse som hentes i bakgrunnen mens brukeren skriver videre. Endringen
+   * skrives også inn i hvert steg i angrehistorikken der den passer, så Ctrl+Z
+   * aldri viser den uferdige utgaven og aldri hopper over brukerens egen
+   * skriving for å angre noe brukeren ikke gjorde. `amend` returnerer samme
+   * objekt når endringen ikke passer på et steg.
+   */
+  amendEverywhere: (amend: (presentation: Presentation) => Presentation) => void
 
   /**
    * Step back or forwards through the history.
@@ -307,6 +318,31 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       pendingDepositBreak: null,
       saveStatus: 'dirty',
       ...reconcileSelection(presentation, state),
+    })
+  },
+
+  amendEverywhere: (amend) => {
+    settleSteps(set, get)
+    const state = get()
+    if (!state.presentation) return
+    const amendEntries = <T extends { presentation: Presentation }>(entries: T[]): T[] => {
+      let changed = false
+      const next = entries.map((entry) => {
+        const presentation = amend(entry.presentation)
+        if (presentation === entry.presentation) return entry
+        changed = true
+        return { ...entry, presentation }
+      })
+      return changed ? next : entries
+    }
+    const presentation = amend(state.presentation)
+    const [held] = state.pendingDepositBreak ? amendEntries([state.pendingDepositBreak]) : [null]
+    set({
+      presentation,
+      past: amendEntries(state.past),
+      future: amendEntries(state.future),
+      pendingDepositBreak: held,
+      ...(presentation === state.presentation ? {} : { saveStatus: 'dirty' as const }),
     })
   },
 

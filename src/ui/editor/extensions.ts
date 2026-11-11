@@ -20,6 +20,7 @@ import type { Editor, Extensions } from '@tiptap/react'
 import { CitationExtension } from './CitationExtension'
 import { SlaidsImageExtension } from './SlaidsImageExtension'
 import { PlainPasteExtension } from './PlainPasteExtension'
+import { ReferenceLinkExtension } from './ReferenceLinkExtension'
 import { TrailingLineExtension } from './TrailingLineExtension'
 import { TypographyExtension } from './TypographyExtension'
 
@@ -267,6 +268,7 @@ export function bodyExtensions(options: ExtensionOptions = {}): Extensions {
     // column it sits in, so where it sits is a decision to make.
     textAlignFor(['paragraph', ACCENT_NODE, IMAGE_NODE], 'body'),
     CitationExtension,
+    ReferenceLinkExtension,
     SlaidsImageExtension,
     PlainPasteExtension,
     // The line below a picture, in place of StarterKit's: editor-only, and
@@ -333,7 +335,7 @@ export function titleExtensions(placeholder?: string, variant: TitleVariant = 's
     // body does — there is no reading of «Del 1 - konklusjon» in which the
     // hyphen was meant.
     TypographyExtension,
-    ...(cover ? [] : [CitationExtension]),
+    ...(cover ? [] : [CitationExtension, ReferenceLinkExtension]),
   ]
 }
 
