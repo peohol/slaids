@@ -2,10 +2,10 @@
  * A zone's content, drawn smaller when it does not fit at normal size.
  *
  * Only a person can leave a zone with more content than it has room for at
- * normal size: by resizing it below its content's soft minimum
- * (`domain/commands/manualLayout.ts`), or by writing or pasting more into it
- * than fits — a zone's fields take all of it (`ui/editor/EditableZoneContent`).
- * Either way nothing may be hidden. So the content is laid out in a box `1/s` times the zone and drawn
+ * normal size — by resizing it, writing or pasting more into it, a new theme,
+ * placing content in it, and every other edit in the app, none of which is
+ * refused for lack of room (`domain/commands/manualLayout.ts`). Either way
+ * nothing may be hidden. So the content is laid out in a box `1/s` times the zone and drawn
  * scaled back down by `s`, with `s` the largest scale at which it fits
  * (`domain/softSize.ts`). Everything in the zone shrinks together — the type,
  * the space between paragraphs, list indents, pictures in the text, captions,
@@ -14,7 +14,7 @@
  *
  * Unntaket er et kort med tittel, som har to felt som forminskes hver for seg:
  * innholdet er sitt eget område (`fitTarget`), og tittelen settes mindre for
- * seg (`fitCardTitles`). Det ene feltet gjør aldri det andre mindre, og bare
+ * seg (`fitTitleLines`). Det ene feltet gjør aldri det andre mindre, og bare
  * feltet som er forminsket, merkes.
  *
  * Measuring and drawing cannot disagree, because they are the same thing: the
@@ -46,6 +46,7 @@ import { CARD_TITLE_PART } from '../../domain/fit'
 import { fitScale } from '../../domain/softSize'
 import { measureOverflowParts } from './overflowParts'
 import { useSlideRender } from './SlideRenderContext'
+import { fitTitleLines } from './titleFit'
 
 /** Below this a scale is a scale; above it, rounding. */
 const SCALED = 1 - 1e-4
@@ -89,7 +90,7 @@ export interface FitTarget {
  * Hva i sonen som tegnes mindre når innholdet ikke får plass.
  *
  * Et kort med tittel har to felt som forminskes hver for seg: tittelen
- * (`fitCardTitles`) og innholdet under den, som er merket `data-fit-region`.
+ * (`fitTitleLines`) og innholdet under den, som er merket `data-fit-region`.
  * Finnes et slikt område, er det området som forminskes, i plassen kortet gir
  * det; tittelen og kortets egne mål står urørt. Ellers er det hele sonen,
  * `element` selv, i `width × height`.
@@ -114,43 +115,8 @@ export function fitTarget(element: HTMLElement, width: number, height: number): 
   }
 }
 
-/**
- * Sett hver korttittel i `element` i mindre skrift til den får plass i
- * headeren, og si hvor liten den minste måtte bli (`1` når alle får plass).
- *
- * En tittel er én linje i en boks med fast høyde, så den er den ene delen av
- * en sone som kan få plass alene: skriften krymper og ingenting annet gjør det
- * – ikke innholdet under, ikke headerens høyde eller polstring. Plassen er
- * headerens innholdsboks uten polstring, så en forminsket tittel beholder lik
- * luft på begge sider og står midtstilt. Forminskningen er CSS-variabelen
- * `--slaids-title-fit`, som headerens skriftstørrelse ganges med.
- *
- * Selvstendig, som `drawZoneFit`, så forhåndsvisningens rasterisering kan gi
- * den til siden den tegner.
- */
-export function fitCardTitles(element: HTMLElement): number {
-  let smallest = 1
-  for (const header of element.querySelectorAll<HTMLElement>('.card-header')) {
-    header.style.removeProperty('--slaids-title-fit')
-    const line = header.querySelector<HTMLElement>('p')
-    if (!line) continue
-    const style = getComputedStyle(header)
-    const room = header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
-    let fit = 1
-    // Skrift skalerer ikke helt lineært med størrelsen, så første gjetning
-    // kontrolleres og strammes inn; den faller på plass etter et steg eller to.
-    for (let step = 0; step < 6 && room > 0; step += 1) {
-      // Linjens egen bredde der den legges ut i tekstens bredde, rullebredden
-      // der editorens flex-rad har klemt den inn til headeren.
-      const needed = Math.max(line.offsetWidth, line.scrollWidth)
-      if (needed <= room + 0.5) break
-      fit *= room / needed
-      header.style.setProperty('--slaids-title-fit', String(fit))
-    }
-    smallest = Math.min(smallest, fit)
-  }
-  return smallest
-}
+/** Titlene i kortene i en sone: de forminskes hver for seg (`fitTitleLines`). */
+export const CARD_HEADER_SELECTOR = '.card-header'
 
 /** Et felt som er tegnet mindre, i sonens egne enheter, regnet fra sonens øvre venstre hjørne. */
 export interface ShrunkBox {
@@ -175,7 +141,7 @@ export interface ZoneFitBoxProps {
 
 /**
  * Den verste overflyten i sonens innhold. En korttittel holdes utenfor: den
- * tilpasser seg selv (`fitCardTitles`), så en lang tittel gjør aldri resten
+ * tilpasser seg selv (`fitTitleLines`), så en lang tittel gjør aldri resten
  * av sonen mindre.
  */
 function worstOverflow(element: HTMLElement): number {
@@ -187,7 +153,7 @@ function worstOverflow(element: HTMLElement): number {
 
 /**
  * En endring som er forminskingen selv i arbeid, ikke nytt innhold: stilen på
- * en kortheader (`fitCardTitles`) eller på et område som forminskes, og
+ * en kortheader (`fitTitleLines`) eller på et område som forminskes, og
  * klassen på boksen rundt området (`drawZoneFit`).
  */
 function isFitDrawing(record: MutationRecord): boolean {
@@ -271,7 +237,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
     else drawZoneFit(target.element, target.width, target.height, content, content !== 1)
     // Titlene for seg: de har sin egen plass i headeren, uansett hvor mye
     // innholdet under er forminsket.
-    const titleFit = fitCardTitles(element)
+    const titleFit = fitTitleLines(element.querySelectorAll<HTMLElement>(CARD_HEADER_SELECTOR))
     const title = isZoneFitScaled(titleFit) ? titleFit : 1
 
     const shrunk: ShrunkBox[] = []
@@ -282,7 +248,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
           : boxWithin(root, target.element.parentElement ?? target.element),
       )
     }
-    for (const header of element.querySelectorAll<HTMLElement>('.card-header')) {
+    for (const header of element.querySelectorAll<HTMLElement>(CARD_HEADER_SELECTOR)) {
       if (!header.style.getPropertyValue('--slaids-title-fit')) continue
       const box = boxWithin(root, header)
       // En fane står opp bak innholdet; merket følger bare den synlige delen.

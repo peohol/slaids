@@ -26,6 +26,7 @@ import { bestTextColor, textShadowFor } from '../../domain/color'
 import type { ContentSlide, LeafNode, PresentationTheme, Rect } from '../../domain/types'
 import { PageColorsProvider, useSectionColorsFor, useSlideRender } from './SlideRenderContext'
 import { RichDocView } from './RichDocView'
+import { TitleFitLine } from './TitleFitLine'
 import { ZoneContentView } from './ZoneContentView'
 import { ZoneFitBox } from './ZoneFitBox'
 
@@ -122,19 +123,19 @@ export function SlideView({
         (renderTitle ? (
           renderTitle(geometry.titleRect)
         ) : (
-          <div
+          <TitleFitLine
             className="slide-title"
+            fontSize={themeMetrics(theme).titleFontSize}
             style={{
               ...absoluteStyle(geometry.titleRect),
               color: titleColor,
               fontFamily: theme.headingFontFamily,
-              fontSize: themeMetrics(theme).titleFontSize,
               lineHeight: TITLE_LINE_HEIGHT,
               textShadow: textShadowFor(colors.background),
             }}
           >
             {slide.title && <RichDocView doc={slide.title} className="rich-doc--title" field="title" />}
-          </div>
+          </TitleFitLine>
         ))}
 
       {leaves.map((leaf) => {

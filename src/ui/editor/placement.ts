@@ -23,7 +23,7 @@
 
 import { moveZoneContent, placeSandboxItem } from '../../domain/commands'
 import { collectLeaves } from '../../domain/layout'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import type { NodeId, Presentation } from '../../domain/types'
 
 /** Where the content looking for a zone is coming from. */
@@ -47,9 +47,10 @@ export const PLACEMENT_PROMPT = 'Trykk på en ledig sone for å plassere innhold
  * Would this placement be accepted? Asked by making it and reading the answer.
  *
  * The result is deliberately thrown away: what is wanted is the verdict, and
- * the verdict is the whole command — the target's own fit, the minimum zone
- * size, and the deck-wide guard that catches a zone on another slide losing
- * room to a renumbering. Re-deriving any of that here would be a second set of
+ * the verdict is the whole command — an empty target, the minimum size the
+ * kind of content needs, the structure. Som alt en person gjør, kjøres den uten
+ * fit-sjekk (`HUMAN_EDIT`): innhold som ikke får plass i normal størrelse,
+ * tegnes mindre i sonen. Re-deriving any of that here would be a second set of
  * rules that agreed with the first until it did not.
  */
 function wouldBeAccepted(
@@ -64,13 +65,13 @@ function wouldBeAccepted(
           itemId: placement.itemId,
           slideId,
           nodeId,
-          ...domFitCheckers,
+          ...HUMAN_EDIT,
         })
       : moveZoneContent(presentation, {
           slideId,
           fromNodeId: placement.nodeId,
           toNodeId: nodeId,
-          ...domFitCheckers,
+          ...HUMAN_EDIT,
         })
   return outcome.ok
 }

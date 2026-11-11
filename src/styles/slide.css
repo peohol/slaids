@@ -123,7 +123,7 @@
   flex: 0 0 auto;
   overflow: hidden;
   white-space: nowrap;
-  /* En tittel for lang for headeren settes mindre for seg selv (`fitCardTitles`). */
+  /* En tittel for lang for headeren settes mindre for seg selv (`fitTitleLines` i `titleFit.ts`). */
   font-size: calc(var(--slaids-card-header-font-size) * var(--slaids-title-fit, 1));
   font-weight: 600;
 }
@@ -886,7 +886,7 @@
  * down, both fall out of `justify-content`. Each pill is only as wide as its
  * text and never wider than the page, and its line is centred and never
  * wrapped: a section line is one line, exactly as a slide title is, so text
- * that does not fit is refused rather than reflowed.
+ * that does not fit is set smaller (`titleFit.ts`) rather than reflowed.
  * ----------------------------------------------------------------- */
 .section-page {
   display: flex;
@@ -898,9 +898,9 @@
 /*
  * The pill is a flex row for the same reason `.slide-title` is: its child keeps
  * its min-content width, so a line too long for the pill makes the pill's own
- * `scrollWidth` exceed its `clientWidth`. That difference is what the editor
- * rolls an over-long line back on, and `max-width` is set from the geometry
- * engine so the box that clips and the box the fit gate measures are one box.
+ * `scrollWidth` exceed its `clientWidth`, and `max-width` is set from the
+ * geometry engine so the box that clips and the box the fit gate measures are
+ * one box.
  */
 .section-pill {
   display: flex;

@@ -121,16 +121,17 @@ export function flowHeight(dom: HTMLElement): number {
  * field's text out of sight.
  *
  * A picture used to arrive at half the column width no matter how little room
- * was left, so inserting one into a short field produced an overflow, the fit
- * guard rolled the edit back, and it looked as if nothing had happened. The
+ * was left, so inserting one into a short field made the whole zone shrink far
+ * more than it had to. The
  * height an image adds is `width / aspect`, so the free vertical room in the
  * field is what decides the width — measured on the live DOM in logical pixels
  * (`clientHeight` and friends ignore the stage's CSS scale).
  *
- * Returns `null` when there is not enough room for a usable picture; the fit
- * guard still has the last word once the insert is committed.
+ * Er det ikke plass til et brukbart bilde, kommer det i minste bredde, og
+ * sonen tegnes mindre til alt får plass – en person nektes aldri et bilde
+ * fordi feltet er fullt (`ZoneFitBox`).
  */
-export function fittingImageWidthPercent(editor: Editor, aspect: number): number | null {
+export function fittingImageWidthPercent(editor: Editor, aspect: number): number {
   const dom = editor.view.dom as HTMLElement
   const box = dom.closest('[data-fit-scroll]') as HTMLElement | null
   const column = dom.clientWidth
@@ -151,11 +152,8 @@ export function fittingImageWidthPercent(editor: Editor, aspect: number): number
   const spacing = blockSpacing(style)
   const reserve = (Number.isFinite(line) ? line : 0) + spacing * 2 + INSERT_SAFETY
   const free = box.clientHeight - flowHeight(dom) - reserve
-  if (free <= 0) return null
-
-  const percent = Math.floor(((free * ratio) / column) * 100)
-  if (percent < MIN_WIDTH_PERCENT) return null
-  return Math.min(DEFAULT_IMAGE_WIDTH_PERCENT, percent)
+  const percent = free > 0 ? Math.floor(((free * ratio) / column) * 100) : 0
+  return Math.max(MIN_WIDTH_PERCENT, Math.min(DEFAULT_IMAGE_WIDTH_PERCENT, percent))
 }
 
 /**

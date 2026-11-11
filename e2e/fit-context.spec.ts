@@ -106,22 +106,23 @@ async function routeFonts(
 }
 
 test.describe('fit measurement and web fonts', () => {
-  test('judges a font change by the web font, not by the fallback', async ({ page }) => {
+  test('draws a zone smaller by the web font, not by the fallback', async ({ page }) => {
     await routeFonts(page, { wideFor: 'Inter' })
     await createPresentation(page, 'Fontmåling')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
     await fillZoneToCapacity(page, zones[0].id)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
 
-    const before = await renderedBodyFont(page)
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     // Inter's fallback is the system font the zone was just filled with, so a
-    // measurement taken before the face loads would accept this. The face that
-    // actually arrives is monospace and far too wide.
+    // zone fitted before the face loads would be left at normal size. The face
+    // that actually arrives is monospace and far too wide.
     await page.getByTestId('theme-body-font').selectOption({ label: 'Inter' })
 
-    await expect(toast(page, 'Denne fonten')).toBeVisible()
-    expect(await renderedBodyFont(page)).toBe(before)
+    await expect.poll(() => renderedBodyFont(page)).toContain('Inter')
+    await expect(zone.locator('.zone-fit')).toHaveAttribute('data-fit-scale', /^0\.\d+$/)
+    await expect(toast(page, 'Denne fonten')).toHaveCount(0)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
@@ -162,10 +163,10 @@ test.describe('fit measurement and web fonts', () => {
     await expect(page.getByTestId('theme-body-font')).toBeEnabled()
   })
 
-  test('notices content that stops fitting when a web font swaps in', async ({ page }) => {
+  test('draws content smaller when a web font that no longer fits swaps in', async ({ page }) => {
     // A deck that already uses a web font renders with the fallback first and
-    // swaps when the real face arrives. No command can be blamed for that, and
-    // nothing can be rolled back — but it must not pass unnoticed.
+    // swaps when the real face arrives. No command can be blamed for that —
+    // and nothing needs to be: the zone is drawn smaller and marked.
     const route = await routeFonts(page, { hold: true, wideFor: 'Inter' })
     await page.goto('/')
     await page.getByTestId('new-presentation').click()
@@ -175,23 +176,19 @@ test.describe('fit measurement and web fonts', () => {
     await expect(page.getByTestId('editor')).toBeVisible()
     await expect(page.getByTestId('editor')).toHaveAttribute('data-fonts', 'pending')
 
-    // Filled while the browser is still drawing the fallback. The app gives a
-    // web font a deadline of its own, and everything between opening the deck
-    // and releasing the route is spent against it — so this fills coarsely
-    // rather than to the last character. The face the fixture serves for Inter
-    // is far wider than the fallback, so a zone this full still overflows when
-    // it swaps in.
+    // Filled while the browser is still drawing the fallback. The face the
+    // fixture serves for Inter is far wider than the fallback, so a zone this
+    // full no longer fits at normal size when it swaps in.
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
     await fillZoneToCapacity(page, zones[0].id, { chunks: 30, topUp: false })
-    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
+    await expect(zone.locator('.zone-fit')).not.toHaveAttribute('data-fit-scale')
 
-    // What is under test is that the swap does not pass unnoticed. Whether the
-    // app had already given up waiting by then is a different behaviour with a
-    // test of its own — and it is decided by how long this test's own setup
-    // took, which is not something to assert on.
     route.release()
-    await expect(toast(page, 'etter at fonten ble lastet ferdig')).toBeVisible({ timeout: 15_000 })
+    await expect(zone.locator('.zone-fit')).toHaveAttribute('data-fit-scale', /^0\.\d+$/, { timeout: 15_000 })
+    await expect(zone.getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 })
 
@@ -201,14 +198,14 @@ test.describe('fit measurement and web fonts', () => {
 
 test.describe('restoring a slide title', () => {
   /**
-   * Type into the title until the editor stops accepting more, so the zone is
-   * as full as it can be for the font in force — the only starting point from
-   * which "a wider font no longer fits" means anything.
+   * Type into the title until it holds as much as it can at normal size for
+   * the font in force — the only starting point from which "a wider font no
+   * longer fits" means anything.
    */
   async function fillTitleToCapacity(page: Page): Promise<string> {
     const editor = stage(page).locator('[data-testid="slide-title"] .tiptap')
     await editor.click()
-    for (let i = 0; i < 12; i += 1) {
+    for (let i = 0; i < 2; i += 1) {
       await page.keyboard.insertText('overskriftstekst ')
     }
     await topUpToCapacity(page, editor)
@@ -221,48 +218,40 @@ test.describe('restoring a slide title', () => {
     await expect(stage(page).locator('[data-testid="slide-title"]')).toHaveCount(0)
   }
 
-  test('refuses a heading font that pushes the title out of its zone', async ({ page }) => {
-    // The offscreen title measurement is the only thing standing between a
-    // global font change and a clipped title: the live editor guard never runs
-    // for a change nobody typed.
+  test('sets the title smaller when a heading font pushes it past its line', async ({ page }) => {
     await createPresentation(page, 'Tittelfont')
     await fillTitleToCapacity(page)
+    const title = stage(page).getByTestId('slide-title')
+    await expect(title).not.toHaveAttribute('data-title-fit')
 
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-heading-font').selectOption({ label: 'Consolas' })
-    await expect(toast(page, 'Denne fonten')).toBeVisible()
-    expect(await renderedHeadingFont(page)).not.toContain('Consolas')
+    await expect.poll(() => renderedHeadingFont(page)).toContain('Consolas')
+    await expect(title).toHaveAttribute('data-title-fit', /^0\.\d+$/)
+    await expect(toast(page, 'Denne fonten')).toHaveCount(0)
 
     expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('refuses a remembered title that no longer fits, and keeps it', async ({ page }) => {
+  test('restores a remembered title that no longer fits, set smaller', async ({ page }) => {
     await createPresentation(page, 'Tittelgjenoppretting')
-    const title = await fillTitleToCapacity(page)
-    expect(title.length).toBeGreaterThan(20)
+    const text = await fillTitleToCapacity(page)
+    expect(text.length).toBeGreaterThan(20)
 
     await removeTitle(page)
 
-    // With the zone gone there is nothing to object, so this is allowed.
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-heading-font').selectOption({ label: 'Consolas' })
     await expect.poll(() => renderedHeadingFont(page)).toContain('Consolas')
     await page.getByRole('button', { name: 'Ferdig' }).click()
 
+    // The text comes back whole, in the wider font, set smaller to fit its line.
     await page.getByTestId('toggle-title').click()
-    await expect(toast(page, 'med gjeldende font')).toBeVisible()
-    // Nothing half-applied: no empty title zone left behind.
-    await expect(stage(page).locator('[data-testid="slide-title"]')).toHaveCount(0)
-
-    // The text is not lost — with a narrower font it comes back intact.
-    await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
-    await page.getByTestId('theme-heading-font').selectOption({ label: 'Times New Roman' })
-    await expect.poll(() => renderedHeadingFont(page)).toContain('Times')
-    await page.getByRole('button', { name: 'Ferdig' }).click()
-
-    await page.getByTestId('toggle-title').click()
-    await expect(stage(page).locator('[data-testid="slide-title"]')).toContainText(title)
-    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+    const title = stage(page).getByTestId('slide-title')
+    await expect(title).toContainText(text)
+    await expect(title).toHaveAttribute('data-title-fit', /^0\.\d+$/)
+    await expect(toast(page, 'med gjeldende font')).toHaveCount(0)
+    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
   })
 })
 
@@ -272,22 +261,10 @@ test.describe('restoring a slide title', () => {
 
 test.describe('citation numbering and fit', () => {
   /**
-   * Type into a one-line field until it will not take any more.
-   *
-   * Coarse first, then one narrow glyph at a time: a rejected insert rolls back
-   * whole, so a big chunk leaves as much slack as the chunk is long, and that
-   * slack is exactly what the next assertion is trying to observe.
+   * Type into a one-line field until it holds as much as it can at normal size.
    */
   async function fillLineToCapacity(page: Page, field: Locator): Promise<void> {
-    await caretInto(field)
-    for (let i = 0; i < 30; i += 1) {
-      await page.keyboard.insertText('ord ord ')
-      await page.waitForTimeout(20)
-    }
-    for (let i = 0; i < 40; i += 1) {
-      await page.keyboard.insertText('i')
-      await page.waitForTimeout(20)
-    }
+    await topUpToCapacity(page, field)
   }
 
   /**
@@ -370,20 +347,12 @@ test.describe('citation numbering and fit', () => {
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('refuses to remove a citing title when the renumbering fills another slide', async ({
-    page,
-  }) => {
+  test('removes a citing title even when the renumbering fills another slide', async ({ page }) => {
     // The editor's own path, end to end. Removing a title zone gives *this*
-    // slide more room, which is why it looks like a change that cannot hide
-    // anything — and why it went through the guard without measurers for a
-    // while, which is the same as not going through it at all.
-    //
-    // What it can hide sits on another slide. The pill built below reads `1–4`
+    // slide more room, but a title may cite: the pill built below reads `1–4`
     // while slide 1's title cites the first two references, and `1, 2, 5, 6`
-    // once that title is gone: runs of two are listed rather than ranged, so
-    // three glyphs become ten. It sits in a *title*, which is one line and
-    // fails horizontally — so the extra width is the overflow, with none of the
-    // guesswork about where a wrapped paragraph happens to break.
+    // once that title is gone. It sits in a *title* already full to the last
+    // character — so the removal is taken, and that title is set smaller.
     await createPresentation(page, 'Tittel med citation')
 
     // Slide 1's title cites the first two references, so they are 1 and 2.
@@ -404,13 +373,13 @@ test.describe('citation numbering and fit', () => {
     await citeNewReferences(page, secondField, ['Kilde B1', 'Kilde B2', 'Kilde C', 'Kilde D'])
 
     // Slide 3's own title holds one pill citing A1, A2, B1 and B2 — consecutive
-    // today — and is then filled to the last character it will take.
+    // today — and is then filled to the last character it holds at normal size.
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-with-title').click()
     await citeExisting(page, titleField, ['Kilde A1', 'Kilde A2', 'Kilde B1', 'Kilde B2'])
     await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
     await fillLineToCapacity(page, titleField)
-    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
+    await expect(stage(page).getByTestId('slide-title')).not.toHaveAttribute('data-title-fit')
 
     // Back to slide 1, and take its title away. Index 0 is the front page, so
     // the deck's first ordinary slide is index 1.
@@ -418,46 +387,25 @@ test.describe('citation numbering and fit', () => {
     await page.getByTestId('toggle-title').click()
     await expect(page.getByTestId('confirm-dialog')).toBeVisible()
     await page.getByTestId('confirm-accept').click()
-
-    // Refused, in the guard's own words, and the title is still there — with
-    // its citation, so the numbering the rest of the deck reads is unchanged.
-    await expect(toast(page, 'renummererer citations')).toBeVisible()
-    await expect(page.getByTestId('slide-title')).toBeVisible()
-    await expect(stage(page).locator('[data-testid="slide-title"] .rd-citation')).toHaveText('1, 2')
-
-    // Give slide 3's title room again, keeping its pill, and the same removal
-    // lands.
-    await page.getByTestId('filmstrip-item').nth(3).getByTestId('filmstrip-thumb').click()
-    await caretInto(titleField)
-    await page.keyboard.press('ControlOrMeta+a')
-    await page.keyboard.insertText('Kort ')
-    await citeExisting(page, titleField, ['Kilde A1', 'Kilde A2', 'Kilde B1', 'Kilde B2'])
-    await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
-
-    await page.getByTestId('filmstrip-item').nth(1).getByTestId('filmstrip-thumb').click()
-    await page.getByTestId('toggle-title').click()
-    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
-    await page.getByTestId('confirm-accept').click()
     await expect(page.getByTestId('slide-title')).toHaveCount(0)
+    await expect(toast(page, 'renummererer citations')).toHaveCount(0)
 
-    // And the renumbering the refusal was about is now visible on slide 3: the
-    // same four references, two of them numbered after everything else.
+    // Slide 3: the same four references, two of them numbered after everything
+    // else — wider, and set smaller rather than clipped.
     await page.getByTestId('filmstrip-item').nth(3).getByTestId('filmstrip-thumb').click()
     await expect(stage(page).locator('.rd-citation')).toHaveText('1, 2, 5, 6')
+    await expect(stage(page).getByTestId('slide-title')).toHaveAttribute('data-title-fit', /^0\.\d+$/)
     expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('refuses a citation typed into a zone when the renumbering pushes another slide\'s title out', async ({
+  test('takes a citation typed into a zone even when the renumbering fills another slide\'s title', async ({
     page,
   }) => {
     // The editor's own flow: the caret in a zone, a reference created and cited
-    // from the dialog. The zone itself would take any amount of text — it is
-    // drawn smaller instead — but what a new number does to *another* slide is
-    // not this zone's to give away.
-    //
-    // Slide 3's title holds one pill citing A1, A2, B1 and B2, which read
-    // `1–4`. A new reference cited on slide 1 after A1 and A2 becomes 3, so
-    // the same pill would read `1, 2, 4, 5` — wider, in a title already full.
+    // from the dialog. Slide 3's title holds one pill citing A1, A2, B1 and B2,
+    // which read `1–4`. A new reference cited on slide 1 after A1 and A2
+    // becomes 3, so the same pill reads `1, 2, 4, 5` — wider, in a title
+    // already full. The citation is taken, and that title is set smaller.
     await createPresentation(page, 'Citation i sone')
     const first = (await zoneRects(page))[0]
     await addContentToZone(page, first.id, 'untitled-card')
@@ -483,7 +431,7 @@ test.describe('citation numbering and fit', () => {
     await citeExisting(page, titleField, ['Kilde A1', 'Kilde A2', 'Kilde B1', 'Kilde B2'])
     await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
     await fillLineToCapacity(page, titleField)
-    expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
+    await expect(stage(page).getByTestId('slide-title')).not.toHaveAttribute('data-title-fit')
 
     // Back on slide 1 (index 0 is the front page), the caret after the pill,
     // and a new reference cited there.
@@ -495,13 +443,13 @@ test.describe('citation numbering and fit', () => {
       editor.commands.focus('end')
     })
     await citeNewReference(page, 'Kilde E')
+    // Next to the pill that was there, so the three share one: A1, A2 and E.
+    await expect(firstZone.locator('.rd-citation')).toHaveText('1–3')
+    await expect(toast(page, 'Citation-nummereringen')).toHaveCount(0)
 
-    // Refused in the guard's words, and nothing was renumbered: slide 1 still
-    // cites only A1 and A2, and slide 3's title is as it was, unclipped.
-    await expect(toast(page, 'Citation-nummereringen')).toBeVisible()
-    await expect(firstZone.locator('.rd-citation')).toHaveText('1, 2')
     await page.getByTestId('filmstrip-item').nth(3).getByTestId('filmstrip-thumb').click()
-    await expect(stage(page).locator('.rd-citation')).toHaveText('1–4')
+    await expect(stage(page).locator('.rd-citation')).toHaveText('1, 2, 4, 5')
+    await expect(stage(page).getByTestId('slide-title')).toHaveAttribute('data-title-fit', /^0\.\d+$/)
     expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
   })
 

@@ -300,23 +300,31 @@ En sone med innhold har to grenser, og de betyr forskjellige ting
   person som drar, er den en magnetisk grense som kan overvinnes (§11.5,
   «Den myke grensen under dra»).
 
-Bare en person kan lagre en sone under den myke grensen, på to måter: ved å
-gjøre sonen mindre, eller ved å skrive eller lime inn mer tekst i den enn det er
-plass til (§17, «Skriving i en sone»). Størrelsesendringen gjelder alle måter
-en person endrer forholdene i en deling på: dra, størrelsesknappene i
-inspektøren, forholdene og «Fordel likt» i sonemenyen, og forholdstallene i
-«Rediger deling» når retning og antall soner er uendret (ny retning eller nytt
-antall er en ny struktur og holdes til fit-regelen). Ellers kunne en sone som
-allerede er forminsket, få mer plass, men aldri gi den tilbake. Den har én
-inngang: `src/domain/commands/manualLayout.ts`
-(`setSplitWeightsByHand`, `rearrangeZonesByHand`). Den kaller de samme
-kommandoene som alle andre, men uten fit-målerne — slik at fit-regresjon ikke
-vurderes, mens hard minstegrense, kvantisering, strukturregler og luftregelen
-gjelder uendret. Modulen er ikke eksportert fra `commands/index.ts`, og
-`manualLayout.boundary.test.ts` feiler hvis noe utenfor `src/ui/editor/`
-importerer den. Det finnes ingen API-parameter som slår av fit-regelen:
-agentoperasjonene har strikte inndataskjemaer, sender alltid fit-målerne
-(`structuralOptions`), og en ukjent nøkkel som `allowOverflow` avvises.
+**En person nektes aldri en endring fordi innholdet ikke får plass.** Bare en
+person kan lagre innhold under den myke grensen, og en person kan gjøre det på
+alle måter: dra eller skrive en sone mindre, skrive eller lime inn mer tekst
+enn det er plass til (§17, «Skriving i en sone»), velge en annen font, mer
+luft, større skriftstørrelse eller et annet kortutseende i temadialogen,
+plassere innhold fra sandkassen eller flytte, kopiere og lime inn innhold i en
+for liten sone, dele en sone eller endre en deling (retning, antall,
+forholdstall), legge til delfelt, bytte innholdstype, legge til en bildetekst,
+slå på slidetittelen igjen, gi en slidetittel eller en inndelingsside en lengre
+tekst, og flytte slides eller sitere slik at citation-numre et annet sted blir
+bredere. Det som ikke lenger får plass i normal størrelse, tegnes mindre og
+merkes (§17, «Forminsket visning»); ingenting skjules og ingenting avvises.
+
+Alt dette har én inngang: `src/domain/commands/manualLayout.ts`. `HUMAN_EDIT`
+er valgene hver kommando i grensesnittet kjøres med, og
+`setSplitWeightsByHand`, `rearrangeZonesByHand` og `setBodyWeightsByHand` er
+geometrikommandoene for drag og størrelsesknapper. Kommandoene er de samme som
+alle andre bruker, men uten fit-målerne — slik at verken plassering eller
+fit-regresjon vurderes, mens hard minstegrense, kvantisering, strukturregler og
+luftregelen gjelder uendret. Modulen er ikke eksportert fra
+`commands/index.ts`, og `manualLayout.boundary.test.ts` feiler hvis noe utenfor
+`src/ui/` importerer den. Det finnes ingen API-parameter som slår av
+fit-regelen: agentoperasjonene har strikte inndataskjemaer, sender alltid
+fit-målerne (`structuralOptions`), og en ukjent nøkkel som `allowOverflow`
+avvises.
 
 En sone en person har gjort for liten, er fortsatt ugyldig sett fra agenten:
 `inspect_slide` melder `fits: false`, `validate_slide` melder
@@ -2447,8 +2455,8 @@ ta (`cardTitleInset`). Renderer, estimator og bildebrief leser de samme
 tallene. Minstemålet for et kort (`contentSize.ts`) avhenger bevisst *ikke*
 av utseendet, så et bytte kan aldri gjøre en sone ulovlig liten. Tekst et
 bytte gir for lite plass tegnes forminsket, akkurat som i en sone en person
-har dratt liten (§ «Forminsket visning»): en person som velger utseende i
-temadialogen får det alltid (`setCardLookByHand`), mens agentens `set_theme`
+har dratt liten (§ «Forminsket visning»): en person som endrer noe i
+temadialogen får det alltid (`HUMAN_EDIT`), mens agentens `set_theme`
 måler dekket og avviser.
 
 **Skygger** kan slås av for hele dekket (`boxShadows`). Det gjelder alle
@@ -2855,8 +2863,8 @@ i gapet. Sliden klipper: en skygge kan havne i gapet, aldri utenfor sliden.
 
 ### Forminsket visning: når en person har gjort sonen for liten
 
-En sone en person har dratt under innholdets myke minstegrense (§7), eller
-skrevet mer i enn det er plass til, tegnes med
+En sone en person har gjort for liten eller for full for innholdet sitt (§7,
+«Hard og myk minstegrense»), tegnes med
 innholdet forminsket, slik at alt fortsatt er synlig innenfor sonen
 (`src/ui/slide/ZoneFitBox.tsx`). Innholdet legges ut i en boks `1/s` ganger
 sonen og tegnes skalert ned med `s`, der `s` er den største skalaen der alt får
@@ -2867,11 +2875,17 @@ Det finnes ingen nedre skriftgrense ut over den harde minstegrensen for sonen.
 
 - Et kort med tittel har to felt som forminskes helt hver for seg. Tittelen er
   én linje i en header med fast høyde: en for lang tittel settes i mindre
-  skrift for seg (`fitCardTitles`), innenfor headerens polstring så luften er
+  skrift for seg (`fitTitleLines`), innenfor headerens polstring så luften er
   lik på begge sider. Innholdet under er sitt eget område (`data-fit-region`,
   `fitTarget`): tekst som ikke får plass, tegnes mindre der, mens headeren,
   tittelen, kortets polstring og gapet under en svevende tittel beholder sin
   størrelse. Det ene feltet påvirker aldri det andre.
+- Tittellinjer utenfor sonene — slidetittelen og de to linjene på en
+  inndelingsside, også forsiden — følger samme regel som en korttittel: en
+  linje for lang for boksen sin settes i mindre skrift (`fitTitleLines` i
+  `src/ui/slide/titleFit.ts`, via `TitleFitLine`). Boksen beholder høyde,
+  polstring og plass; bare skriften krymper. Variabelen er den samme,
+  `--slaids-title-fit`.
 
 - Lagret skriftstørrelse og tema endres ikke. Skalaen er ikke lagret; den
   avledes av innhold og geometri hver gang, og forsvinner av seg selv når sonen
@@ -2885,20 +2899,19 @@ Det finnes ingen nedre skriftgrense ut over den harde minstegrensen for sonen.
   som får plass. Agentens PNG-forhåndsvisning (`src/render/`) er statisk markup
   uten effekter; rasteriseringen kjører derfor det samme søket i siden før
   skjermbildet (`fitShrunkZones`, med appens egen `measureOverflowParts`,
-  `drawZoneFit`, `fitTarget` og `fitCardTitles`), så agenten ser sonen slik personen ser den. Forhåndsvisningen
+  `drawZoneFit`, `fitTarget` og `fitTitleLines`), så agenten ser sonen og
+  tittellinjene slik personen ser dem. Forhåndsvisningen
   er bare et bilde: `inspect_slide`/`validate_slide` svarer fortsatt fra
   normal størrelse og melder at innholdet ikke får plass.
 - I redigeringsmodusene (sone og innhold) markeres det som er forminsket med en
   diskret oransje stiplet kant og et lite varselmerke der det er plass
-  (`ShrunkZoneMarker`): hele sonen, eller i et kort med tittel bare tittelen
-  eller bare innholdet. Markeringen tar ingen peker, ligner ikke valgmarkeringen
+  (`ShrunkZoneMarker`): hele sonen, i et kort med tittel bare tittelen
+  eller bare innholdet, og en slidetittel eller pille på en inndelingsside som
+  er satt mindre. Markeringen tar ingen peker, ligner ikke valgmarkeringen
   og vises aldri i presentasjon eller eksport. Inspektøren forklarer den for valgt
   sone: «Innholdet er automatisk forminsket. Gjør sonen større for å gjenopprette
   normal skriftstørrelse.», og tilbyr å vise bare den sonen forstørret for
   redigering — den samme fokuserte visningen en kompakt arbeidsflate skriver i.
-- Skriving i en forminsket sone holdes til normal størrelse som ellers: et
-  tegn for et tegn, sletting og omformulering går; mer tekst avvises med en
-  melding om å gjøre sonen større.
 
 ### Semantisk fit
 
@@ -2962,17 +2975,12 @@ korttittel, bildetekst) avviser aldri tekst fordi den ikke får plass. Skriver
 eller limer en person inn mer enn sonen rommer i normal skriftstørrelse, tas
 alt imot, og sonen tegner innholdet forminsket til alt får plass (se
 «Forminsket visning» over). Lagret skriftstørrelse og tema endres ikke; angres
-eller kortes teksten ned, er normal størrelse tilbake av seg selv. Feltene måler
-derfor ingen overflyt (`EditableZoneContent` gir ingen `measureOverflow`). Det
-eneste som fortsatt kan avvise en endring der, er konsekvenser for *andre*
-soner: en citation som omnummererer et dekk så innhold et annet sted ikke får
-plass (`docEditRenumberProblem`). Agenter er uendret: `set_zone_text` og de
-andre operasjonene holdes til fit-regelen.
-
-Felter utenfor en sone — slidetittelen og en inndelingsside — tegnes ikke
-forminsket, og der bruker typing-valideringen samme regel som kommandoene
-(`isOverflowRegression`): en endring som gjør en overflyt verre, rulles
-tilbake; en som lar den være som den var eller gjør den mindre, godtas.
+eller kortes teksten ned, er normal størrelse tilbake av seg selv. Det samme
+gjelder felter utenfor en sone — slidetittelen og linjene på en inndelingsside
+— som settes i mindre skrift (se «Forminsket visning»), og andre soner som får
+bredere citation-numre fordi en citation endret nummereringen: de tegnes mindre.
+Ingen tekstfelt måler derfor overflyt eller ruller tilbake. Agenter er uendret:
+`set_zone_text` og de andre operasjonene holdes til fit-regelen.
 
 ---
 
@@ -7233,8 +7241,7 @@ det logiske 1600 × 900-rommet, med dekkets typografi og citation-nummerering,
 gjennom den samme offscreen-måleren kommandoene bruker. At det fokuserte feltet
 er tegnet større endrer ingenting: visningen er en transform, og målingen skjer
 i layout, ikke på skjermen. Mer tekst enn sonen rommer tas imot og tegnes
-forminsket, som på stagen (§17, «Skriving i en sone»); i en slidetittel rulles
-den tilbake med samme melding som på stagen.
+forminsket, som på stagen (§17, «Skriving i en sone»), også i en slidetittel.
 
 **Konsekvens som må kjennes:** en sone som er bred i det logiske rommet tegnes
 ikke stor på en smal skjerm, fordi fokuseringen er en uniform skalering av den

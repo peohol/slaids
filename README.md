@@ -73,7 +73,7 @@ layoutet er nestet.
 **Slides**
 
 - opprett med eller uten overskriftssone, dupliser, slett, endre rekkefølge (DnD)
-- overskriftssonen er deterministisk: én linje, fast høyde, tekst som ikke får plass avvises
+- overskriftssonen er deterministisk: én linje, fast høyde; tekst som ikke får plass settes i mindre skrift og merkes i editoren
 
 **Seksjoner**
 

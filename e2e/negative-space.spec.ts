@@ -10,7 +10,7 @@
  * payload, so it is not offered until the zone is emptied.
  *
  * The last test is the overflow half: a card title that is too wide for its
- * header is rolled back where it is typed, which is the case the browser used
+ * header is set smaller where it is typed, which is the case the browser used
  * to report as fitting perfectly.
  */
 

@@ -4,7 +4,6 @@ import {
   addContentToZone,
   createPresentation,
   stage,
-  toast,
   waitForSaved,
   watchForErrors,
   worstOverflow,
@@ -125,26 +124,34 @@ test.describe('forsiden', () => {
     expect(guard.errors).toEqual([])
   })
 
-  test('klipper aldri en linje – for lang tekst rulles tilbake', async ({ page }) => {
+  test('klipper aldri en linje – for lang tekst settes i mindre skrift og merkes', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Lang forside')
 
     await selectPage(page, 0)
-    const title = stage(page).locator('[data-section-line="title"] .tiptap')
+    const pill = stage(page).locator('[data-section-line="title"]')
+    const title = pill.locator('.tiptap')
     await title.click()
     await page.keyboard.press('Control+a')
     await page.keyboard.press('Backspace')
 
-    // Én linje, som en tittelsone: teksten som ikke får plass skal aldri
-    // committes, og pillen skal aldri ende opp med noe skjult i seg.
+    // Én linje, som en tittelsone: alt som skrives tas imot, og linjen settes
+    // mindre til den får plass – pillen ender aldri opp med noe skjult i seg.
+    const line = 'En veldig lang forsidetittel '
     for (let i = 0; i < 12; i += 1) {
-      await page.keyboard.insertText('En veldig lang forsidetittel ')
+      await page.keyboard.insertText(line)
       await page.waitForTimeout(60)
     }
-    await page.waitForTimeout(400)
-
-    await expect(toast(page, 'Overskriften får ikke plass på inndelingssliden.')).toHaveCount(1)
+    await expect(title).toHaveText(line.repeat(12).trim())
+    await expect(pill).toHaveAttribute('data-title-fit', /^0\.\d+$/)
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(1)
     expect(await worstOverflow(page)).toBeLessThan(1)
+
+    // Kortet ned igjen er linjen tilbake i normal størrelse, uten merke.
+    await page.keyboard.press('Control+a')
+    await page.keyboard.insertText('Kort')
+    await expect(pill).not.toHaveAttribute('data-title-fit')
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(0)
 
     expect(guard.errors).toEqual([])
   })

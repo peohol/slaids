@@ -23,7 +23,7 @@ import { DEFAULT_PILL_COLOR } from '../../domain/constants'
 import { findLeaf } from '../../domain/layout'
 import { sectionGoverning } from '../../domain/presentation'
 import type { VerticalAlign } from '../../domain/types'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import { useWorkspace } from '../workspace/WorkspaceContext'
@@ -268,7 +268,7 @@ function TextToolbarBar({ onInsertReference, onOptimizeImage }: TextToolbarProps
         {entryButtons(
           verticalEntries(verticalAlignOf(slide.root, nodeId, subfieldId), (align) =>
             run('vertical-align', (presentation) =>
-              setVerticalAlign(presentation, { slideId: slide.id, nodeId, subfieldId, align, ...domFitCheckers }),
+              setVerticalAlign(presentation, { slideId: slide.id, nodeId, subfieldId, align, ...HUMAN_EDIT }),
             ),
           ),
           '',
