@@ -5,7 +5,7 @@ import { findContentSlide } from '../../domain/presentation'
 import { describeError, err } from '../../domain/result'
 import type { NodeId, ZoneContent } from '../../domain/types'
 import { describeSanitizing, discardUploadedAssets, storeUploadedFile } from '../../state/assetUpload'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 
@@ -99,7 +99,7 @@ export async function uploadZoneImage(
         nodeId,
         asset: ref,
         replacedDisposition,
-        ...domFitCheckers,
+        ...HUMAN_EDIT,
       })
     })
     if (!placed) {

@@ -122,14 +122,9 @@ export function ImageUploadModal({
       if (target) {
         run('asset-register', (current) => registerAsset(current, ref))
         const aspect = ref.width > 0 && ref.height > 0 ? ref.width / ref.height : undefined
-        // Sized to the room that is actually left in the field, so the picture
-        // arrives next to the text instead of being rolled back for overflow.
+        // Sized to the room that is actually left in the field, so the zone
+        // keeps its type size when there is room for the picture at all.
         const widthPercent = fittingImageWidthPercent(target, aspect ?? 16 / 9)
-        if (widthPercent === null) {
-          notify.warning('Feltet har ikke plass til et bilde. Gjør sonen større eller kort ned teksten.')
-          onOpenChange(false)
-          return
-        }
         target
           .chain()
           .focus()

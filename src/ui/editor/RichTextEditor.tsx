@@ -1,28 +1,20 @@
 /**
  * Tiptap editor bound to a stored `RichDoc`.
  *
- * Two rules make this component the enforcement point of the content-fit
- * invariant:
- *  - in a field that measures its overflow (`measureOverflow`), an edit that
- *    makes the content overflow its box, or overflow it more than it already
- *    did, is rolled back to the last valid document (never
- *    mid-IME-composition) — the same rule, `isOverflowRegression`, that every
- *    command is held to — and
- *  - pasted HTML is normalised before it can reach the schema.
+ * Pasted HTML is normalised before it can reach the schema.
  *
- * A zone's own fields measure nothing: what a person writes there is always
- * taken, and the zone draws it smaller until it fits (`ui/slide/ZoneFitBox`).
- * Only the fit of *other* zones (`validateDoc`) can still refuse it.
+ * Hva en person skriver, tas alltid imot – i en sone, i en korttittel, i en
+ * slidetittel og på en inndelingsside. Tekst som ikke får plass i normal
+ * størrelse, tegnes mindre og merkes (`ui/slide/ZoneFitBox`,
+ * `ui/slide/titleFit`); det gjelder også en sone et annet sted som får en
+ * bredere citation-etikett fordi nummereringen endret seg.
  */
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
-import { FIT_TOLERANCE } from '../../domain/constants'
-import { isOverflowRegression } from '../../domain/commands/fitGuard'
 import { trimTrailingBlankLines } from '../../domain/richdoc'
 import type { RichDoc } from '../../domain/types'
 import { useActiveEditor } from '../../state/activeEditor'
-import { notify } from '../../state/toast'
 import { bodyExtensions, normalizePastedHtml, titleExtensions } from './extensions'
 
 /**
@@ -81,21 +73,6 @@ export interface RichTextEditorProps {
   /** Used by the caption, which deletes itself when it is left empty. */
   onBlur?: () => void
   onEditorReady?: (editor: Editor | null) => void
-  /**
-   * Returns how much the field's box currently overflows, in logical pixels.
-   * An edit that makes it worse is rejected. Left out where the content is
-   * drawn smaller instead of being refused.
-   */
-  measureOverflow?: () => number
-  overflowMessage?: string
-  /**
-   * A second opinion on the document, for consequences this zone cannot
-   * measure — a citation whose number changes what *other* zones need. Given
-   * the edited document and the one it replaces (the last accepted; the store
-   * already holds the edit by now), returns a message to roll the edit back,
-   * or `null` to let it stand.
-   */
-  validateDoc?: (doc: RichDoc, previous: RichDoc) => string | null
 }
 
 export function RichTextEditor({
@@ -110,148 +87,13 @@ export function RichTextEditor({
   onFocus,
   onBlur,
   onEditorReady,
-  measureOverflow,
-  overflowMessage = 'Innholdet får ikke plass i sonen.',
-  validateDoc,
 }: RichTextEditorProps) {
-  const lastValid = useRef<{ doc: RichDoc; anchor: number }>({ doc, anchor: 1 })
-  /** Overflow of the last accepted document, so an edit that improves it is allowed. */
-  const lastOverflow = useRef(0)
-  const deferredRef = useRef<number | null>(null)
-  const rebaselineRef = useRef<number | null>(null)
-  const initialised = useRef(false)
   const lastEmitted = useRef<string>(JSON.stringify(doc))
-  const measureRef = useRef(measureOverflow)
-  const measure = useCallback(() => measureRef.current?.() ?? 0, [])
   const onChangeRef = useRef(onChange)
-  const validateDocRef = useRef(validateDoc)
 
   useEffect(() => {
-    measureRef.current = measureOverflow
     onChangeRef.current = onChange
-    validateDocRef.current = validateDoc
-  }, [measureOverflow, onChange, validateDoc])
-
-  /**
-   * Decide whether the current document may stand.
-   *
-   * This runs *after* layout rather than inside `onUpdate`, because React node
-   * views (images, figures, tables) mount asynchronously: measuring
-   * synchronously would read a box that has not been laid out yet and reject
-   * perfectly valid edits — including the very edit that would fix an overflow.
-   */
-  const validate = useCallback(
-    (editor: Editor): void => {
-      if (editor.isDestroyed || editor.view.composing) return
-
-      const overflow = measure()
-      // The first validation observes whatever the document arrived as; only
-      // later ones can attribute an overflow to an edit.
-      const isFirst = !initialised.current
-      initialised.current = true
-
-      const accept = (): void => {
-        lastOverflow.current = overflow <= FIT_TOLERANCE ? 0 : overflow
-        lastValid.current = {
-          doc: currentDoc(editor),
-          anchor: editor.state.selection.anchor,
-        }
-      }
-
-      const rollBack = (message: string): void => {
-        const restore = lastValid.current
-        editor.commands.setContent(restore.doc, { emitUpdate: false })
-        const size = editor.state.doc.content.size
-        editor.commands.setTextSelection(Math.max(1, Math.min(restore.anchor, size)))
-        lastOverflow.current = measure()
-
-        const restored = currentDoc(editor)
-        const serialized = JSON.stringify(restored)
-        if (serialized !== lastEmitted.current) {
-          lastEmitted.current = serialized
-          onChangeRef.current(restored)
-        }
-        notify.warning(message)
-      }
-
-      // Content can arrive overflowing — a theme change, a smaller zone, a file
-      // that finished loading. Record it rather than fighting the user.
-      if (isFirst) {
-        accept()
-        return
-      }
-      // An edit that does not make an overflow worse is allowed: otherwise an
-      // overflowing document — a zone a person drew smaller than its text —
-      // could be cut but never corrected, not even a letter for a letter.
-      if (isOverflowRegression(overflow, lastOverflow.current)) {
-        rollBack(overflowMessage)
-        return
-      }
-
-      // Fits here, but this document is not the only thing it decides: a
-      // citation added or moved renumbers labels across the deck.
-      const elsewhere = validateDocRef.current?.(currentDoc(editor), lastValid.current.doc) ?? null
-      if (elsewhere) {
-        rollBack(elsewhere)
-        return
-      }
-      accept()
-    },
-    [measure, overflowMessage],
-  )
-
-  const scheduleValidate = useCallback(
-    (editor: Editor) => {
-      if (deferredRef.current !== null) cancelAnimationFrame(deferredRef.current)
-      deferredRef.current = requestAnimationFrame(() => {
-        deferredRef.current = null
-        validate(editor)
-      })
-    },
-    [validate],
-  )
-
-  /**
-   * Accept the current document as the baseline, whatever it measures.
-   *
-   * Some things change how much room the text needs without anyone editing it:
-   * a web font arriving, an image finishing its download, the zone being
-   * resized around it. The overflow that follows is not something to roll back
-   * — there is no edit to undo — but it *must* be recorded, because
-   * `lastOverflow` is what lets the next edit count as a repair. Left at zero,
-   * an edit that removes half the excess reads as "still overflowing, and not
-   * better than before" and gets rolled back, so the zone can never be fixed.
-   */
-  const rebaseline = useCallback((editor: Editor): void => {
-    if (editor.isDestroyed || editor.view.composing) return
-    const overflow = measure()
-    lastOverflow.current = overflow <= FIT_TOLERANCE ? 0 : overflow
-    lastValid.current = {
-      doc: currentDoc(editor),
-      anchor: editor.state.selection.anchor,
-    }
-  }, [measure])
-
-  const scheduleRebaseline = useCallback(
-    (editor: Editor) => {
-      if (rebaselineRef.current !== null) cancelAnimationFrame(rebaselineRef.current)
-      rebaselineRef.current = requestAnimationFrame(() => {
-        rebaselineRef.current = null
-        // An edit is being validated in the same frame; that measurement is the
-        // more specific one and owns the outcome.
-        if (deferredRef.current !== null) return
-        rebaseline(editor)
-      })
-    },
-    [rebaseline],
-  )
-
-  useEffect(() => {
-    return () => {
-      if (deferredRef.current !== null) cancelAnimationFrame(deferredRef.current)
-      if (rebaselineRef.current !== null) cancelAnimationFrame(rebaselineRef.current)
-    }
-  }, [])
+  }, [onChange])
 
   const editor = useEditor(
     {
@@ -280,68 +122,12 @@ export function RichTextEditor({
           lastEmitted.current = serialized
           onChangeRef.current(json)
         }
-        scheduleValidate(instance)
       },
       onFocus: () => onFocus?.(),
       onBlur: () => onBlur?.(),
     },
     [variant, placeholder],
   )
-
-  // Establish the starting overflow, and re-check when the surrounding zone or
-  // the theme changes underneath the editor.
-  useEffect(() => {
-    if (!editor) return
-    scheduleValidate(editor)
-  }, [editor, scheduleValidate])
-
-  // Re-validate once an IME composition finishes, since edits made during
-  // composition deliberately skip the fit check.
-  useEffect(() => {
-    if (!editor) return
-    const dom = editor.view.dom
-    const handler = (): void => {
-      scheduleValidate(editor)
-    }
-    dom.addEventListener('compositionend', handler)
-    return () => dom.removeEventListener('compositionend', handler)
-  }, [editor, scheduleValidate])
-
-  // Layout changes nobody typed: an image that finished loading, a zone that
-  // was resized, a web font that swapped in. Each of them moves the baseline.
-  useEffect(() => {
-    if (!editor) return
-    const dom = editor.view.dom
-    const onLoad = (): void => scheduleRebaseline(editor)
-    dom.addEventListener('load', onLoad, true)
-
-    const observer =
-      typeof ResizeObserver === 'undefined'
-        ? null
-        : new ResizeObserver(() => scheduleRebaseline(editor))
-    observer?.observe(dom)
-
-    let cancelled = false
-    const fonts = typeof document === 'undefined' ? undefined : document.fonts
-    if (fonts) {
-      const onFonts = (): void => scheduleRebaseline(editor)
-      fonts.addEventListener('loadingdone', onFonts)
-      void fonts.ready.then(() => {
-        if (!cancelled) scheduleRebaseline(editor)
-      })
-      return () => {
-        cancelled = true
-        fonts.removeEventListener('loadingdone', onFonts)
-        dom.removeEventListener('load', onLoad, true)
-        observer?.disconnect()
-      }
-    }
-    return () => {
-      cancelled = true
-      dom.removeEventListener('load', onLoad, true)
-      observer?.disconnect()
-    }
-  }, [editor, scheduleRebaseline])
 
   useEffect(() => {
     onEditorReady?.(editor ?? null)
@@ -385,7 +171,6 @@ export function RichTextEditor({
     const incoming = JSON.stringify(doc)
     if (incoming === lastEmitted.current) return
     lastEmitted.current = incoming
-    lastValid.current = { doc, anchor: 1 }
     editor.commands.setContent(doc, { emitUpdate: false })
   }, [doc, editor])
 

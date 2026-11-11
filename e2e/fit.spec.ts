@@ -17,15 +17,21 @@ import {
 } from './helpers'
 
 test.describe('content fit', () => {
-  test('rejects a slide title that does not fit on one line', async ({ page }) => {
+  test('takes a slide title too long for one line, and sets it smaller', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Tittelgrense')
-    const editor = stage(page).locator('[data-testid="slide-title"] .tiptap')
+    const title = stage(page).getByTestId('slide-title')
+    const editor = title.locator('.tiptap')
     await editor.click()
-    await page.keyboard.insertText('Dette er en overskrift som helt sikkert er altfor lang '.repeat(3))
+    const long = 'Dette er en overskrift som helt sikkert er altfor lang '.repeat(3)
+    await page.keyboard.insertText(long)
 
-    await expect(page.getByTestId('toast')).toBeVisible()
+    // Every word is kept, set smaller, marked — and nothing clipped or refused.
+    await expect.poll(() => editor.evaluate((element) => element.textContent ?? '')).toBe(long)
+    await expect(title).toHaveAttribute('data-title-fit', /^0\.\d+$/)
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(1)
     expect(await titleTextOverflow(page)).toBeLessThanOrEqual(1)
+    await expect(page.getByTestId('toast')).toHaveCount(0)
     expect(guard.errors).toEqual([])
   })
 
@@ -58,26 +64,25 @@ test.describe('content fit', () => {
     expect(guard.errors).toEqual([])
   })
 
-  test('refuses a global font change that would hide existing text', async ({ page }) => {
+  test('takes a global font change that no longer fits, and draws the zone smaller', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Fontgrense')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
     await fillZoneToCapacity(page, zones[0].id)
-    expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
+    await expect(zone.locator('.zone-fit')).not.toHaveAttribute('data-fit-scale')
 
     // Monospace is wider than the default proportional font in every font
     // configuration, so this is the same text in a font it no longer fits.
-    const before = await renderedBodyFont(page)
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-body-font').selectOption({ label: 'Consolas' })
 
-    await expect(toast(page, 'Denne fonten')).toBeVisible()
-    // The select is a controlled input, but React does not re-render when the
-    // command is refused, so the DOM value is not evidence either way. What the
-    // slide is actually rendered with is.
-    expect(await renderedBodyFont(page)).toBe(before)
+    await expect.poll(() => renderedBodyFont(page)).toContain('Consolas')
+    await expect(zone.locator('.zone-fit')).toHaveAttribute('data-fit-scale', /^0\.\d+$/)
+    await expect(zone.getByTestId('zone-shrunk-marker')).toHaveCount(1)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+    await expect(toast(page, 'Denne fonten')).toHaveCount(0)
     expect(guard.errors).toEqual([])
   })
 
@@ -98,33 +103,37 @@ test.describe('content fit', () => {
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('refuses a subfield split that would hide existing text', async ({ page }) => {
+  test('takes a subfield split that no longer fits, and draws the zone smaller', async ({ page }) => {
     await createPresentation(page, 'Subfeltgrense')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
     await fillZoneToCapacity(page, zones[0].id)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
 
     await enterZoneMode(page)
     const count = page.getByTestId('subfield-count')
     await count.fill('2')
-    await expect(toast(page, 'subfeltene deler sonen')).toBeVisible()
-    await expect(stage(page).locator('.slide-zone .subfield')).toHaveCount(1)
+    await expect(zone.locator('.subfield')).toHaveCount(2)
+    await expect(zone.locator('.zone-fit')).toHaveAttribute('data-fit-scale', /^0\.\d+$/)
+    await expect(zone.getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    await expect(toast(page, 'subfeltene deler sonen')).toHaveCount(0)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('refuses a content-kind conversion that would hide existing text', async ({ page }) => {
+  test('takes a content-kind conversion that no longer fits, and draws the zone smaller', async ({ page }) => {
     await createPresentation(page, 'Konvertering')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'container')
     await fillZoneToCapacity(page, zones[0].id)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
 
     await enterZoneMode(page)
     // A titled card spends the header height and the card padding on chrome.
     await chooseKindInInspector(page, 'titled-card')
-    await expect(toast(page, 'innholdstypen')).toBeVisible()
-    await expect(
-      stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"] [data-content-kind]`),
-    ).toHaveAttribute('data-content-kind', 'container')
+    await expect(zone.locator('[data-content-kind]').first()).toHaveAttribute('data-content-kind', 'titled-card')
+    await expect(zone.locator('.zone-fit')).toHaveAttribute('data-fit-scale', /^0\.\d+$/)
+    await expect(zone.getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    await expect(toast(page, 'innholdstypen')).toHaveCount(0)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 

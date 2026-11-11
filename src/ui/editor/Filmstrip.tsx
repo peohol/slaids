@@ -16,7 +16,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useDndContext } from '@dnd-kit/core'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { duplicateSlide, moveSlide } from '../../domain/commands'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { authoredPage, type DeckPage } from '../../domain/pages'
 import { useEditorStore } from '../../state/store'
 import type { Presentation, Slide } from '../../domain/types'
@@ -464,7 +464,7 @@ export function Filmstrip({
   const move = (slideId: string, index: number, delta: number): void => {
     const target = index + delta
     if (target < 0 || target >= presentation.slides.length) return
-    if (!run('reorder-slide', (current) => moveSlide(current, slideId, target, domFitCheckers))) {
+    if (!run('reorder-slide', (current) => moveSlide(current, slideId, target, HUMAN_EDIT))) {
       return
     }
     selectAuthored(slideId)

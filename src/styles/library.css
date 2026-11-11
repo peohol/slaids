@@ -431,18 +431,10 @@
   appearance: none;
 }
 
-.new-presentation__fonts {
+.theme-modal__fonts {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
-}
-
-.new-presentation__preview {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  border-radius: var(--radius-md);
-  padding: 18px;
 }
 
 /* ------------------------------------------------------------------ *
@@ -752,7 +744,7 @@
 }
 
 /* The fonts preview pair stacks rather than squeezing two columns into one. */
-:root[data-compact='true'] .new-presentation__fonts {
+:root[data-compact='true'] .theme-modal__fonts {
   grid-template-columns: 1fr;
 }
 

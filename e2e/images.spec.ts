@@ -174,6 +174,7 @@ test.describe('pictures', () => {
     await addContentToZone(page, zones[1].id, 'untitled-card')
     await stage(page).locator('.subfield .tiptap').fill('Behold foreløpig')
     await copyPicture(page)
+    await page.getByTestId('mode-content').click()
 
     await page.keyboard.press('Control+v')
     await expect(page.getByTestId('placement-bar')).toContainText('Velg sonen')
@@ -185,6 +186,40 @@ test.describe('pictures', () => {
     await expect(target.locator('img.image-panel__img')).toBeVisible()
     await expect(stage(page).locator('img.image-panel__img')).toHaveCount(1)
   })
+
+  for (const fewerDialogs of [false, true]) {
+    test(`bevarer tekstsonen ved bildepaste i tekstfelt med færre popuper ${fewerDialogs ? 'på' : 'av'}`, async ({ page }) => {
+      await page.goto('/')
+      await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
+      const option = page.getByRole('checkbox', { name: 'Færre popuper' })
+      await option.setChecked(fewerDialogs)
+      await expect(option).toBeChecked({ checked: fewerDialogs })
+      await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+
+      await createPresentation(page, 'Bilde i tekstfelt')
+      const [zone] = await zoneRects(page)
+      await addContentToZone(page, zone.id, 'untitled-card')
+      const target = stage(page).locator(`.slide-zone[data-node-id="${zone.id}"]`)
+      const editor = target.locator('.subfield .tiptap')
+      await editor.fill('Denne teksten skal beholdes')
+      await editor.press('End')
+      await expect(editor).toBeFocused()
+      await editor.evaluate((element) => {
+        element.addEventListener('paste', () => {
+          element.setAttribute('data-received-paste', 'true')
+        }, { once: true })
+      })
+      await copyPicture(page)
+      await page.keyboard.press('Control+v')
+
+      await expect(editor).toHaveAttribute('data-received-paste', 'true')
+      await expect(editor).toContainText('Denne teksten skal beholdes')
+      await expect(target.locator('[data-content-kind]')).toHaveAttribute('data-content-kind', 'untitled-card')
+      await expect(target.locator('.image-panel')).toHaveCount(0)
+      await expect(page.getByTestId('confirm-dialog')).toBeHidden()
+      await expect(page.getByTestId('placement-bar')).toBeHidden()
+    })
+  }
 
   test('erstatter soneinnhold direkte med færre popuper', async ({ page }) => {
     await page.goto('/')
