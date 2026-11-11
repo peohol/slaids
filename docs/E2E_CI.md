@@ -23,7 +23,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 <!-- e2e-pr-files:start -->
 | Fil | Hva PR-kontrollen sjekker |
 | --- | --- |
-| `library.spec.ts` | Opprette, åpne og liste en presentasjon; den åpne presentasjonen huskes etter omlasting |
+| `library.spec.ts` | Opprette (bare tittel, så åpnes temaeditoren), åpne og liste en presentasjon; den åpne presentasjonen huskes etter omlasting |
 | `editor.spec.ts` | Legge til, duplisere, flytte og slette slider; navigere mellom slider; slå tittel av og på; tittel og brødtekst overlever omlasting; fet skrift fra tekstlinjen; kort med tittel; angre og gjør om |
 | `golden-path.spec.ts` | Hele gullstien med nøyaktig ett mellomrom overalt |
 | `zones.spec.ts` | Dele en sone, nøstet deling uten ekstra mellomrom, endre forhold fra inspektøren |
@@ -36,6 +36,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
 | `sections.spec.ts` | En inndelingslinje merkes som forminsket bare når den faktisk er satt mindre, og merket står på pillen |
 | `auth.spec.ts` | Innlogging med engangskode (sifrene sender inn selv), feil kode med nytt forsøk, «Hold meg innlogget» overlever at nettleseren lukkes og ellers ikke, ut og inn uten at en lagret presentasjon går tapt, deaktivering stenger en åpen økt |
+| `theme-editor.spec.ts` | Et nytt dekk åpner temaeditoren, og forhåndsvisningen er en ekte slide med kort med tittel, beholder og kort uten tittel, all tekst midtstilt og hele bildet synlig uten rulling |
 | `card-look.spec.ts` | Skygger slås av og på og huskes; tittel og innhold i et kort med tittel forminskes hver for seg og merkes hver for seg, likt i redigering og presentasjon; utseendet kan velges med tastaturet |
 | `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
 | `workspace.spec.ts` | Modus, ulagret redigering og angrehistorikk overlever bytte mellom desktop og kompakt |

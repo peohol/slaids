@@ -107,12 +107,24 @@ export async function backToLibrary(page: Page): Promise<void> {
   await expect(page.getByTestId('presentation-grid')).toBeVisible()
 }
 
-export async function createPresentation(page: Page, title: string): Promise<void> {
-  await page.goto('/')
+/**
+ * Opprett et dekk fra biblioteket som står framme, slik en person gjør det:
+ * bare tittelen, og så åpner temaeditoren seg over det nye dekket (§ 15.1).
+ * Temaeditoren lukkes med «Ferdig», som beholder dekket slik det ble laget.
+ */
+export async function createFromLibrary(page: Page, title: string): Promise<void> {
   await page.getByTestId('new-presentation').click()
   await page.getByTestId('presentation-title-input').fill(title)
   await page.getByTestId('create-presentation').click()
   await expect(page.getByTestId('editor')).toBeVisible()
+  await expect(page.getByTestId('theme-modal')).toBeVisible()
+  await page.getByTestId('theme-done').click()
+  await expect(page.getByTestId('theme-modal')).toHaveCount(0)
+}
+
+export async function createPresentation(page: Page, title: string): Promise<void> {
+  await page.goto('/')
+  await createFromLibrary(page, title)
   await expect(page.getByTestId('stage-slide')).toBeVisible()
 }
 

@@ -27,13 +27,22 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('presentation-card')).toHaveCount(0)
 
     await page.getByTestId('new-presentation').click()
-    await expect(page.getByTestId('new-presentation-modal')).toBeVisible()
+    const dialog = page.getByTestId('new-presentation-modal')
+    await expect(dialog).toBeVisible()
+    // Bare tittelen spørres om: fonter og farger velges i temaeditoren etterpå.
+    await expect(dialog.locator('input, select, textarea')).toHaveCount(1)
+    await expect(dialog.getByTestId('palette')).toHaveCount(0)
     await expect(page.getByTestId('create-presentation')).toBeDisabled()
     await page.getByTestId('presentation-title-input').fill('Første presentasjon')
     await page.getByTestId('create-presentation').click()
 
     await expect(page.getByTestId('editor')).toBeVisible()
     await expect(page.getByTestId('presentation-title')).toHaveText('Første presentasjon')
+    // Temaeditoren åpnes over det nye dekket, og å lukke den beholder dekket.
+    await expect(page.getByTestId('theme-modal')).toBeVisible()
+    await expect(page.getByTestId('theme-preview')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('theme-modal')).toHaveCount(0)
 
     await page.getByTestId('back-to-library').click()
     await expect(page.getByTestId('presentation-card')).toHaveCount(1)
@@ -50,6 +59,7 @@ test.describe('presentation library', () => {
       .fill('Et navn som er altfor langt til å stå på én linje på forsiden av dette dekket, uansett hvilken font det settes i')
     await page.getByTestId('create-presentation').click()
     await expect(page.getByTestId('editor')).toBeVisible()
+    await page.getByTestId('theme-done').click()
 
     await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
     const pill = stage(page).locator('[data-section-line="title"]')

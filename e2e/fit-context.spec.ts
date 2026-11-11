@@ -12,6 +12,7 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { FONT_OPTIONS } from '../src/domain/fonts'
 import { expect, familiesFrom, localFaceCss, test, type Locator, type Page } from './fixtures'
 import {
   addContentToZone,
@@ -27,6 +28,7 @@ import {
   worstOverflow,
   zoneRects,
   chooseFromToolbarMenu,
+  createFromLibrary,
 } from './helpers'
 
 /* ------------------------------------------------------------------ *
@@ -168,12 +170,15 @@ test.describe('fit measurement and web fonts', () => {
     // swaps when the real face arrives. No command can be blamed for that —
     // and nothing needs to be: the zone is drawn smaller and marked.
     const route = await routeFonts(page, { hold: true, wideFor: 'Inter' })
+    // Dekket starter i Inter fordi det er standardtemaet for nye dekk: det er
+    // den ene måten et dekk kan *opprettes* i en font som ikke er lastet ennå.
+    // Temaeditoren tar aldri i bruk en font før den kan tegnes.
+    const inter = FONT_OPTIONS.find((font) => font.label === 'Inter')!.stack
+    await page.addInitScript((stack) => {
+      localStorage.setItem('slaids.ui.defaultTheme', JSON.stringify({ bodyFontFamily: stack }))
+    }, inter)
     await page.goto('/')
-    await page.getByTestId('new-presentation').click()
-    await page.getByTestId('presentation-title-input').fill('Fontbytte')
-    await page.getByTestId('body-font-select').selectOption({ label: 'Inter' })
-    await page.getByTestId('create-presentation').click()
-    await expect(page.getByTestId('editor')).toBeVisible()
+    await createFromLibrary(page, 'Fontbytte')
     await expect(page.getByTestId('editor')).toHaveAttribute('data-fonts', 'pending')
 
     // Filled while the browser is still drawing the fallback. The face the
