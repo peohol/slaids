@@ -223,6 +223,13 @@ export function findSlideIssues(
     }
   }
 
+  issues.push(...findSlideLinkIssues(presentation, slide))
+  return issues
+}
+
+function findSlideLinkIssues(presentation: Presentation, slide: ContentSlide): InvariantIssue[] {
+  const issues: InvariantIssue[] = []
+  const slideId = slide.id
   const knownAssets = new Set(presentation.assets.map((asset) => asset.id))
   for (const leaf of collectLeaves(slide.root)) {
     if (!leaf.content) continue
@@ -325,6 +332,9 @@ export function findPresentationIssues(
 
   for (const slide of presentation.slides) {
     issues.push(...findSlideIssues(presentation, slide, options))
+  }
+  for (const slide of presentation.sandboxSlides ?? []) {
+    issues.push(...findSlideLinkIssues(presentation, slide))
   }
 
   // Deck-wide by nature: every slide can be within its own limit while the deck
