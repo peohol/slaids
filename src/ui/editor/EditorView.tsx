@@ -1242,7 +1242,14 @@ export function EditorView({
       const root = useEditorStore.getState().currentContentSlide()?.root
       const split = root ? findSplit(root, field.nodeId) : null
       const holder = split?.children.find((child) => child.kind === 'leaf' && child.content)
-      if (holder) setCaretRequest({ slideId, field: { ...field, nodeId: holder.id, at } })
+      if (!holder) return
+      const caret = { ...field, nodeId: holder.id, at }
+      // En fokusert skriveflate (kompakt, eller en forminsket sone på desktop)
+      // følger teksten til barnet, ellers blir ingen av de nye feltene skrivbare.
+      setStageFocus((current) =>
+        current?.fieldId === field.nodeId ? { ...current, fieldId: holder.id, caret } : current,
+      )
+      setCaretRequest({ slideId, field: caret })
     },
     [zoneHandlers],
   )
