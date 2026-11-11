@@ -53,6 +53,7 @@ function pageMarkup(presentation: Presentation, shareUrl: string | null = null):
           numbering: new Map(),
           sectionColors: deckSectionColors(pages),
           progress,
+          logo: null,
           isStatic: true,
         }}
       >
@@ -80,6 +81,7 @@ function Deck({
         numbering: new Map(),
         sectionColors: deckSectionColors(pages),
         progress: deckProgress(pages),
+        logo: null,
         isStatic: true,
       }}
     >

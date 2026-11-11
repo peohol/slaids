@@ -37,6 +37,7 @@ import { googleFontsHref } from '../domain/fonts'
 import { deckPages, deckProgress, deckSectionColors, type DeckPage } from '../domain/pages'
 import { computeReferenceNumbering } from '../domain/references'
 import type { Presentation } from '../domain/types'
+import { deckLogoLayout } from '../domain/logo'
 import { AssetSourceProvider, type AssetUrlSource } from '../state/assetSource'
 import { DeckPageView } from '../ui/slide/DeckPageView'
 import { SlideRenderProvider } from '../ui/slide/SlideRenderContext'
@@ -122,6 +123,7 @@ export function previewDocument(request: PreviewDocumentRequest): PreviewDocumen
           // the section colours the audience sees on that page.
           sectionColors: deckSectionColors(pages),
           progress: deckProgress(pages, presentation.includeReferencesInProgress),
+          logo: deckLogoLayout(presentation),
           isStatic: true,
         }}
       >

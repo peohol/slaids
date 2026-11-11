@@ -76,6 +76,7 @@ function render(presentation: Presentation, node: React.ReactNode): string {
         numbering: new Map(),
         sectionColors: deckSectionColors(pages),
         progress: deckProgress(pages),
+        logo: null,
         isStatic: true,
       }}
     >

@@ -160,6 +160,7 @@ export function SectionStage({
       {(scale) => (
         <>
           <SectionFrame
+            section={section}
             accentColor={section.accentColor}
             backgroundColor={section.backgroundColor}
             lines={SECTION_LINES}

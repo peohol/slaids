@@ -72,23 +72,23 @@ describe('focusFieldRect', () => {
 
   it('answers for a zone and for the heading of the same slide', () => {
     const slide = contentAt(deck, 1)
-    expect(focusFieldRect(slide, deck.theme, slide.root.id)).not.toBeNull()
-    expect(focusFieldRect(slide, deck.theme, TITLE_NODE_ID)).not.toBeNull()
+    expect(focusFieldRect(slide, deck, slide.root.id)).not.toBeNull()
+    expect(focusFieldRect(slide, deck, TITLE_NODE_ID)).not.toBeNull()
   })
 
   it('answers for nothing a slide does not draw', () => {
     const slide = contentAt(deck, 1)
-    expect(focusFieldRect(slide, deck.theme, 'a-zone-that-was-deleted')).toBeNull()
+    expect(focusFieldRect(slide, deck, 'a-zone-that-was-deleted')).toBeNull()
     // A section's lines are not on a content slide, nor zones on a section.
-    expect(focusFieldRect(slide, deck.theme, SECTION_TITLE_NODE_ID)).toBeNull()
-    expect(focusFieldRect(sectionAt(deck, 0), deck.theme, slide.root.id)).toBeNull()
-    expect(focusFieldRect(null, deck.theme, slide.root.id)).toBeNull()
+    expect(focusFieldRect(slide, deck, SECTION_TITLE_NODE_ID)).toBeNull()
+    expect(focusFieldRect(sectionAt(deck, 0), deck, slide.root.id)).toBeNull()
+    expect(focusFieldRect(null, deck, slide.root.id)).toBeNull()
   })
 
   it('answers for both lines of a section', () => {
     const section = sectionAt(deck, 0)
-    const title = focusFieldRect(section, deck.theme, SECTION_TITLE_NODE_ID)
-    const subtitle = focusFieldRect(section, deck.theme, SECTION_SUBTITLE_NODE_ID)
+    const title = focusFieldRect(section, deck, SECTION_TITLE_NODE_ID)
+    const subtitle = focusFieldRect(section, deck, SECTION_SUBTITLE_NODE_ID)
     expect(title).not.toBeNull()
     expect(subtitle).not.toBeNull()
     // Two lines, one above the other, and never the same rect.
@@ -102,7 +102,7 @@ describe('focusFieldRect', () => {
    */
   it('stops answering for a heading the slide no longer has', () => {
     const slide = contentAt(deck, 1)
-    expect(focusFieldRect({ ...slide, title: null }, deck.theme, TITLE_NODE_ID)).toBeNull()
+    expect(focusFieldRect({ ...slide, title: null }, deck, TITLE_NODE_ID)).toBeNull()
   })
 })
 

@@ -35,6 +35,13 @@ import type { AgentContext } from '../agent/types'
 import type { Presentation } from '../domain/types'
 import { dataUrlAssetSource, loadPreviewAssets, pageAssetIds } from './assets'
 import { previewDocument } from './document'
+import { setThemeLogo } from '../domain/commands/logo'
+import type { Result } from '../domain/result'
+
+function unwrapLogo(result: Result<Presentation>): Presentation {
+  if (!result.ok) throw new Error(result.error.message)
+  return result.value
+}
 import { PREVIEW_STYLESHEETS } from './styles'
 
 afterEach(closeTestDatabases)
@@ -220,7 +227,7 @@ describe('bilder og SVG', () => {
   it('tegner et rasterbilde som den samme img-en editoren tegner', async () => {
     const context = testAgentContext()
     const { deck, assetId, presentation } = await deckWithAsset(context, 'raster')
-    const assets = await loadPreviewAssets(pageFor(presentation, deck.slideId), context.repository)
+    const assets = await loadPreviewAssets(pageFor(presentation, deck.slideId), presentation.theme, context.repository)
 
     expect(assets.warnings).toEqual([])
     const url = assets.source.resolveSync?.(assetId)
@@ -243,7 +250,7 @@ describe('bilder og SVG', () => {
   it('tegner en SVG gjennom img, aldri som markup i dokumentet', async () => {
     const context = testAgentContext()
     const { deck, assetId, presentation } = await deckWithAsset(context, 'svg')
-    const assets = await loadPreviewAssets(pageFor(presentation, deck.slideId), context.repository)
+    const assets = await loadPreviewAssets(pageFor(presentation, deck.slideId), presentation.theme, context.repository)
 
     const url = assets.source.resolveSync?.(assetId)
     expect(url?.startsWith('data:image/svg+xml;base64,')).toBe(true)
@@ -264,14 +271,28 @@ describe('bilder og SVG', () => {
     const context = testAgentContext()
     const { deck, assetId, presentation } = await deckWithAsset(context, 'raster')
 
-    expect(pageAssetIds(pageFor(presentation, deck.slideId))).toEqual([assetId])
-    expect(pageAssetIds(pageFor(presentation, presentation.slides[0].id))).toEqual([])
+    expect(pageAssetIds(pageFor(presentation, deck.slideId), presentation.theme)).toEqual([assetId])
+    expect(pageAssetIds(pageFor(presentation, presentation.slides[0].id), presentation.theme)).toEqual([])
+  })
+
+  it('henter og tegner temaets logo på forsiden og slidene', async () => {
+    const context = testAgentContext()
+    const { deck, assetId, presentation: stored } = await deckWithAsset(context, 'svg')
+    const presentation = unwrapLogo(setThemeLogo(stored, assetId))
+    for (const pageId of [presentation.slides[0].id, deck.slideId]) {
+      const page = pageFor(presentation, pageId)
+      expect(pageAssetIds(page, presentation.theme)).toContain(assetId)
+      const assets = await loadPreviewAssets(page, presentation.theme, context.repository)
+      const document = previewDocument({ presentation, page, assets: assets.source })
+      expect(document.html).toContain('class="slide-logo"')
+      expect(document.html).toContain(`src="${assets.source.resolveSync?.(assetId)}"`)
+    }
   })
 
   it('sier fra om en fil lageret ikke har, i stedet for å tegne den stille bort', async () => {
     const context = testAgentContext()
     const { deck, assetId, presentation } = await deckWithAsset(context, 'raster')
-    const assets = await loadPreviewAssets(pageFor(presentation, deck.slideId), {
+    const assets = await loadPreviewAssets(pageFor(presentation, deck.slideId), presentation.theme, {
       getAsset: () => Promise.resolve(null),
     })
 

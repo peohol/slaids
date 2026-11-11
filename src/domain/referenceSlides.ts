@@ -6,10 +6,11 @@
  * pagination correct after any edit.
  */
 
+import { geometryForDeck } from './logo'
 import { computeMainRect } from './geometry'
 import { estimateDocHeight } from './fit'
 import { titleDoc } from './richdoc'
-import { geometryForTheme, themeMetrics } from './metrics'
+import { themeMetrics } from './metrics'
 import {
   REFERENCE_SLIDE_ID_PREFIX,
   planReferenceSlides,
@@ -74,7 +75,7 @@ export function buildReferenceSlides(deck: DeckSource): ContentSlide[] {
   const entries = referenceEntries(deck)
   if (entries.length === 0) return []
 
-  const geometry = geometryForTheme(deck.theme)
+  const geometry = geometryForDeck(deck)
   const mainRect = computeMainRect(true, geometry)
   const tokens = themeMetrics(deck.theme)
   const byId = new Map(entries.map((entry) => [entry.id, entry]))

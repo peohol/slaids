@@ -10,6 +10,7 @@
 
 import { defaultTheme } from '../domain/presentation'
 import { themeSchema } from '../domain/schema'
+import { themeWithoutLogo } from '../domain/logo'
 import type { PresentationTheme } from '../domain/types'
 import { readPref, writePref } from './prefs'
 
@@ -23,9 +24,14 @@ export function readDefaultTheme(): PresentationTheme {
   const parsed = themeSchema.safeParse(
     typeof stored === 'object' ? { ...defaultTheme(), ...stored } : stored,
   )
-  return parsed.success ? parsed.data : defaultTheme()
+  return parsed.success ? themeWithoutLogo(parsed.data) : defaultTheme()
 }
 
+/**
+ * Logoen er en fil i én presentasjon, og en ny presentasjon har ingen filer.
+ * Standardtemaet bærer derfor aldri logoen; temamalene (§ 15.4) gjør det, med
+ * en egen kopi av filen.
+ */
 export function writeDefaultTheme(theme: PresentationTheme): void {
-  writePref(KEY, theme)
+  writePref(KEY, themeWithoutLogo(theme))
 }

@@ -34,6 +34,7 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { deckPages, deckProgress, deckSectionColors, type DeckPage } from '../../domain/pages'
 import { computeReferenceNumbering } from '../../domain/references'
 import type { DeckSource } from '../../domain/types'
+import { deckLogoLayout } from '../../domain/logo'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
 import { InteractiveSlideSurface } from '../interactive/InteractiveSlideSurface'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
@@ -293,6 +294,7 @@ export function PresentationPlayer({
           numbering,
           sectionColors,
           progress,
+          logo: deckLogoLayout(deck),
           isStatic: true,
         }}
       >

@@ -105,7 +105,7 @@ async function compare(
 
   const page = deckPages(presentation).find((candidate) => candidate.id === deck.slideId)
   if (!page) throw new Error('Fant ikke siden.')
-  const assets = await loadPreviewAssets(page, context.repository)
+  const assets = await loadPreviewAssets(page, presentation.theme, context.repository)
   const preview = previewDocument({ presentation, page, assets: assets.source })
 
   // `measureElementOverflow`'s own reading, written out here rather than
@@ -226,7 +226,7 @@ async function compareCardTitle(
 
   const page = deckPages(presentation).find((candidate) => candidate.id === deck.slideId)
   if (!page) throw new Error('Fant ikke siden.')
-  const assets = await loadPreviewAssets(page, context.repository)
+  const assets = await loadPreviewAssets(page, presentation.theme, context.repository)
   const preview = previewDocument({ presentation, page, assets: assets.source })
 
   const { measured, line } = await measureInBrowser(preview, (tab) =>
@@ -421,7 +421,7 @@ describe('forhåndsvisningen av en sone et menneske har gjort for liten', () => 
 
       const page = deckPages(presentation).find((candidate) => candidate.id === deck.slideId)
       if (!page) throw new Error('Fant ikke siden.')
-      const assets = await loadPreviewAssets(page, context.repository)
+      const assets = await loadPreviewAssets(page, presentation.theme, context.repository)
       const preview = previewDocument({ presentation, page, assets: assets.source })
 
       const zones = await measureInBrowser(preview, async (tab) => {

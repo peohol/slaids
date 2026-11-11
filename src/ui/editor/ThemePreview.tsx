@@ -20,6 +20,7 @@ import { createLeaf, createSplit } from '../../domain/layout'
 import { createSlide } from '../../domain/presentation'
 import { ACCENT_NODE } from '../../domain/richdoc'
 import type { CardBody, ContentSlide, PresentationTheme, RichNode } from '../../domain/types'
+import type { DeckLogoLayout } from '../../domain/logo'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
 import { SlideView } from '../slide/SlideView'
 import { BoundedPreview } from './BoundedPreview'
@@ -77,11 +78,14 @@ export function ThemePreview({
   theme,
   background,
   accent,
+  logo = null,
 }: {
   theme: PresentationTheme
   /** Forsidens farger: det leseren møter først. */
   background: string
   accent: string
+  /** Dekkets logo, i den størrelsen og på den plassen den har på dekkets slides. */
+  logo?: DeckLogoLayout | null
 }) {
   // Én komposisjon per åpning av dialogen: id-ene er dens egne og betyr ingenting.
   const [slide] = useState(themePreviewSlide)
@@ -91,10 +95,11 @@ export function ThemePreview({
       numbering: new Map(),
       sectionColors: new Map([[slide.id, { background, accent }]]),
       progress: new Map(),
+      logo,
       // Statisk: ingen redigeringshjelp, heller ikke merket for forminsket tekst.
       isStatic: true,
     }),
-    [theme, slide.id, background, accent],
+    [theme, slide.id, background, accent, logo],
   )
 
   return (

@@ -1,6 +1,9 @@
 /** Shared rendering context for slide content: theme, citations, colours and assets. */
 
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useMemo } from 'react'
+import type { GeometryOptions } from '../../domain/geometry'
+import type { DeckLogoLayout } from '../../domain/logo'
+import { geometryForTheme } from '../../domain/metrics'
 import { DEFAULT_BACKGROUND_COLOR, DEFAULT_PILL_COLOR } from '../../domain/constants'
 import { renderFontStack } from '../../domain/fonts'
 import type { DeckProgress, DeckSectionColors, SectionColors } from '../../domain/pages'
@@ -33,6 +36,12 @@ export interface SlideRenderValue {
    * and offscreen measurement.
    */
   progress: DeckProgress
+  /**
+   * Logoen slik den tegnes i dette dekket – `deckLogoLayout`, regnet ut én gang
+   * per dekk av den som har hele dekket. `null` uten logo, og i offscreen
+   * måling og forhåndsvisninger som ikke er en side i et dekk.
+   */
+  logo: DeckLogoLayout | null
   /** Rendering is static (presentation mode, thumbnails, measurement). */
   isStatic: boolean
   /**
@@ -56,6 +65,7 @@ const fallback: SlideRenderValue = {
   numbering: new Map(),
   sectionColors: new Map(),
   progress: new Map(),
+  logo: null,
   isStatic: true,
 }
 
@@ -93,6 +103,19 @@ export function SlideRenderProvider({
 
 export function useSlideRender(): SlideRenderValue {
   return useContext(SlideRenderContext)
+}
+
+/**
+ * Geometrien en vanlig slide i dette dekket tegnes med: temaets gap og
+ * tittelsone, og stripen logoen reserverer. Det samme svaret `geometryForDeck`
+ * gir kommandoene, bare lest fra det som allerede er regnet ut for dekket.
+ */
+export function useSlideGeometryOptions(): GeometryOptions {
+  const { theme, logo } = useSlideRender()
+  return useMemo(
+    () => ({ ...geometryForTheme(theme), logo: logo?.slides?.reservation ?? null }),
+    [theme, logo],
+  )
 }
 
 export function PageColorsProvider({

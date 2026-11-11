@@ -49,7 +49,6 @@ import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES, contentKindOptions } from './co
 import { computeReferenceNumbering } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { TITLE_NODE_ID, computeSlideGeometry } from '../../domain/geometry'
-import { geometryForTheme } from '../../domain/metrics'
 import {
   deckPages,
   deckProgress,
@@ -89,6 +88,7 @@ import type {
 } from '../../domain/types'
 import { describeError, err, type Result } from '../../domain/result'
 import { SlideRenderProvider } from '../slide/SlideRenderContext'
+import { deckLogoLayout, geometryForDeck } from '../../domain/logo'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { pillTokenStyle } from '../slide/SlideView'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -575,6 +575,7 @@ export function EditorView({
    * itself.
    */
   const sectionColors = useMemo(() => deckSectionColors(pages), [pages])
+  const logo = presentation ? deckLogoLayout(presentation) : null
 
   /**
    * Derived by construction rather than synchronised. Selecting an authored
@@ -598,7 +599,7 @@ export function EditorView({
     contentSlide && selectedNodeId ? findLeaf(contentSlide.root, selectedNodeId) : null
   const geometry =
     contentSlide && presentation
-      ? computeSlideGeometry(contentSlide, geometryForTheme(presentation.theme))
+      ? computeSlideGeometry(contentSlide, geometryForDeck(presentation))
       : null
   const selectedRect = geometry && selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
   /**
@@ -1722,7 +1723,7 @@ export function EditorView({
    */
   const focusCandidateRect =
     stageFocus && !viewedDerivedPage
-      ? focusFieldRect(slide, presentation.theme, stageFocus.fieldId)
+      ? focusFieldRect(slide, presentation, stageFocus.fieldId)
       : null
   const focus = liveFocus(stageFocus, { slideId: currentSlideId, rect: focusCandidateRect, mode })
   const focusRect = focus ? focusCandidateRect : null
@@ -2029,6 +2030,7 @@ export function EditorView({
         numbering,
         sectionColors,
         progress,
+        logo,
         isStatic: false,
         // A citation is the shortest path to the source it stands for: one
         // reference opens on that reference, several open the list.

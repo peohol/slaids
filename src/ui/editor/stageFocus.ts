@@ -30,9 +30,10 @@ import {
   computeSectionGeometry,
   computeSlideGeometry,
 } from '../../domain/geometry'
-import { geometryForTheme, sectionGeometryForTheme } from '../../domain/metrics'
+import { sectionGeometryForTheme } from '../../domain/metrics'
+import { geometryForDeck, type LogoDeck } from '../../domain/logo'
 import type { ActiveField, EditorMode } from '../../state/store'
-import type { PresentationTheme, Rect, Slide } from '../../domain/types'
+import type { Rect, Slide } from '../../domain/types'
 
 export interface StageFocus {
   /** The slide it was taken on: paging away is leaving the focused field. */
@@ -110,17 +111,17 @@ export function isZoneField(fieldId: string): boolean {
  * stops being focusable in the same render, and nothing here can disagree with
  * where the page is actually drawn.
  */
-export function focusFieldRect(slide: Slide | null, theme: PresentationTheme, fieldId: string): Rect | null {
+export function focusFieldRect(slide: Slide | null, deck: LogoDeck, fieldId: string): Rect | null {
   if (!slide) return null
   if (slide.kind === 'section') {
     if (fieldId !== SECTION_TITLE_NODE_ID && fieldId !== SECTION_SUBTITLE_NODE_ID) return null
-    const geometry = computeSectionGeometry(sectionGeometryForTheme(theme))
+    const geometry = computeSectionGeometry(sectionGeometryForTheme(deck.theme))
     return fieldId === SECTION_TITLE_NODE_ID ? geometry.titleRect : geometry.subtitleRect
   }
   if (slide.kind !== 'content') return null
   // `computeSlideGeometry` puts the title in the same map as the zones, and
   // leaves it out when the slide has none — so one lookup answers for both.
-  return computeSlideGeometry(slide, geometryForTheme(theme)).rects.get(fieldId) ?? null
+  return computeSlideGeometry(slide, geometryForDeck(deck)).rects.get(fieldId) ?? null
 }
 
 /**

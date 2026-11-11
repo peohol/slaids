@@ -14,6 +14,7 @@
  * that read before somebody else wrote is told so instead of overwriting them.
  */
 
+import { geometryForDeck } from '../../domain/logo'
 import { z } from 'zod'
 import {
   IMAGE_BRIEF_RULE,
@@ -58,7 +59,7 @@ import { estimateFit } from '../../domain/fit'
 import { availableContentKinds, contentKindFitsRect } from '../../domain/contentSize'
 import { interactiveByteSize } from '../../domain/interactive'
 import { computeSlideGeometry } from '../../domain/geometry'
-import { geometryForTheme, themeMetrics } from '../../domain/metrics'
+import { themeMetrics } from '../../domain/metrics'
 import { findSlide } from '../../domain/presentation'
 import { presentationRevision } from '../../domain/revision'
 import { docToPlainText } from '../../domain/richdoc'
@@ -914,7 +915,7 @@ function inspectZones(
   // The theme scales the gap and the title zone, so the rects reported are the
   // ones the fit guard measures against — not a second, unthemed geometry.
   const rects = computeSlideGeometry(slide, {
-    ...geometryForTheme(presentation.theme),
+    ...geometryForDeck(presentation),
     ...context.geometry,
   }).rects
   const zones: ZoneInspection[] = []

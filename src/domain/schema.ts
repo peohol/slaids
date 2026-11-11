@@ -20,6 +20,11 @@ import {
   MIN_SPLIT_CHILDREN,
   MIN_ZONE_RATIO,
   TITLED_CARD_STYLES,
+  LOGO_MIN_HEIGHT,
+  LOGO_SECTION_PLACEMENTS,
+  LOGO_SECTION_VISIBILITIES,
+  LOGO_SLIDE_POSITIONS,
+  SLIDE_HEIGHT,
   type PlannedImageField,
 } from './constants'
 import { validateTree } from './layout'
@@ -227,6 +232,22 @@ export const themeSchema = z.object({
   fontScale: z.number().finite().min(FONT_SCALE_RANGE.min).max(FONT_SCALE_RANGE.max),
   boxShadows: z.boolean(),
   titledCardStyle: z.enum(TITLED_CARD_STYLES),
+  logo: z
+    .object({
+      assetId: z.string().min(1),
+      aspect: z.number().finite().positive(),
+      sections: z.object({
+        visibility: z.enum(LOGO_SECTION_VISIBILITIES),
+        placement: z.enum(LOGO_SECTION_PLACEMENTS),
+        height: z.number().finite().min(LOGO_MIN_HEIGHT).max(SLIDE_HEIGHT),
+      }),
+      slides: z.object({
+        visible: z.boolean(),
+        position: z.enum(LOGO_SLIDE_POSITIONS),
+        height: z.number().finite().min(LOGO_MIN_HEIGHT).max(SLIDE_HEIGHT),
+      }),
+    })
+    .optional(),
 })
 
 export const referenceSchema = z.object({

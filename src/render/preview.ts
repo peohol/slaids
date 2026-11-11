@@ -65,7 +65,7 @@ export function slidePreviewRenderer(
       // arrived. Read here, and folded into the answer below.
       const localFonts = previewLocalFonts(request.presentation.theme)
       const fonts = await loadFonts(previewFontFamilies(request.presentation.theme))
-      const assets = await loadPreviewAssets(request.page, request.assets)
+      const assets = await loadPreviewAssets(request.page, request.presentation.theme, request.assets)
       const document = previewDocument({
         presentation: request.presentation,
         page: request.page,

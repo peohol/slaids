@@ -14,6 +14,7 @@ import { imagePanelOf, withImagePanel } from './content'
 import { walkNodes } from './layout'
 import { mapDeckSlides } from './deckSlides'
 import { emptyDoc } from './richdoc'
+import { dropThemeAssetIds, remapThemeAssetIds } from './logo'
 import type {
   CardBody,
   DeckSlides,
@@ -277,7 +278,8 @@ export function remapAssetIds(
     content: remapContent(item.content),
   }))
   const assets = presentation.assets.map((asset) => ({ ...asset, id: map.get(asset.id) ?? asset.id }))
-  return { ...presentation, slides, sandbox, assets }
+  const theme = remapThemeAssetIds(presentation.theme, map)
+  return { ...presentation, theme, slides, sandbox, assets }
 }
 
 /**
@@ -310,6 +312,7 @@ export function dropAssetIds(
   const drop = (content: ZoneContent): ZoneContent => dropContentAssetIds(content, ids)
   return {
     ...presentation,
+    theme: dropThemeAssetIds(presentation.theme, ids),
     slides: mapDeckSlides(presentation.slides, {
       section: (slide) => slide,
       content: (slide) => ({ ...slide, root: mapTreeContent(slide.root, drop) }),

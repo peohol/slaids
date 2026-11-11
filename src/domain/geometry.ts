@@ -65,6 +65,27 @@ export interface GeometryOptions {
    * what every caller did while the minimum was one pair of constants.
    */
   metrics?: ThemeMetrics
+  /**
+   * Stripen logoen reserverer på en vanlig slide, eller ingen (§ 15.2).
+   *
+   * Én for hele dekket: alle vanlige slides har logoen på samme sted og i samme
+   * størrelse, så det er et faktum om dekket og ikke om én slide. Regnes ut av
+   * `domain/logo.ts`, som også sørger for at den aldri er større enn at
+   * hovedsonen på hver slide fortsatt holder sitt minstemål.
+   */
+  logo?: LogoReservation | null
+}
+
+/**
+ * Plassen logoen tar langs én kant av innholdsområdet.
+ *
+ * `size` er logoens tykkelse på tvers av kanten – høyden øverst og nederst,
+ * bredden til venstre og høyre. Det reserverte er `size` pluss ett globalt gap,
+ * så logoen og det den står ved har nøyaktig den avstanden alt annet har.
+ */
+export interface LogoReservation {
+  edge: 'top' | 'bottom' | 'left' | 'right'
+  size: number
 }
 
 interface ResolvedOptions {
@@ -75,6 +96,7 @@ interface ResolvedOptions {
   titleHeight: number
   progressHeight: number
   metrics: ThemeMetrics
+  logo: LogoReservation | null
 }
 
 export function resolveOptions(options: GeometryOptions = {}): ResolvedOptions {
@@ -86,6 +108,7 @@ export function resolveOptions(options: GeometryOptions = {}): ResolvedOptions {
     titleHeight: options.titleHeight ?? titleZoneHeightFor(TITLE_FONT_SIZE),
     progressHeight: options.progressHeight ?? PROGRESS_BAR_HEIGHT,
     metrics: options.metrics ?? themeMetrics(),
+    logo: options.logo && options.logo.size > 0 ? options.logo : null,
   }
 }
 
@@ -253,21 +276,53 @@ export function computeLayoutRects(
   return rects
 }
 
-/** Rect of the title zone (or `null`) for a slide with the given options. */
+/**
+ * Innholdsområdet: sliden minus innrykket, fremdriftsindikatorens stripe og
+ * logoens stripe. Tittelsonen og hovedsonen deler det.
+ */
+function contentArea(o: ResolvedOptions): Rect {
+  const area: Rect = {
+    x: o.inset,
+    y: o.inset,
+    width: o.slideWidth - o.inset * 2,
+    height: o.slideHeight - o.inset * 2 - o.progressHeight,
+  }
+  if (!o.logo) return area
+  const taken = o.logo.size + o.gap
+  switch (o.logo.edge) {
+    case 'top':
+      return { ...area, y: area.y + taken, height: area.height - taken }
+    case 'bottom':
+      return { ...area, height: area.height - taken }
+    case 'left':
+      return { ...area, x: area.x + taken, width: area.width - taken }
+    case 'right':
+      return { ...area, width: area.width - taken }
+  }
+}
+
+/**
+ * Rect of the title zone (or `null`) for a slide with the given options.
+ *
+ * En logo øverst skyver tittelen ned; en logo ved siden av hovedsonen lar den
+ * stå der den står, over hele bredden (§ 15.2).
+ */
 export function computeTitleRect(hasTitle: boolean, options: GeometryOptions = {}): Rect | null {
   const o = resolveOptions(options)
   if (!hasTitle) return null
+  const top = o.logo?.edge === 'top' ? o.inset + o.logo.size + o.gap : o.inset
   return {
     x: o.inset,
-    y: o.inset,
+    y: top,
     width: o.slideWidth - o.inset * 2,
     height: o.titleHeight,
   }
 }
 
 /**
- * Rect of the main layout area, accounting for the optional title zone and the
- * progress indicator every slide carries along its bottom edge.
+ * Rect of the main layout area, accounting for the optional title zone, the
+ * logo's strip and the progress indicator every slide carries along its bottom
+ * edge.
  *
  * The indicator sits flush with the bottom of the slide with one gap above it,
  * and the bottom inset *is* that gap — so the strip is subtracted once and the
@@ -275,16 +330,15 @@ export function computeTitleRect(hasTitle: boolean, options: GeometryOptions = {
  */
 export function computeMainRect(hasTitle: boolean, options: GeometryOptions = {}): Rect {
   const o = resolveOptions(options)
-  const contentWidth = o.slideWidth - o.inset * 2
-  const contentHeight = o.slideHeight - o.inset * 2 - o.progressHeight
-  if (!hasTitle) {
-    return { x: o.inset, y: o.inset, width: contentWidth, height: contentHeight }
-  }
+  const area = contentArea(o)
+  if (!hasTitle) return area
+  const title = computeTitleRect(true, o)!
+  const top = title.y + title.height + o.gap
   return {
-    x: o.inset,
-    y: o.inset + o.titleHeight + o.gap,
-    width: contentWidth,
-    height: contentHeight - o.titleHeight - o.gap,
+    x: area.x,
+    y: top,
+    width: area.width,
+    height: area.y + area.height - top,
   }
 }
 
@@ -320,6 +374,9 @@ export interface SectionGeometry {
   /** The line the title's text gets, already inside the pill's own padding. */
   titleRect: Rect
   subtitleRect: Rect
+  /** Hvor høy hver pille er, polstringen medregnet. Pillen er aldri lavere. */
+  titlePillHeight: number
+  subtitlePillHeight: number
 }
 
 /**
@@ -380,6 +437,8 @@ export function computeSectionGeometry(options: SectionGeometryOptions = {}): Se
     blockRect,
     titleRect: textRect(blockRect.y, titleFont, title),
     subtitleRect: textRect(blockRect.y + title.pillHeight + o.gap, subtitleFont, subtitle),
+    titlePillHeight: title.pillHeight,
+    subtitlePillHeight: subtitle.pillHeight,
   }
 }
 

@@ -96,6 +96,7 @@ describe('summarizeAssetUsage', () => {
       total: 0,
       slides: { zoneContent: 0, inlineText: 0 },
       sandbox: { zoneContent: 0, inlineText: 0 },
+      theme: 0,
     })
   })
 
@@ -110,6 +111,7 @@ describe('summarizeAssetUsage', () => {
       total: 3,
       slides: { zoneContent: 1, inlineText: 0 },
       sandbox: { zoneContent: 0, inlineText: 2 },
+      theme: 0,
     })
   })
 

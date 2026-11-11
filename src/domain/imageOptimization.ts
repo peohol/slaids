@@ -31,6 +31,7 @@
  *    shows. A crop for one frame is a *fork* — a new file for that one panel.
  */
 
+import { geometryForDeck } from './logo'
 import {
   INLINE_IMAGE_DEFAULT_ASPECT,
   OPTIMIZATION_PIXEL_DENSITY,
@@ -41,7 +42,7 @@ import { imagePanelOf } from './content'
 import { computeSlideGeometry, type Size } from './geometry'
 import { coverScale, visibleSourceRect } from './imageGeometry'
 import { collectLeaves, findLeaf } from './layout'
-import { geometryForTheme, themeMetrics } from './metrics'
+import { themeMetrics } from './metrics'
 import { findContentSlide } from './presentation'
 import { inlineImageOf, walkRichNodes } from './richdoc'
 import type {
@@ -152,7 +153,7 @@ export function assetOccurrences(presentation: Presentation): Map<string, AssetO
   }
 
   const tokens = themeMetrics(presentation.theme)
-  const options = geometryForTheme(presentation.theme)
+  const options = geometryForDeck(presentation)
 
   for (const slide of presentation.slides) {
     if (slide.kind !== 'content') continue

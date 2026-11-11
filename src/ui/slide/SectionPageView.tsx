@@ -41,6 +41,8 @@ import { RichDocView } from './RichDocView'
 import { TitleFitLine } from './TitleFitLine'
 import type { TitleFitBox } from './titleFit'
 import { slideTokenStyle } from './SlideView'
+import { ThemeLogoImage } from './ThemeLogoImage'
+import { sectionLogoRect } from '../../domain/logo'
 
 export type SectionLine = 'title' | 'subtitle'
 
@@ -64,6 +66,7 @@ export function sectionFontSizes(theme: PresentationTheme): Record<SectionLine, 
  * typed sits in exactly the box that will be presented.
  */
 export function SectionFrame({
+  section,
   accentColor,
   backgroundColor,
   lines,
@@ -73,6 +76,8 @@ export function SectionFrame({
   testId = 'section-page',
   children,
 }: {
+  /** Inndelingen som tegnes – den avgjør hvor logoen står. */
+  section: SectionSlide
   accentColor: string
   backgroundColor: string
   /** Which lines get a pill. A line with no text draws none when presented. */
@@ -85,7 +90,7 @@ export function SectionFrame({
   testId?: string
   children?: ReactNode
 }) {
-  const { theme } = useSlideRender()
+  const { theme, logo } = useSlideRender()
   const options = sectionGeometryForTheme(theme)
   const geometry = computeSectionGeometry(options)
   const fontSizes = sectionFontSizes(theme)
@@ -136,6 +141,7 @@ export function SectionFrame({
             {renderLine(line)}
           </TitleFitLine>
         ))}
+        {logo && <ThemeLogoImage assetId={logo.assetId} rect={sectionLogoRect(logo, section, theme)} />}
         {children}
       </div>
     </PageColorsProvider>
@@ -150,6 +156,7 @@ export function SectionPageView({ section }: { section: SectionSlide }) {
 
   return (
     <SectionFrame
+      section={section}
       accentColor={colors.accent}
       backgroundColor={colors.background}
       lines={lines}
