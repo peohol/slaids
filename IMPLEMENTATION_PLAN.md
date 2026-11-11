@@ -3778,6 +3778,31 @@ Crossref og DataCite for DOI, og Europe PMC for PubMed-ID. Oppslagstjenesten få
 identifikatoren uten resten av referanseutkastet. Feltene kan også fylles ut manuelt.
 Referansen opprettes først når brukeren lagrer utkastet.
 
+Et PubMed-oppslag lagrer artikkelens DOI-lenke når Europe PMC kjenner DOI-en, og
+ellers lenken til PubMed-posten.
+
+### DOI- og PubMed-lenker i teksten
+
+En DOI-lenke (`doi.org/…`) eller PubMed-lenke (`pubmed.ncbi.nlm.nih.gov/…`,
+`ncbi.nlm.nih.gov/pubmed/…`), med eller uten `https://`, som limes inn i et felt
+som kan sitere, eller skrives og avsluttes med mellomrom eller linjeskift, blir
+straks en citation. Løse identifikatorer i teksten blir stående som tekst.
+
+- Referansen opprettes med lenken alene, og citation-nummeret settes inn der
+  lenken stod, festet til ordet foran. Tegnsetting etter lenken blir stående.
+  Flere lenker limt inn samtidig, skilt med mellomrom, komma eller semikolon,
+  blir én citation.
+- En lenke til en referanse som finnes fra før, gjenbruker den. Viser oppslaget
+  at verket allerede er en referanse (en PubMed-lenke til en artikkel som ligger
+  inne med DOI-lenken), slås de to sammen, så samme kilde aldri får to numre.
+- Referansen og citation-nummeret er ett angresteg.
+- Tittel, forfattere og år hentes i bakgrunnen med samme oppslag som dialogen.
+  Skrivingen venter aldri. Mens oppslaget pågår, viser citation-nummeret en
+  indikator i editoren; indikatoren tar ikke plass i teksten.
+- Svaret fylles inn uten eget angresteg, også i angrehistorikken, og bare så
+  lenge referansen er urørt. Finnes ingenting, eller feiler oppslaget, beholdes
+  referansen med lenken, og brukeren får et varsel.
+
 ---
 
 ## 29\. Layout templates

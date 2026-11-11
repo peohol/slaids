@@ -171,7 +171,18 @@ export function RichTextEditor({
     const incoming = JSON.stringify(doc)
     if (incoming === lastEmitted.current) return
     lastEmitted.current = incoming
+    const { from, to } = editor.state.selection
+    const size = editor.state.doc.content.size
     editor.commands.setContent(doc, { emitUpdate: false })
+    /*
+     * En endring som ikke flytter noe – en citation som får en annen referanse
+     * når to referanser slås sammen i bakgrunnen – skal ikke ta markøren fra
+     * den som skriver. Erstatning av hele dokumentet setter den ellers til
+     * slutten av feltet.
+     */
+    if (editor.isFocused && editor.state.doc.content.size === size) {
+      editor.commands.setTextSelection({ from, to })
+    }
   }, [doc, editor])
 
   return <EditorContent editor={editor} className={className} />
