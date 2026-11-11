@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures'
 import {
   addContentToZone,
+  clickZone,
   createPresentation,
   enterZoneMode,
   splitSelected,
@@ -188,6 +189,65 @@ test.describe('keyboard shortcuts', () => {
     await enterZoneMode(page)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('zone-overlay')).toBeHidden()
+  })
+
+  test('åpner sandkassen, oppretter en slide og setter inn referanse med tastaturet', async ({ page }) => {
+    await createPresentation(page, 'Snarveier for slides og referanser')
+    await page.keyboard.press('Control+Alt+k')
+    await expect(page.getByTestId('sandbox-window')).toBeVisible()
+    await page.keyboard.press('Control+Meta+k')
+    await expect(page.getByTestId('sandbox-window')).toBeHidden()
+
+    await page.keyboard.press('Control+Alt+n')
+    await expect(page.getByTestId('new-slide-modal')).toBeVisible()
+    await page.keyboard.press('Control+Alt+k')
+    await expect(page.getByTestId('sandbox-window')).toBeHidden()
+    await page.getByTestId('new-slide-with-title').click()
+    await expect(page.getByTestId('statusbar')).toContainText('Slide 3 av 3')
+
+    await page.keyboard.press('Control+Alt+r')
+    await expect(page.getByTestId('reference-modal')).toBeHidden()
+    const title = stage(page).locator('[data-testid="slide-title"] .tiptap')
+    await title.click()
+    await page.keyboard.type('Med kilde')
+    await page.keyboard.press('Control+Alt+r')
+    await expect(page.getByTestId('reference-modal')).toBeVisible()
+    await page.getByTestId('reference-title').fill('Kilden')
+    await page.getByTestId('save-reference').click()
+    await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+    await expect(title.locator('.rd-citation')).toHaveText('1')
+  })
+
+  test('deler, flytter innhold, tømmer og sletter med hurtigtaster i Soner', async ({ page }) => {
+    await createPresentation(page, 'Hurtigtaster for soner')
+    const [original] = await zoneRects(page)
+    await addContentToZone(page, original.id, 'titled-card')
+    await enterZoneMode(page)
+
+    await page.keyboard.press('Control+Alt+v')
+    const [left, right] = await zoneRects(page)
+    expect(left.x).toBeLessThan(right.x)
+    expect(left.y).toBeCloseTo(right.y)
+    await clickZone(page, left)
+    await page.keyboard.press('Control+Alt+m')
+    await expect(page.getByTestId('sandbox-item')).toHaveCount(1)
+    await expect(stage(page).locator('[data-content-kind]')).toHaveCount(0)
+    await page.keyboard.press('Control+Alt+k')
+
+    await page.keyboard.press('Control+Alt+h')
+    const [top, bottom] = (await zoneRects(page)).filter((zone) => zone.x < right.x)
+    expect(top.x).toBeCloseTo(bottom.x)
+    expect(top.y).toBeLessThan(bottom.y)
+    await page.keyboard.press('Control+Alt+t')
+    await expect(page.getByRole('dialog', { name: 'Tømme sonen?' })).toBeVisible()
+    await page.getByTestId('confirm-accept').click()
+    expect(await zoneRects(page)).toHaveLength(2)
+
+    await clickZone(page, right)
+    await page.keyboard.press('Control+Alt+x')
+    await expect(page.getByRole('dialog', { name: 'Slette sonen?' })).toBeVisible()
+    await page.getByTestId('confirm-accept').click()
+    expect(await zoneRects(page)).toHaveLength(1)
   })
 
   test('shows the shortcut reference', async ({ page }) => {
