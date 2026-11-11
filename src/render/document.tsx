@@ -35,7 +35,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { DEFAULT_BACKGROUND_COLOR, SLIDE_HEIGHT, SLIDE_WIDTH } from '../domain/constants'
 import { googleFontsHref } from '../domain/fonts'
 import { deckPages, deckProgress, deckSectionColors, type DeckPage } from '../domain/pages'
-import { computeReferenceNumbering } from '../domain/references'
+import { citationLabelsFor, type CitationStyle } from '../domain/references'
 import type { Presentation } from '../domain/types'
 import { AssetSourceProvider, type AssetUrlSource } from '../state/assetSource'
 import { DeckPageView } from '../ui/slide/DeckPageView'
@@ -45,6 +45,9 @@ import { PREVIEW_STYLESHEETS } from './styles'
 
 export interface PreviewDocumentRequest {
   presentation: Presentation
+  /** Eierens visningsvalg når dokumentet rendres utenfor editoren. */
+  includeReferencesInProgress?: boolean
+  citationStyle?: CitationStyle
   page: DeckPage
   /** Already resolved; see `assets.ts` for why it has to be synchronous. */
   assets: AssetUrlSource
@@ -98,7 +101,7 @@ html, body {
 export function previewDocument(request: PreviewDocumentRequest): PreviewDocument {
   const { presentation, page, assets } = request
   const { theme } = presentation
-  const pages = deckPages(presentation)
+  const pages = deckPages(presentation, { citationStyle: request.citationStyle })
   const background =
     deckSectionColors(pages).get(page.id)?.background ?? DEFAULT_BACKGROUND_COLOR
   const fonts = request.fonts ?? {
@@ -112,16 +115,17 @@ export function previewDocument(request: PreviewDocumentRequest): PreviewDocumen
       <SlideRenderProvider
         value={{
           theme,
-          // Derived from the whole deck, exactly as when it is presented: a
-          // citation's number comes from where it is first used, so a preview
-          // built with an empty numbering would draw pills the audience never
-          // sees — or none at all.
-          numbering: computeReferenceNumbering(presentation),
+          // De samme henvisningene som publikum ser, utledet fra hele dekket
+          // med eierens valgte format.
+          ...citationLabelsFor(presentation, request.citationStyle),
           // Both derived from the same page list the page itself came out of —
           // see `operations/preview.ts` — so a preview draws the indicator and
           // the section colours the audience sees on that page.
           sectionColors: deckSectionColors(pages),
-          progress: deckProgress(pages, presentation.includeReferencesInProgress),
+          progress: deckProgress(
+            pages,
+            request.includeReferencesInProgress ?? presentation.includeReferencesInProgress,
+          ),
           isStatic: true,
         }}
       >

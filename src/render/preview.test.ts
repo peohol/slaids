@@ -13,7 +13,16 @@
  * a browser or touches the network.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  agentOperation,
+  closeTestDatabases,
+  newAgentDeck,
+  storedPresentation,
+  testAgentContext,
+} from '../agent/testDeck'
+import { presentationRevision } from '../domain/revision'
+import type { SlidePreviewView } from '../agent/operations/preview'
 import { createPresentation } from '../domain/presentation'
 import { deckPages } from '../domain/pages'
 import { isAgentImage } from '../agent/image'
@@ -35,6 +44,8 @@ const noFonts = () => Promise.resolve(NO_PREVIEW_FONTS)
 
 const FAKE_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
+afterEach(closeTestDatabases)
+
 function request(scale = 1) {
   const presentation = createPresentation({ title: 'Komposisjon' })
   const page = deckPages(presentation)[1]
@@ -42,6 +53,90 @@ function request(scale = 1) {
 }
 
 describe('det som kommer ut', () => {
+  it('bruker forfatter og år i både henvisningen og den avledede referansesiden', async () => {
+    let html = ''
+    const context = testAgentContext({
+      preview: slidePreviewRenderer((raster) => {
+        html = raster.html
+        return Promise.resolve({
+          bytes: FAKE_PNG, width: 1600, height: 900, fontsReady: true, warnings: [],
+        })
+      }, { fonts: noFonts }),
+    })
+    const deck = await newAgentDeck(context)
+    const added = await agentOperation<{ reference: { id: string } }>(context, 'add_reference', {
+      presentationId: deck.presentationId,
+      title: 'Kilden',
+      authors: 'Hansen, Ola; Berg, Eli',
+      year: '2024',
+    })
+    await agentOperation(context, 'set_zone_text', {
+      presentationId: deck.presentationId, slideId: deck.slideId, nodeId: deck.rootNodeId,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Se kilden' }, { citation: [added.reference.id] }] }],
+    })
+    const presentation = await storedPresentation(context, deck.presentationId)
+    await context.repository.updateUserSettings(null, { citationStyle: 'author-year' })
+    const reads = vi.spyOn(context.repository, 'getUserSettings')
+
+    await agentOperation(context, 'render_slide_preview', {
+      presentationId: deck.presentationId, slideId: deck.slideId,
+    })
+    expect(html).toMatch(/<sup[^>]*>Hansen et al\., 2024<\/sup>/)
+    const references = deckPages(presentation, { citationStyle: 'author-year' })
+      .find((page) => page.kind === 'reference-slide')
+    if (!references) throw new Error('Fant ikke referansesiden.')
+    await agentOperation(context, 'render_slide_preview', {
+      presentationId: deck.presentationId, slideId: references.id,
+    })
+    expect(html).toContain('Hansen et al., 2024 — ')
+    expect(html).not.toMatch(/>1\. /)
+    expect(reads).toHaveBeenCalledTimes(2)
+    expect(await storedPresentation(context, deck.presentationId)).toEqual(presentation)
+  })
+
+  it.each([false, true])('bruker eierens fremdriftsvalg %s gjennom agentens preview-flyt', async (includeReferences) => {
+    let html = ''
+    const context = testAgentContext({
+      preview: slidePreviewRenderer((raster) => {
+        html = raster.html
+        return Promise.resolve({
+          bytes: FAKE_PNG,
+          width: 1600,
+          height: 900,
+          fontsReady: true,
+          warnings: [],
+        })
+      }, { fonts: noFonts }),
+    })
+    const deck = await newAgentDeck(context)
+    const added = await agentOperation<{ reference: { id: string } }>(context, 'add_reference', {
+      presentationId: deck.presentationId,
+      title: 'Kilden',
+    })
+    await agentOperation(context, 'set_zone_text', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+      nodeId: deck.rootNodeId,
+      blocks: [{ type: 'paragraph', spans: [{ citation: [added.reference.id] }] }],
+    })
+    const presentation = await storedPresentation(context, deck.presentationId)
+    presentation.includeReferencesInProgress = !includeReferences
+    await context.repository.savePresentation(presentation)
+    await context.repository.updateUserSettings(null, {
+      includeReferencesInProgress: includeReferences,
+    })
+
+    const view = await agentOperation<SlidePreviewView>(context, 'render_slide_preview', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+
+    const width = includeReferences ? '50%' : '100%'
+    expect(html).toMatch(new RegExp(`data-testid="slide-progress-fill" style="[^"]*width:${width};`))
+    expect(view.revision).toBe(presentationRevision(presentation))
+    expect(await storedPresentation(context, deck.presentationId)).toEqual(presentation)
+  })
+
   it('er et AgentImage med rendererens egne tall i det', async () => {
     const seen: RasterRequest[] = []
     const render = slidePreviewRenderer(

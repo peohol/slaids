@@ -24,6 +24,7 @@ import { sharingOperations } from './operations/sharing'
 import { slideOperations } from './operations/slides'
 import { themeOperations } from './operations/theme'
 import { validationOperations } from './operations/validation'
+import { storageFailure } from './presentation'
 import {
   agentErr,
   type AgentContext,
@@ -150,8 +151,19 @@ export async function runOperation(
     })
   }
 
+  // Hvert dekk-kall får eierens gjeldende valg i sin egen kontekst.
+  // Bibliotekskall uten presentasjons-ID trenger ingen visningsinnstillinger.
+  let requestContext = context
+  if (typeof parsed.data === 'object' && parsed.data !== null && 'presentationId' in parsed.data) {
+    try {
+      requestContext = { ...context, userSettings: await context.repository.getUserSettings(null) }
+    } catch (error) {
+      return storageFailure(error, 'Kunne ikke hente brukerens visningsvalg.', { operation: name })
+    }
+  }
+
   try {
-    return await operation.run(context, parsed.data)
+    return await operation.run(requestContext, parsed.data)
   } catch (error) {
     if (error instanceof RepositoryConflictError) {
       return agentErr('CONFLICT', error.message, { operation: name })

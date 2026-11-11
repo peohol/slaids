@@ -1364,7 +1364,8 @@ fremdriften fra forrige side som standard. Eieren kan telle dem med i
 **Brukerinnstillinger** i biblioteket. Valget gjelder alle eierens
 presentasjoner. Når en delt presentasjon åpnes, får publikum eierens
 gjeldende visningsvalg sammen med den publiserte kopien. Den siste siden
-som telles, fyller indikatoren.
+som telles, fyller indikatoren. Agentens `render_slide_preview` bruker også
+eierens gjeldende valg uten å endre den lagrede presentasjonen eller revisjonen.
 
 ---
 
@@ -3720,6 +3721,12 @@ Brukerinnstillingen «Henvisninger på slides» velger mellom nummerert visning
 (standard) og «Forfatter, år». Det samme valget gjelder i editoren, i
 presentasjonsmodus og for publikum som åpner en delt lenke. Valget endrer
 visningen og innholdsmålingen. Presentasjonen lagrer fortsatt referanse-ID-er.
+
+Agentinngangen henter eierens visningsvalg én gang per dekk-kall. Skriving,
+inspeksjon, validering og forhåndsvisning bruker dette valget, også når
+referansesidene avledes. En manuell rettelse av forfatter eller år går gjennom
+`HUMAN_EDIT` og kan føre til forminsket visning. Agentens rettelser må fortsatt
+bestå fit-kontrollen.
 
 I forfatter–år-visningen brukes første forfatter og «et al.» ved flere.
 Kilder som ellers ville fått samme henvisning får en bokstav etter året.
