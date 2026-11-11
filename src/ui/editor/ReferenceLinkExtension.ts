@@ -20,9 +20,7 @@ import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import { citeReferenceLinks } from '../../state/referenceImport'
 import {
-  parseReferenceLink,
   parseReferenceLinks,
-  splitTrailingPunctuation,
   type ReferenceIdentifier,
 } from '../../state/referenceMetadata'
 
@@ -31,16 +29,25 @@ const CITATION = 'citation'
 const LEAF = '\ufffc'
 const LEADING_PUNCTUATION = /^[(["'«“‘]+/
 
-/** Den siste lenken i teksten foran markøren, og hvor den begynner. */
+/**
+ * Lenkene i det siste ordet foran markøren, og hvor de begynner.
+ *
+ * «Ordet» kan være flere lenker skilt med komma, akkurat som en innliming.
+ * Tegnsetting foran og etter hører til setningen og er ikke med.
+ */
 export function trailingReferenceLink(
   textBefore: string,
-): { identifier: ReferenceIdentifier; start: number; length: number } | null {
+): { identifiers: ReferenceIdentifier[]; start: number; length: number } | null {
   const token = /\S+$/.exec(textBefore)
   if (!token) return null
   const lead = LEADING_PUNCTUATION.exec(token[0])?.[0].length ?? 0
-  const { link } = splitTrailingPunctuation(token[0].slice(lead))
-  const identifier = parseReferenceLink(link)
-  return identifier ? { identifier, start: token.index + lead, length: link.length } : null
+  const links = parseReferenceLinks(token[0].slice(lead))
+  if (!links) return null
+  return {
+    identifiers: links.identifiers,
+    start: token.index + lead,
+    length: token[0].length - lead - links.rest.length,
+  }
 }
 
 /**
@@ -112,7 +119,7 @@ function convertBeforeCursor(view: EditorView): void {
   const textBefore = $cursor.parent.textBetween(0, $cursor.parentOffset, undefined, LEAF)
   const found = trailingReferenceLink(textBefore)
   if (!found || found.start + found.length !== textBefore.length) return
-  const ids = citeReferenceLinks([found.identifier])
+  const ids = citeReferenceLinks(found.identifiers)
   if (!ids) return
   const tr = view.state.tr
   const from = $cursor.start() + found.start
@@ -138,12 +145,12 @@ export const ReferenceLinkExtension = Extension.create({
           return {
             index: found.start,
             text: text.slice(found.start),
-            data: { identifier: found.identifier, length: found.length, rest: text.slice(found.start + found.length) },
+            data: { identifiers: found.identifiers, length: found.length, rest: text.slice(found.start + found.length) },
           }
         },
         handler: ({ state, range, match }) => {
-          const data = match.data as { identifier: ReferenceIdentifier; length: number; rest: string }
-          const ids = citeReferenceLinks([data.identifier])
+          const data = match.data as { identifiers: ReferenceIdentifier[]; length: number; rest: string }
+          const ids = citeReferenceLinks(data.identifiers)
           if (!ids) return null
           const { tr } = state
           // Det skrevne tegnet er ikke i dokumentet ennå; resten av tegnsettingen er.

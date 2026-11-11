@@ -10,7 +10,7 @@
  */
 
 import { create } from 'zustand'
-import { addReference, updateReference, type ReferenceInput } from '../domain/commands'
+import { addReference, mergeReferenceInto, updateReference, type ReferenceInput } from '../domain/commands'
 import { ok } from '../domain/result'
 import type { Presentation, Reference } from '../domain/types'
 import {
@@ -47,15 +47,22 @@ function setPending(id: string, importing: boolean): void {
  */
 const importedIds = new Map<string, string>()
 
-function existingReference(presentation: Presentation, identifier: ReferenceIdentifier): string | null {
+/** Referansen som viser til samme DOI eller PubMed-ID, utenom `except`. */
+function referenceFor(presentation: Presentation, identifier: ReferenceIdentifier, except?: string): Reference | null {
   const key = identifierKey(identifier)
-  const known = importedIds.get(key)
+  return (
+    presentation.references.find((reference) => {
+      if (reference.id === except) return false
+      const parsed = parseReferenceIdentifier(reference.url)
+      return parsed !== null && identifierKey(parsed) === key
+    }) ?? null
+  )
+}
+
+function existingReference(presentation: Presentation, identifier: ReferenceIdentifier): string | null {
+  const known = importedIds.get(identifierKey(identifier))
   if (known && presentation.references.some((reference) => reference.id === known)) return known
-  const match = presentation.references.find((reference) => {
-    const parsed = parseReferenceIdentifier(reference.url)
-    return parsed !== null && identifierKey(parsed) === key
-  })
-  return match?.id ?? null
+  return referenceFor(presentation, identifier)?.id ?? null
 }
 
 /**
@@ -107,6 +114,11 @@ function sameReference(a: Reference, b: Reference): boolean {
  *
  * Bare der referansen fortsatt er slik den ble opprettet: har noen rukket å
  * skrive inn opplysningene selv, er det de som gjelder.
+ *
+ * Viser oppslaget at verket allerede er en referanse – en PubMed-lenke til en
+ * artikkel som ligger inne med DOI-lenken sin – slås de to sammen, så samme
+ * kilde aldri får to numre. Det kan bare avgjøres etter oppslaget, fordi en
+ * PubMed-referanse lagres med DOI-lenken.
  */
 async function completeReference(placeholder: Reference, identifier: ReferenceIdentifier): Promise<void> {
   setPending(placeholder.id, true)
@@ -117,12 +129,22 @@ async function completeReference(placeholder: Reference, identifier: ReferenceId
       return
     }
     const input: ReferenceInput = { ...metadata, url: metadata.url || placeholder.url }
+    const resolved = parseReferenceIdentifier(input.url) ?? identifier
     useEditorStore.getState().amendEverywhere((presentation) => {
       const reference = presentation.references.find(({ id }) => id === placeholder.id)
       if (!reference || !sameReference(reference, placeholder)) return presentation
-      const result = updateReference(presentation, placeholder.id, input)
+      const existing = referenceFor(presentation, resolved, placeholder.id)
+      const result = existing
+        ? mergeReferenceInto(presentation, placeholder.id, existing.id)
+        : updateReference(presentation, placeholder.id, input)
       return result.ok ? result.value : presentation
     })
+    // Ble den slått sammen, er det den andre referansen lenken viser til nå.
+    const current = useEditorStore.getState().presentation
+    const survivor = current ? referenceFor(current, resolved, placeholder.id) : null
+    if (survivor && !current?.references.some(({ id }) => id === placeholder.id)) {
+      importedIds.set(identifierKey(identifier), survivor.id)
+    }
   } catch {
     notify.warning(
       'Kunne ikke hente opplysningene om referansen. Lenken er lagt inn, og resten kan fylles ut under Referanser.',

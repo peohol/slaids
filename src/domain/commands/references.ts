@@ -7,7 +7,7 @@ import { mapPresentationDocs } from '../docs'
 import { newReferenceId } from '../ids'
 import { touch } from '../presentation'
 import { citedReferenceIds, isReferenceValid } from '../references'
-import { removeCitations } from '../richdoc'
+import { removeCitations, replaceCitationId } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { Presentation, Reference } from '../types'
 
@@ -71,6 +71,27 @@ export function deleteReference(presentation: Presentation, id: string): Result<
     touch({
       ...cleaned,
       references: cleaned.references.filter((reference) => reference.id !== id),
+    }),
+  )
+}
+
+/**
+ * Slå sammen to referanser til samme verk: hver citation av `fromId` viser
+ * til `intoId`, og `fromId` fjernes. Nummereringen følger av seg selv.
+ */
+export function mergeReferenceInto(
+  presentation: Presentation,
+  fromId: string,
+  intoId: string,
+): Result<Presentation> {
+  const ids = new Set(presentation.references.map((reference) => reference.id))
+  if (!ids.has(fromId) || !ids.has(intoId)) return err('REFERENCE_NOT_FOUND', 'Fant ikke referansen.')
+  if (fromId === intoId) return ok(presentation)
+  const remapped = mapPresentationDocs(presentation, (doc) => replaceCitationId(doc, fromId, intoId))
+  return ok(
+    touch({
+      ...remapped,
+      references: remapped.references.filter((reference) => reference.id !== fromId),
     }),
   )
 }

@@ -298,6 +298,21 @@ export function removeCitations(doc: RichDoc, removed: ReadonlySet<string>): Ric
   return content ? { ...doc, content } : doc
 }
 
+/**
+ * Citations som viser til `from`, viser til `into` i stedet. Står begge i samme
+ * citation, blir det én forekomst. Samme dokument kommer tilbake når ingen
+ * citation viser til `from`.
+ */
+export function replaceCitationId(doc: RichDoc, from: string, into: string): RichDoc {
+  return mapRichNodes(doc, (node) => {
+    if (node.type !== CITATION_NODE) return node
+    const ids = citationIdsOf(node)
+    if (!ids.includes(from)) return node
+    const referenceIds = [...new Set(ids.map((id) => (id === from ? into : id)))]
+    return { ...node, attrs: { ...node.attrs, referenceIds } }
+  })
+}
+
 /** Reference ids on a citation node, in order, ignoring anything malformed. */
 export function citationIdsOf(node: RichNode): string[] {
   return Array.isArray(node.attrs?.referenceIds)

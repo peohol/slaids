@@ -177,6 +177,36 @@ describe('innlimt DOI- eller PubMed-lenke', () => {
     expect(lines(instance)).toEqual([`Tekst[${ids.join(',')}]`])
   })
 
+  it('slår seg sammen med en referanse som oppslaget viser er samme verk, også etter omlasting', async () => {
+    const lookup = deferredFetch()
+    // Som etter en omlasting: artikkelen ligger inne med DOI-lenken, og økten vet
+    // ikke at PubMed-ID-en hører til den.
+    const existing = addReference(useEditorStore.getState().presentation as Presentation, {
+      title: 'Kjent',
+      authors: '',
+      year: '',
+      url: 'https://doi.org/10.5555/Kjent',
+    })
+    if (!existing.ok) throw new Error('oppsett')
+    useEditorStore.getState().setPresentation(existing.value.presentation)
+    const known = existing.value.reference
+
+    const instance = editor()
+    type(instance, 'Tekst')
+    paste(instance, 'https://pubmed.ncbi.nlm.nih.gov/777/')
+    expect(references()).toHaveLength(2)
+    lookup.release({ resultList: { result: [{ id: '777', source: 'MED', title: 'Kjent', doi: '10.5555/kjent' }] } })
+    await flush()
+
+    expect(references()).toEqual([known])
+
+    // Samme lenke igjen gjenbruker den kjente referansen uten nytt oppslag.
+    const calls = lookup.calls.length
+    paste(instance, 'https://pubmed.ncbi.nlm.nih.gov/777/')
+    expect(references()).toEqual([known])
+    expect(lookup.calls).toHaveLength(calls)
+  })
+
   it('lar vanlig tekst og andre lenker være', () => {
     deferredFetch()
     const instance = editor()
@@ -222,6 +252,15 @@ describe('skrevet DOI- eller PubMed-lenke', () => {
     expect(lines(instance)).toEqual([`Som vist ([${reference.id}]). Videre`])
   })
 
+  it('gjør flere lenker skilt med komma uten mellomrom til ett nummer', () => {
+    deferredFetch()
+    const instance = editor()
+    type(instance, `Tekst ${DOI},${PUBMED} videre`)
+    const ids = references().map(({ id }) => id)
+    expect(ids).toHaveLength(2)
+    expect(lines(instance)).toEqual([`Tekst[${ids.join(',')}] videre`])
+  })
+
   it('festes til ordet foran, og skrivingen fortsetter etter mellomrommet', () => {
     deferredFetch()
     const instance = editor('title')
@@ -242,7 +281,7 @@ describe('skrevet DOI- eller PubMed-lenke', () => {
   it('ser bort fra en lenke som ikke slutter ved markøren', () => {
     expect(trailingReferenceLink(`${DOI} og`)).toBeNull()
     expect(trailingReferenceLink(`(${DOI}).`)).toEqual({
-      identifier: { kind: 'doi', value: '10.1234/studie' },
+      identifiers: [{ kind: 'doi', value: '10.1234/studie' }],
       start: 1,
       length: DOI.length,
     })

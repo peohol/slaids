@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 import { expect, test } from './fixtures'
-import { addContentToZone, createPresentation, stage, zoneRects } from './helpers'
+import { addContentToZone, createPresentation, stage, waitForSaved, zoneRects } from './helpers'
 
 async function openReferences(page: Page): Promise<Locator> {
   await createPresentation(page, 'Referanseoppslag')
@@ -164,4 +164,44 @@ test('skrevet PubMed-lenke blir et nummer når den avsluttes med mellomrom', asy
   const row = page.getByTestId('reference-modal').getByTestId('reference-row')
   await expect(row).toContainText('En artikkel')
   await expect(row).toContainText('doi.org/10.5555/artikkel')
+})
+
+test('samme artikkel limt inn som PubMed-lenke etter omlasting får samme nummer, og markøren blir der den var', async ({ page }) => {
+  await page.route('https://api.crossref.org/works/**', (route) =>
+    route.fulfill({ headers: cors, json: { message: { title: ['En artikkel'] } } }),
+  )
+  let answer: (() => Promise<void>) | null = null
+  await page.route('https://www.ebi.ac.uk/europepmc/webservices/rest/search?*', (route) => {
+    answer = () =>
+      route.fulfill({
+        headers: cors,
+        json: { resultList: { result: [{ id: '12345678', source: 'MED', title: 'En artikkel', doi: '10.5555/artikkel' }] } },
+      })
+  })
+  await createPresentation(page, 'Omlasting')
+  const [zone] = await zoneRects(page)
+  await addContentToZone(page, zone.id, 'untitled-card')
+  const field = () => stage(page).locator('.subfield .tiptap').first()
+  await field().click()
+  await page.keyboard.type('Først https://doi.org/10.5555/artikkel ')
+  await expect(field().locator('[data-citation]')).not.toHaveAttribute('data-importing')
+  await waitForSaved(page)
+  await page.reload()
+
+  await field().click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' Så pubmed.ncbi.nlm.nih.gov/12345678 ')
+  await expect(field().locator('[data-citation]')).toHaveCount(2)
+  await page.keyboard.type('mens slutt')
+  // Markøren står midt i teksten mens oppslaget blir ferdig.
+  for (let step = 0; step < ' slutt'.length; step += 1) await page.keyboard.press('ArrowLeft')
+  await expect.poll(() => answer !== null).toBe(true)
+  await answer!()
+  await expect(field().locator('[data-citation][data-importing]')).toHaveCount(0)
+  // Skrivingen fortsetter der markøren stod, også etter at nummeret ble byttet.
+  await page.keyboard.type(' videre')
+  await expect(field()).toHaveText('Først1 Så1 mens videre slutt')
+
+  await page.getByTestId('insert-reference').click()
+  await expect(page.getByTestId('reference-modal').getByTestId('reference-row')).toHaveCount(1)
 })

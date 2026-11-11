@@ -57,6 +57,17 @@ describe('parseReferenceLinks', () => {
     })
   })
 
+  it('skiller lenker med komma eller semikolon uten mellomrom', () => {
+    expect(parseReferenceLinks('https://doi.org/10.1000/a,https://pubmed.ncbi.nlm.nih.gov/42/;doi.org/10.2000/b.')).toEqual({
+      identifiers: [
+        { kind: 'doi', value: '10.1000/a' },
+        { kind: 'pmid', value: '42' },
+        { kind: 'doi', value: '10.2000/b' },
+      ],
+      rest: '.',
+    })
+  })
+
   it('beholder semikolon inne i en eldre DOI', () => {
     expect(parseReferenceLinks('https://doi.org/10.1002/(SICI)1097-4636(199709)36:3<347::AID-JBM10>3.0.CO;2-B')).toEqual({
       identifiers: [{ kind: 'doi', value: '10.1002/(SICI)1097-4636(199709)36:3<347::AID-JBM10>3.0.CO;2-B' }],

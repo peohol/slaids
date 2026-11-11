@@ -63,6 +63,16 @@ export function parseReferenceLink(input: string): ReferenceIdentifier | null {
 }
 
 /**
+ * Det som skiller lenkene i en liste: mellomrom, eller komma og semikolon rett
+ * foran neste lenke. Et semikolon inne i en eldre DOI står ikke foran en
+ * lenke og skiller derfor ingenting.
+ */
+const LINK_SEPARATOR = new RegExp(
+  `\\s+|[,;](?=https?:\\/\\/|${SCHEMELESS_LINK.source.slice(1)})`,
+  'i',
+)
+
+/**
  * Alle lenkene i en innlimt tekst, eller `null` hvis teksten er noe annet.
  *
  * Teksten må bestå av lenker og skilletegn alene. Et avsnitt som tilfeldigvis
@@ -71,7 +81,9 @@ export function parseReferenceLink(input: string): ReferenceIdentifier | null {
  * kommer tilbake som `rest`, så den kan stå etter citation-nummeret.
  */
 export function parseReferenceLinks(input: string): { identifiers: ReferenceIdentifier[]; rest: string } | null {
-  const tokens = input.split(/\s+/).filter((token) => token && !/^[,;]+$/.test(token))
+  const tokens = input
+    .split(LINK_SEPARATOR)
+    .filter((token) => token && !/^[,;]+$/.test(token))
   if (tokens.length === 0) return null
   const identifiers: ReferenceIdentifier[] = []
   let rest = ''

@@ -20,6 +20,7 @@ import {
   deleteLayoutNode,
   deleteReference,
   deleteSlide,
+  mergeReferenceInto,
   duplicateSlide,
   moveSlide,
   moveZoneContent,
@@ -881,6 +882,32 @@ describe('references', () => {
     const cleaned = unwrap(deleteReference(withTitle, added.reference.id))
     expect(JSON.stringify(contentAt(cleaned, 1).title)).not.toContain('citation')
     expect(cleaned.references).toHaveLength(0)
+  })
+
+  it('slår sammen to referanser: citations viser til den som blir igjen, én gang', () => {
+    const first = unwrap(addReference(base(), { title: 'Beholdes', authors: '', url: '', year: '' }))
+    const second = unwrap(addReference(first.presentation, { title: 'Duplikat', authors: '', url: '', year: '' }))
+    const keep = first.reference.id
+    const drop = second.reference.id
+    const slide = contentAt(second.presentation, 1)
+    const cite = (...referenceIds: string[]) => ({ type: 'citation', attrs: { referenceIds } })
+    const deck: Presentation = {
+      ...second.presentation,
+      slides: [
+        sectionAt(second.presentation, 0),
+        {
+          ...slide,
+          title: {
+            type: 'doc' as const,
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A' }, cite(drop), cite(keep, drop)] }],
+          },
+        },
+      ],
+    }
+    const merged = unwrap(mergeReferenceInto(deck, drop, keep))
+    expect(merged.references.map(({ id }) => id)).toEqual([keep])
+    expect(contentAt(merged, 1).title?.content?.[0].content?.slice(1)).toEqual([cite(keep), cite(keep)])
+    expect(mergeReferenceInto(deck, drop, 'ukjent').ok).toBe(false)
   })
 })
 
