@@ -148,28 +148,35 @@ function sectionBlocks(geometry: SectionGeometry, section: SectionSlide): {
   return { shown: { top, bottom: top + geometry.titlePillHeight }, drawn: both }
 }
 
-/** Sideflatens nederste kant for en inndeling: over fremdriftsindikatorens stripe. */
-const SECTION_FLOOR = SLIDE_HEIGHT - PROGRESS_BAR_HEIGHT
+/**
+ * Sideflatens nederste kant for en inndeling: slidens bunn på forsiden, som
+ * ikke har fremdriftsindikator, og oversiden av indikatoren på de senere.
+ */
+export function sectionFloor(isFront: boolean): number {
+  return isFront ? SLIDE_HEIGHT : SLIDE_HEIGHT - PROGRESS_BAR_HEIGHT
+}
 
 /** Logoens sentrum på en inndeling, i høyden. */
-function sectionLogoCentre(block: SectionBlock, placement: LogoSectionPlacement): number {
-  return placement === 'above' ? block.top / 2 : (block.bottom + SECTION_FLOOR) / 2
+function sectionLogoCentre(block: SectionBlock, placement: LogoSectionPlacement, floor: number): number {
+  return placement === 'above' ? block.top / 2 : (block.bottom + floor) / 2
 }
 
 /** Den største logohøyden én inndeling har plass til. */
 function sectionMaxHeight(
   section: SectionSlide,
+  isFront: boolean,
   placement: LogoSectionPlacement,
   geometry: SectionGeometry,
   gap: number,
   inset: number,
 ): number {
   const { shown, drawn } = sectionBlocks(geometry, section)
-  const centre = sectionLogoCentre(shown, placement)
+  const floor = sectionFloor(isFront)
+  const centre = sectionLogoCentre(shown, placement, floor)
   if (placement === 'above') {
     return Math.min(2 * (drawn.top - gap - centre), 2 * (centre - inset))
   }
-  return Math.min(2 * (centre - drawn.bottom - gap), 2 * (SECTION_FLOOR - inset - centre))
+  return Math.min(2 * (centre - drawn.bottom - gap), 2 * (floor - inset - centre))
 }
 
 function sectionsWithLogo(logo: ThemeLogo, slides: readonly Slide[]): SectionSlide[] {
@@ -183,10 +190,18 @@ function sectionLimit(deck: LogoDeck, logo: ThemeLogo): number {
   const geometry = computeSectionGeometry(options)
   const widest = (SLIDE_WIDTH - options.inset * 2) / logo.aspect
   let limit = widest
+  const frontId = deck.slides[0]?.id
   for (const section of sectionsWithLogo(logo, deck.slides)) {
     limit = Math.min(
       limit,
-      sectionMaxHeight(section, logo.sections.placement, geometry, options.gap, options.inset),
+      sectionMaxHeight(
+        section,
+        section.id === frontId,
+        logo.sections.placement,
+        geometry,
+        options.gap,
+        options.inset,
+      ),
     )
   }
   return Math.max(0, Math.floor(limit))
@@ -202,7 +217,8 @@ export function sectionLogoRect(
   if (!placed) return null
   if (placed.pages === 'front' && section.id !== placed.frontId) return null
   const geometry = computeSectionGeometry(sectionGeometryForTheme(theme))
-  const centre = sectionLogoCentre(sectionBlocks(geometry, section).shown, placed.placement)
+  const floor = sectionFloor(section.id === placed.frontId)
+  const centre = sectionLogoCentre(sectionBlocks(geometry, section).shown, placed.placement, floor)
   return {
     x: (SLIDE_WIDTH - placed.width) / 2,
     y: centre - placed.height / 2,

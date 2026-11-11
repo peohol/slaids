@@ -20,6 +20,7 @@ import {
   deckLogoLayout,
   geometryForDeck,
   logoLimits,
+  sectionFloor,
   sectionLogoRect,
   slideLogoRect,
   themeAssetIds,
@@ -224,9 +225,8 @@ describe('logo på inndelinger', () => {
         const layout = deckLogoLayout(presentation)
         const options = sectionGeometryForTheme(presentation.theme)
         const geometry = computeSectionGeometry(options)
-        const floor = SLIDE_HEIGHT - PROGRESS_BAR_HEIGHT
-
         for (const index of [0, 2]) {
+          const floor = sectionFloor(index === 0)
           const section = sectionAt(presentation, index)
           const rect = sectionLogoRect(layout, section, presentation.theme)!
           expect(rect.height).toBeGreaterThanOrEqual(LOGO_MIN_HEIGHT)
@@ -245,6 +245,38 @@ describe('logo på inndelinger', () => {
       })
     }
   }
+
+  it('står midt mellom linjene og sidens faktiske kant, med og uten underoverskrift', () => {
+    const presentation = withLogo(
+      deck(),
+      logo({ sections: { visibility: 'all', placement: 'below', height: 40 } }),
+    )
+    const layout = deckLogoLayout(presentation)
+    const geometry = computeSectionGeometry(sectionGeometryForTheme(presentation.theme))
+    const centre = (rect: Rect) => rect.y + rect.height / 2
+
+    // Forsiden har underoverskrift og ingen fremdriftsindikator: slidens bunn.
+    const front = sectionLogoRect(layout, sectionAt(presentation, 0), presentation.theme)!
+    const frontBottom = geometry.blockRect.y + geometry.blockRect.height
+    expect(centre(front)).toBeCloseTo((frontBottom + SLIDE_HEIGHT) / 2, 9)
+
+    // En senere inndeling uten underoverskrift: overskriftens underkant, og
+    // oversiden av indikatoren.
+    const later = sectionLogoRect(layout, sectionAt(presentation, 2), presentation.theme)!
+    const area = geometry.areaRect
+    const titleBottom = area.y + (area.height + geometry.titlePillHeight) / 2
+    expect(centre(later)).toBeCloseTo((titleBottom + SLIDE_HEIGHT - PROGRESS_BAR_HEIGHT) / 2, 9)
+
+    // Og over overskriften: midt mellom slidens overkant og overskriftens overkant.
+    const above = withLogo(deck(), logo({ sections: { visibility: 'all', placement: 'above', height: 40 } }))
+    const aboveLayout = deckLogoLayout(above)
+    expect(centre(sectionLogoRect(aboveLayout, sectionAt(above, 0), above.theme)!)).toBeCloseTo(
+      geometry.blockRect.y / 2,
+      9,
+    )
+    const titleTop = area.y + (area.height - geometry.titlePillHeight) / 2
+    expect(centre(sectionLogoRect(aboveLayout, sectionAt(above, 2), above.theme)!)).toBeCloseTo(titleTop / 2, 9)
+  })
 
   it('står bare på forsiden når det er valgt', () => {
     const presentation = withLogo(deck(), logo({ sections: { visibility: 'front', placement: 'below', height: 80 } }))

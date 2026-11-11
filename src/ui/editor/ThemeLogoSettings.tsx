@@ -11,9 +11,7 @@
 
 import { useRef, useState } from 'react'
 import {
-  registerAsset,
   removeThemeLogo,
-  setThemeLogo,
   updateThemeLogo,
   type ThemeLogoPatch,
 } from '../../domain/commands'
@@ -28,12 +26,10 @@ import {
 } from '../../domain/constants'
 import { IMAGE_FILE_ACCEPT } from '../../domain/imageBytes'
 import { logoLimits } from '../../domain/logo'
-import { describeError } from '../../domain/result'
 import type { Presentation, ThemeLogo } from '../../domain/types'
 import { useAssetUrl } from '../../state/assetSource'
-import { describeSanitizing, storeUploadedFile } from '../../state/assetUpload'
+import { uploadThemeLogo } from './logoUpload'
 import { useEditorStore } from '../../state/store'
-import { notify } from '../../state/toast'
 
 const VISIBILITY_LABELS: Record<LogoSectionVisibility, string> = {
   none: 'Ingen',
@@ -89,19 +85,7 @@ export function ThemeLogoSettings({ presentation }: { presentation: Presentation
   const upload = async (file: File): Promise<void> => {
     setBusy(true)
     try {
-      const stored = await storeUploadedFile(presentation, file)
-      if (!stored.ok) {
-        notify.error(describeError(stored.error))
-        return
-      }
-      const sanitized = describeSanitizing(stored.value.report)
-      if (sanitized) notify.warning(sanitized)
-      const { ref } = stored.value
-      // Filen og logoen i ett steg, så én angring tar begge.
-      run('theme-logo', (current) => {
-        const registered = registerAsset(current, ref)
-        return registered.ok ? setThemeLogo(registered.value, ref.id, HUMAN_EDIT) : registered
-      })
+      await uploadThemeLogo(file)
     } finally {
       setBusy(false)
     }
