@@ -670,6 +670,8 @@ museklikk eller databasetilgang:
 | `get_interactive_contract`                                             | hva en miniapp skrives mot: designkontraktens versjon, CSS-variablene, flaten, grensene og hva sandkassen nekter |
 | `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item`, `delete_sandbox_item` | sandkassen: innhold en strukturendring flyttet ut, i stedet for å slette det |
 | `set_theme`, `set_presentation_title`                                  | typografien og navnet på hele dekket          |
+| `set_theme_logo`                                                       | logoen i temaet: fil, plassering og ønsket høyde, eller `null` for å fjerne den |
+| `list_theme_templates`, `apply_theme_template`                         | temamalene brukeren ser, og én brukt på et dekk i ett steg med logoen kopiert inn |
 | `add_section`, `set_section`, `set_section_colors`                     | seksjonene, og fargene delene av dekket arver |
 | `add_reference`, `update_reference`, `delete_reference`                | referansene citations peker på                |
 | `delete_unused_references`                                             | rydder bort referanser ingenting siterer      |

@@ -17,7 +17,11 @@ import type { ContentFitChecker, TitleFitChecker } from '../domain/fit'
 import type { GeometryOptions } from '../domain/geometry'
 import type { DomainError, DomainErrorCode } from '../domain/result'
 import type { UserSettings } from '../domain/userSettings'
-import type { SharingRepository, SlaidsRepository } from '../persistence/repository'
+import type {
+  SharingRepository,
+  SlaidsRepository,
+  ThemeTemplateRepository,
+} from '../persistence/repository'
 import type { SlidePreviewRenderer } from './preview'
 
 /**
@@ -66,6 +70,10 @@ export type AgentOwnErrorCode =
   | 'STORAGE_FAILED'
   | 'CONFLICT'
   | 'SHARING_UNAVAILABLE'
+  /** Installasjonen har ikke noe lager for temamaler; se `operations/themeTemplates.ts`. */
+  | 'THEME_TEMPLATES_UNAVAILABLE'
+  /** Malen finnes ikke, eller er en annens private mal. */
+  | 'THEME_TEMPLATE_NOT_FOUND'
   /** The deployment has no renderer to draw a preview with; see `preview.ts`. */
   | 'PREVIEW_UNAVAILABLE'
   | 'PREVIEW_FAILED'
@@ -114,6 +122,11 @@ export interface AgentContext {
    * `SHARING_UNAVAILABLE` — never a link that looks live and is not.
    */
   sharing?: SharingRepository
+  /**
+   * Temamalene brukeren ser: egne og alle delte. Valgfritt av samme grunn som
+   * `sharing`; uten svarer maloperasjonene `THEME_TEMPLATES_UNAVAILABLE`.
+   */
+  themeTemplates?: ThemeTemplateRepository
   fits?: ContentFitChecker
   fitsTitle?: TitleFitChecker
   geometry?: GeometryOptions

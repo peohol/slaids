@@ -100,6 +100,8 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   STORAGE_FAILED: 502,
   CONFLICT: 409,
   SHARING_UNAVAILABLE: 501,
+  THEME_TEMPLATES_UNAVAILABLE: 501,
+  THEME_TEMPLATE_NOT_FOUND: 404,
   // Two codes for the preview, because they call for two different next moves.
   // `501` is this deployment saying it does not draw previews at all, so an
   // agent should stop asking and carry on; `502` is the renderer behind the API

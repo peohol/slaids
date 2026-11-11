@@ -227,7 +227,7 @@ export interface AssetReplacementInput {
   to: AssetRef
   /**
    * Only the picture panel of this zone. Every use of `fromId` — panels,
-   * inline pictures, the sandbox — when absent.
+   * inline pictures, the sandbox, the theme's logo — when absent.
    */
   only?: { slideId: string; nodeId: string }
   /**
@@ -250,7 +250,8 @@ export interface AssetReplacementInput {
  * new file's metadata is registered, and the old file's metadata is dropped if
  * nothing points at it any more. An inline picture also takes the new file's
  * proportions, because `aspect` is documented as the file's own ratio and a
- * downscale rounds it.
+ * downscale rounds it. The theme's logo does the same, for the same reason:
+ * its proportions are the file's.
  *
  * No fit gate. Swapping the file behind a panel cannot change what fits — the
  * frame is the frame and the caption is untouched — and an inline picture's box
@@ -295,9 +296,17 @@ export function replaceAssetUses(
     const rewriteInline = makeAssetNodeRewriter((node, assetId) =>
       assetId === fromId ? inlineNodePointingAt(node, to.id, aspect) : node,
     )
-    next = mapPresentationContent(presentation, (content) =>
+    const swapped = mapPresentationContent(presentation, (content) =>
       mapContentDocs(swapPanel(content), rewriteInline),
     )
+    const logo = swapped.theme.logo
+    next =
+      logo?.assetId === fromId
+        ? {
+            ...swapped,
+            theme: { ...swapped.theme, logo: { ...logo, assetId: to.id, aspect: aspect ?? logo.aspect } },
+          }
+        : swapped
   }
 
   const stillShown = usedAssetIds(next).has(fromId)

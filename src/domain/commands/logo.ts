@@ -42,11 +42,16 @@ const REFUSAL =
 /**
  * Bruk denne filen som logo. En logo som allerede står, beholder plassering og
  * størrelse og får bare den nye filen – og den nye filens form.
+ *
+ * `patch` endrer plassering og størrelse i det samme steget, så en agent som
+ * setter logoen og sier hvor den skal stå, får ett svar for det hele: en logo
+ * som bare ville fått plass der den til slutt står, avvises ikke underveis.
  */
 export function setThemeLogo(
   presentation: Presentation,
   assetId: string,
   options: StructuralOptions = {},
+  patch: ThemeLogoPatch = {},
 ): Result<Presentation> {
   const asset = presentation.assets.find((entry) => entry.id === assetId)
   if (!asset) return err('ASSET_NOT_FOUND', 'Fant ikke filen.', { assetId })
@@ -54,15 +59,15 @@ export function setThemeLogo(
     return err('INVALID_ARGUMENT', 'Logoen må være et bilde.', { assetId })
   }
   const current = presentation.theme.logo
-  const logo: ThemeLogo = {
-    ...(current ?? defaultLogoSettings()),
-    assetId,
-    aspect: asset.width / asset.height,
-  }
-  if (current && current.assetId === logo.assetId && current.aspect === logo.aspect) {
-    return ok(presentation)
-  }
-  return commit(presentation, logo, options)
+  const checked = checkedLogo(
+    patchedLogo(
+      { ...(current ?? defaultLogoSettings()), assetId, aspect: asset.width / asset.height },
+      patch,
+    ),
+  )
+  if (!checked.ok) return checked
+  if (current && sameLogo(current, checked.value)) return ok(presentation)
+  return commit(presentation, checked.value, options)
 }
 
 /** Endre hvor og hvor stor logoen står. */
@@ -73,9 +78,14 @@ export function updateThemeLogo(
 ): Result<Presentation> {
   const current = presentation.theme.logo
   if (!current) return err('INVALID_ARGUMENT', 'Presentasjonen har ingen logo.')
+  const checked = checkedLogo(patchedLogo(current, patch))
+  if (!checked.ok) return checked
+  return commit(presentation, checked.value, options)
+}
 
-  const next = patchedLogo(current, patch)
-  const { sections, slides } = next
+/** Innstillingene, kontrollert mot de lovlige valgene og høydegrensene. */
+function checkedLogo(logo: ThemeLogo): Result<ThemeLogo> {
+  const { sections, slides } = logo
   if (!LOGO_SECTION_VISIBILITIES.includes(sections.visibility)) {
     return err('INVALID_ARGUMENT', 'Ukjent valg for logo på inndelinger.')
   }
@@ -97,7 +107,18 @@ export function updateThemeLogo(
       )
     }
   }
-  return commit(presentation, next, options)
+  return ok(logo)
+}
+
+function sameLogo(a: ThemeLogo, b: ThemeLogo): boolean {
+  const same = <T extends object>(x: T, y: T): boolean =>
+    (Object.keys(x) as (keyof T)[]).every((key) => x[key] === y[key])
+  return (
+    a.assetId === b.assetId &&
+    a.aspect === b.aspect &&
+    same(a.sections, b.sections) &&
+    same(a.slides, b.slides)
+  )
 }
 
 /** Ta logoen bort. Filen blir liggende til ingenting viser den, som andre filer. */

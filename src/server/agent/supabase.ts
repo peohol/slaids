@@ -131,8 +131,9 @@ export function oauthAuthenticator(
  * underneath — an agent gets Slaids' rules because it is Slaids' code, not
  * because the REST layer reimplements them.
  *
- * `sharing` is the same object: `SupabaseSlaidsRepository` implements both
- * interfaces, and publishing needs the public backend that only exists here.
+ * `sharing` and `themeTemplates` are the same object: `SupabaseSlaidsRepository`
+ * implements all three interfaces, and publishing needs the public backend
+ * that only exists here.
  */
 export function agentContextFor(
   client: SupabaseClient,
@@ -150,7 +151,12 @@ export function agentContextFor(
   preview?: SlidePreviewRenderer,
 ): AgentContext {
   const repository = new SupabaseSlaidsRepository(() => client, principal.ownerId)
-  return { repository, sharing: repository, ...(preview ? { preview } : {}) }
+  return {
+    repository,
+    sharing: repository,
+    themeTemplates: repository,
+    ...(preview ? { preview } : {}),
+  }
 }
 
 /**
