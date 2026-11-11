@@ -72,6 +72,7 @@ export function SectionFrame({
   lines,
   renderLine,
   pillRef,
+  className,
   marker,
   testId = 'section-page',
   children,
@@ -88,6 +89,7 @@ export function SectionFrame({
   /** Tegnes rundt en pille mens linjen i den er satt mindre; bare editoren gir en. */
   marker?: (box: TitleFitBox) => ReactNode
   testId?: string
+  className?: string
   children?: ReactNode
 }) {
   const { theme, logo } = useSlideRender()
@@ -98,7 +100,7 @@ export function SectionFrame({
   return (
     <PageColorsProvider colors={{ accent: accentColor, background: backgroundColor }}>
       <div
-        className="slide section-page"
+        className={className ? `slide section-page ${className}` : 'slide section-page'}
         data-testid={testId}
         style={{
           width: SLIDE_WIDTH,

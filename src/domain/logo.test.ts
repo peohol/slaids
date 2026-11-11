@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   LOGO_MIN_HEIGHT,
+  LOGO_MOVE_HYSTERESIS,
   LOGO_SLIDE_POSITIONS,
   PROGRESS_BAR_HEIGHT,
   SLIDE_HEIGHT,
@@ -17,13 +18,25 @@ import { addSection, setSectionSubtitle, setSlideTitle } from './commands'
 import { createUntitledCard } from './content'
 import { computeSectionGeometry, computeSlideGeometry, minimumSizeFor } from './geometry'
 import {
+  LOGO_HANDLES,
+  LOGO_HANDLE_DIRECTION,
   deckLogoLayout,
   geometryForDeck,
+  logoGroupPatch,
+  logoGrowth,
+  logoHandlesFor,
   logoLimits,
+  logoMoveTargets,
+  logoRectOnPage,
+  nearestLogoTarget,
+  patchedLogo,
+  resizedLogoHeight,
   sectionFloor,
   sectionLogoRect,
   slideLogoRect,
   themeAssetIds,
+  withLogoPatch,
+  type LogoPage,
 } from './logo'
 import { geometryForTheme, sectionGeometryForTheme } from './metrics'
 import { createPresentation } from './presentation'
@@ -297,5 +310,164 @@ describe('logo på inndelinger', () => {
     const later = sectionLogoRect(layout, sectionAt(presentation, 2), presentation.theme)!
     expect(front.height).toBe(later.height)
     expect(front.width).toBe(later.width)
+  })
+})
+
+describe('logoen dras på stagen (§ 15.3)', () => {
+  const slidePage: LogoPage = { kind: 'slide', hasTitle: true }
+
+  it('slår en endring sammen med det som står, uten å røre den andre gruppen', () => {
+    const before = logo()
+    const after = patchedLogo(before, logoGroupPatch('slides', { choice: 'left', height: 50 }))
+    expect(after.slides).toEqual({ visible: true, position: 'left', height: 50 })
+    expect(after.sections).toEqual(before.sections)
+    const placed = patchedLogo(before, logoGroupPatch('sections', { choice: 'below' }))
+    expect(placed.sections).toMatchObject({ placement: 'below', height: 160 })
+    // Et dekk uten logo får ingen av en endring.
+    const bare = createPresentation({ title: 'x' })
+    expect(withLogoPatch(bare, { slides: { height: 50 } })).toBe(bare)
+  })
+
+  it('tilbyr hver plass med sentrum der logoen faktisk ville stått', () => {
+    const presentation = withLogo(deck(), logo())
+    const targets = logoMoveTargets(presentation, slidePage)
+    expect(targets.map((target) => target.choice)).toEqual([...LOGO_SLIDE_POSITIONS])
+    for (const target of targets) {
+      const moved = withLogoPatch(presentation, logoGroupPatch('slides', { choice: target.choice }))
+      const rect = logoRectOnPage(deckLogoLayout(moved), slidePage, moved.theme)!
+      expect(target.centre.x).toBeCloseTo(rect.x + rect.width / 2, 6)
+      expect(target.centre.y).toBeCloseTo(rect.y + rect.height / 2, 6)
+    }
+  })
+
+  it('tilbyr ikke en plass der logoen ikke får plass', () => {
+    // En svært bred logo får plass i en vannrett stripe over hele bredden, men
+    // ikke i en loddrett stripe ved siden av hovedsonen.
+    const presentation = withLogo(deck(), logo({ aspect: 62 }))
+    const choices = logoMoveTargets(presentation, slidePage).map((target) => target.choice)
+    expect(choices.length).toBeGreaterThan(0)
+    expect(choices.length).toBeLessThan(LOGO_SLIDE_POSITIONS.length)
+    for (const choice of choices) {
+      const moved = withLogoPatch(presentation, logoGroupPatch('slides', { choice }))
+      expect(deckLogoLayout(moved)?.slides).not.toBeNull()
+    }
+    for (const choice of LOGO_SLIDE_POSITIONS.filter((each) => !choices.includes(each))) {
+      const moved = withLogoPatch(presentation, logoGroupPatch('slides', { choice }))
+      expect(deckLogoLayout(moved)?.slides ?? null).toBeNull()
+    }
+  })
+
+  it('tilbyr over og under overskriften på en inndeling', () => {
+    const presentation = withLogo(deck(), logo())
+    const page: LogoPage = { kind: 'section', section: sectionAt(presentation, 0) }
+    const targets = logoMoveTargets(presentation, page)
+    expect(targets.map((target) => target.choice)).toEqual(['above', 'below'])
+    expect(targets[0].centre.y).toBeLessThan(targets[1].centre.y)
+    expect(targets[0].centre.x).toBeCloseTo(SLIDE_WIDTH / 2, 6)
+  })
+
+  it('velger den nærmeste plassen, men bytter ikke før en annen er tydelig nærmere', () => {
+    const targets = [
+      { choice: 'top-left' as const, centre: { x: 100, y: 100 } },
+      { choice: 'top' as const, centre: { x: 800, y: 100 } },
+    ]
+    expect(nearestLogoTarget(targets, { x: 200, y: 100 }, 'top', LOGO_MOVE_HYSTERESIS)).toBe('top-left')
+    // Midt mellom de to: den logoen står på, vinner.
+    expect(nearestLogoTarget(targets, { x: 450, y: 100 }, 'top', LOGO_MOVE_HYSTERESIS)).toBe('top')
+    expect(nearestLogoTarget(targets, { x: 450, y: 100 }, 'top-left', LOGO_MOVE_HYSTERESIS)).toBe('top-left')
+    // Litt forbi midten er ikke nok …
+    expect(nearestLogoTarget(targets, { x: 440, y: 100 }, 'top', LOGO_MOVE_HYSTERESIS)).toBe('top')
+    // … men godt forbi er det.
+    expect(nearestLogoTarget(targets, { x: 400, y: 100 }, 'top', LOGO_MOVE_HYSTERESIS)).toBe('top-left')
+    // Uten noe å velge mellom står den.
+    expect(nearestLogoTarget([], { x: 0, y: 0 }, 'bottom', LOGO_MOVE_HYSTERESIS)).toBe('bottom')
+  })
+
+  it('vokser bort fra sentrum og krymper mot det, med formen beholdt', () => {
+    const base = { height: 60, aspect: 2, growth: { x: 1, y: 1 }, limit: 200 }
+    expect(resizedLogoHeight({ ...base, handle: 's', delta: { x: 0, y: 20 } })).toBe(80)
+    expect(resizedLogoHeight({ ...base, handle: 'n', delta: { x: 0, y: 20 } })).toBe(40)
+    // Bredden blir høyde gjennom formen: 40 bredere er 20 høyere.
+    expect(resizedLogoHeight({ ...base, handle: 'e', delta: { x: 40, y: 0 } })).toBe(80)
+    expect(resizedLogoHeight({ ...base, handle: 'w', delta: { x: 40, y: 0 } })).toBe(40)
+    // Et hjørne følger den aksen pekeren har flyttet seg mest langs.
+    expect(resizedLogoHeight({ ...base, handle: 'se', delta: { x: 10, y: 30 } })).toBe(90)
+    expect(resizedLogoHeight({ ...base, handle: 'nw', delta: { x: 20, y: 5 } })).toBe(50)
+    // En midtstilt logo vokser til begge sider, så kanten flytter seg halvparten.
+    expect(resizedLogoHeight({ ...base, growth: { x: 0.5, y: 0.5 }, handle: 's', delta: { x: 0, y: 10 } })).toBe(80)
+  })
+
+  it('holder høyden mellom minstemålet og det gruppen har plass til', () => {
+    const base = { height: 60, aspect: 2, growth: { x: 1, y: 1 }, limit: 100 }
+    for (const handle of LOGO_HANDLES) {
+      const away = LOGO_HANDLE_DIRECTION[handle]
+      const far = (sign: number) => ({ x: 5000 * sign * away.x, y: 5000 * sign * away.y })
+      expect(resizedLogoHeight({ ...base, handle, delta: far(1) })).toBe(100)
+      expect(resizedLogoHeight({ ...base, handle, delta: far(-1) })).toBe(LOGO_MIN_HEIGHT)
+    }
+    expect(resizedLogoHeight({ ...base, handle: 's', delta: { x: 0, y: -5000 } })).toBe(LOGO_MIN_HEIGHT)
+    expect(resizedLogoHeight({ ...base, handle: 's', delta: { x: 0, y: 5000 } })).toBe(100)
+  })
+
+  it('tilbyr bare håndtak på kanter som flytter seg når logoen vokser', () => {
+    const at = (position: LogoSlidePosition) =>
+      logoHandlesFor(
+        deckLogoLayout(withLogo(deck(), logo({ slides: { visible: true, position, height: 72 } })))!,
+        slidePage,
+      ).sort()
+    // Fast mot høyre og nedre kant: bare venstre og øvre side kan flytte seg.
+    expect(at('bottom-right')).toEqual(['n', 'nw', 'w'])
+    expect(at('top-left')).toEqual(['e', 's', 'se'])
+    // Midt på nedre kant: vokser til begge sider, men ikke nedover.
+    expect(at('bottom')).toEqual(['e', 'n', 'ne', 'nw', 'w'])
+    // Midt på høyre kant: vokser opp og ned, men ikke mot høyre.
+    expect(at('right')).toEqual(['n', 'nw', 's', 'sw', 'w'])
+    const presentation = withLogo(deck(), logo())
+    expect(logoHandlesFor(deckLogoLayout(presentation)!, { kind: 'section', section: sectionAt(presentation, 0) })).toEqual([
+      ...LOGO_HANDLES,
+    ])
+  })
+
+  it('lar et tilbudt håndtak følge pekeren: kanten flytter seg like langt som pekeren', () => {
+    for (const position of LOGO_SLIDE_POSITIONS) {
+      const presentation = withLogo(deck(), logo({ slides: { visible: true, position, height: 72 } }))
+      const layout = deckLogoLayout(presentation)!
+      const before = logoRectOnPage(layout, slidePage, presentation.theme)!
+      for (const handle of logoHandlesFor(layout, slidePage)) {
+        const away = LOGO_HANDLE_DIRECTION[handle]
+        // Pekeren rett utover langs den aksen håndtaket står på (y for kanter og hjørner, ellers x).
+        const delta = away.y !== 0 ? { x: 0, y: 10 * away.y } : { x: 10 * away.x, y: 0 }
+        const height = resizedLogoHeight({
+          height: 72,
+          aspect: 2,
+          handle,
+          delta,
+          growth: logoGrowth(layout, slidePage),
+          limit: 400,
+        })
+        const grown = withLogo(deck(), logo({ slides: { visible: true, position, height } }))
+        const after = logoRectOnPage(deckLogoLayout(grown), slidePage, grown.theme)!
+        const edge = (rect: Rect) =>
+          away.y !== 0
+            ? away.y < 0 ? rect.y : rect.y + rect.height
+            : away.x < 0 ? rect.x : rect.x + rect.width
+        expect(edge(after) - edge(before), `${position} ${handle}`).toBeCloseTo(
+          away.y !== 0 ? delta.y : delta.x,
+          0,
+        )
+      }
+    }
+  })
+
+  it('sier hvilken akse logoen er midtstilt på, så håndtaket følger pekeren', () => {
+    const at = (position: LogoSlidePosition) =>
+      logoGrowth(deckLogoLayout(withLogo(deck(), logo({ slides: { visible: true, position, height: 72 } })))!, slidePage)
+    expect(at('top-left')).toEqual({ x: 1, y: 1 })
+    expect(at('bottom')).toEqual({ x: 0.5, y: 1 })
+    expect(at('right')).toEqual({ x: 1, y: 0.5 })
+    const presentation = withLogo(deck(), logo())
+    expect(
+      logoGrowth(deckLogoLayout(presentation)!, { kind: 'section', section: sectionAt(presentation, 0) }),
+    ).toEqual({ x: 0.5, y: 0.5 })
   })
 })

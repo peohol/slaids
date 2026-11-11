@@ -57,6 +57,7 @@ import { TitleFitLine } from '../slide/TitleFitLine'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
+import { LogoHandles, useLogoMoving } from './LogoHandles'
 import { RichTextEditor } from './RichTextEditor'
 import {
   childRects,
@@ -314,6 +315,7 @@ export function EditorStage({
 
   const geometryOptions = useSlideGeometryOptions()
   const geometry = computeSlideGeometry(displaySlide, geometryOptions)
+  const logoMoving = useLogoMoving()
 
   /**
    * A point on screen, as a point on the slide.
@@ -775,7 +777,11 @@ export function EditorStage({
         <>
           <SlideView
             slide={displaySlide}
-            className={mode === 'zone' ? 'slide--zone-mode' : undefined}
+            className={
+              [mode === 'zone' && 'slide--zone-mode', logoMoving && 'slide--logo-moving']
+                .filter(Boolean)
+                .join(' ') || undefined
+            }
             renderTitle={(rect) => (
               /* En tittel for lang for linjen settes mindre og merkes, i begge moduser. */
               <TitleFitLine
@@ -915,6 +921,9 @@ export function EditorStage({
               slide is only one kind of page.
             */}
             <SlideProgressBar pageId={slide.id} />
+
+            {/* Logoen dras og endres i størrelse her, over alt annet på sliden (§ 15.3). */}
+            <LogoHandles page={{ kind: 'slide', hasTitle: displaySlide.title !== null }} scale={scale || 1} />
           </SlideView>
         </>
       )}

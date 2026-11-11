@@ -2856,6 +2856,21 @@ vises bare i editoren.
 - Temaeditoren tilbyr de samme plasserings- og størrelsesvalgene, så alt kan
   gjøres uten å dra.
 
+**Slik er det løst.** All utregning ligger i `src/domain/logo.ts` ved siden av
+geometrien fra § 15.2: `logoMoveTargets` (de lovlige plassene på siden, med
+sentrum slik logoen faktisk ville tegnes der – en plass uten rom for
+minstemålet er ikke med), `nearestLogoTarget` (nærmeste plass, med
+`LOGO_MOVE_HYSTERESIS`), `resizedLogoHeight` og `logoGrowth` (hvor mye en kant
+flytter seg når logoen vokser – ½ på en akse der den er midtstilt, så
+håndtaket følger pekeren). Stagen legger forslaget over dekkets logo for
+stagen alene (`LogoDragScope` i `src/ui/editor/LogoHandles.tsx`), så tittel og
+soner flytter seg med mens miniatyrbildene står. Håndtakene vises når pekeren
+er over logoen, etter et trykk på den (berøring) og mens den dras; er logoen
+liten på skjermen, står bare hjørnene. Et håndtak på en kant som står fast mot
+siden (for eksempel høyre og nedre kant når logoen står nederst til høyre),
+tilbys ikke (`logoHandlesFor`): det ville blitt stående mens logoen vokste
+vekk fra det.
+
 ---
 
 ## 15.4\. Temamaler

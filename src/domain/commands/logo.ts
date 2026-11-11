@@ -19,18 +19,14 @@ import {
   LOGO_SLIDE_POSITIONS,
   SLIDE_HEIGHT,
 } from '../constants'
-import { themeWithoutLogo } from '../logo'
+import { patchedLogo, themeWithoutLogo, type ThemeLogoPatch } from '../logo'
 import { touch } from '../presentation'
 import { err, ok, type Result } from '../result'
 import type { Presentation, ThemeLogo } from '../types'
 import { guardFit } from './fitGuard'
 import type { StructuralOptions } from './types'
 
-/** Det en endring av logoen kan si noe om. Det som ikke nevnes, står. */
-export interface ThemeLogoPatch {
-  sections?: Partial<ThemeLogo['sections']>
-  slides?: Partial<ThemeLogo['slides']>
-}
+export type { ThemeLogoPatch }
 
 /** Innstillingene en logo får første gang den settes. */
 export function defaultLogoSettings(): Pick<ThemeLogo, 'sections' | 'slides'> {
@@ -78,8 +74,8 @@ export function updateThemeLogo(
   const current = presentation.theme.logo
   if (!current) return err('INVALID_ARGUMENT', 'Presentasjonen har ingen logo.')
 
-  const sections = { ...current.sections, ...patch.sections }
-  const slides = { ...current.slides, ...patch.slides }
+  const next = patchedLogo(current, patch)
+  const { sections, slides } = next
   if (!LOGO_SECTION_VISIBILITIES.includes(sections.visibility)) {
     return err('INVALID_ARGUMENT', 'Ukjent valg for logo på inndelinger.')
   }
@@ -101,7 +97,7 @@ export function updateThemeLogo(
       )
     }
   }
-  return commit(presentation, { ...current, sections, slides }, options)
+  return commit(presentation, next, options)
 }
 
 /** Ta logoen bort. Filen blir liggende til ingenting viser den, som andre filer. */

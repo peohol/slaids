@@ -1210,6 +1210,92 @@
   cursor: row-resize;
 }
 
+/* ----------------------------------------------------------------- *
+ * Logoen på stagen (§ 15.3)
+ * ----------------------------------------------------------------- */
+
+/*
+ * En ramme over logoen som tar imot draget. Den viser seg når pekeren er over
+ * logoen, etter et trykk på den og mens den dras. Håndtakene har samme
+ * størrelse på skjermen uansett hvor liten stagen er (`--logo-handle-size`
+ * regnes om fra stagens skala).
+ */
+.logo-handles {
+  position: absolute;
+  z-index: 2;
+  cursor: move;
+  user-select: none;
+  /* Uten dette tar nettleseren berøringen før draget er lest. */
+  touch-action: none;
+  outline: calc(var(--logo-handle-size) / 6) dashed transparent;
+  outline-offset: calc(var(--logo-handle-size) / 3);
+}
+
+.logo-handles:hover,
+.logo-handles[data-dragging],
+.logo-handles[data-chosen] {
+  outline-color: var(--chrome-accent);
+}
+
+.logo-handle {
+  position: absolute;
+  width: var(--logo-handle-size);
+  height: var(--logo-handle-size);
+  margin: calc(var(--logo-handle-size) / -2);
+  border: calc(var(--logo-handle-size) / 6) solid var(--chrome-accent);
+  border-radius: 50%;
+  background: #fff;
+  box-sizing: border-box;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity 120ms ease;
+}
+
+/* Et større treffområde enn det som tegnes, for en fingertupp. */
+.logo-handle::before {
+  content: '';
+  position: absolute;
+  inset: calc(var(--logo-handle-size) * -0.75);
+}
+
+.logo-handles:hover .logo-handle,
+.logo-handles[data-dragging] .logo-handle,
+.logo-handles[data-chosen] .logo-handle {
+  opacity: 1;
+}
+
+/* Uten en peker å holde over med sier en tynn ramme at logoen kan trykkes på. */
+@media (hover: none) {
+  .logo-handles:not([data-chosen], [data-dragging]) {
+    outline-color: color-mix(in srgb, var(--chrome-accent) 50%, transparent);
+  }
+
+  .logo-handles:hover:not([data-chosen], [data-dragging]) .logo-handle {
+    opacity: 0;
+  }
+}
+
+.logo-handle--nw { left: 0; top: 0; cursor: nwse-resize; }
+.logo-handle--n { left: 50%; top: 0; cursor: ns-resize; }
+.logo-handle--ne { left: 100%; top: 0; cursor: nesw-resize; }
+.logo-handle--e { left: 100%; top: 50%; cursor: ew-resize; }
+.logo-handle--se { left: 100%; top: 100%; cursor: nwse-resize; }
+.logo-handle--s { left: 50%; top: 100%; cursor: ns-resize; }
+.logo-handle--sw { left: 0; top: 100%; cursor: nesw-resize; }
+.logo-handle--w { left: 0; top: 50%; cursor: ew-resize; }
+
+/*
+ * Når logoen dras til en ny plass, glir den, tittelen og sonene dit sammen,
+ * kort. En størrelsesendring følger pekeren og glir ikke.
+ */
+.slide--logo-moving :is(.slide-logo, .slide-title, .slide-zone, .logo-handles) {
+  transition:
+    left 160ms ease,
+    top 160ms ease,
+    width 160ms ease,
+    height 160ms ease;
+}
+
 /*
  * A selected zone's outer edges compress it inwards. The grip is a strip just
  * inside the edge with a short bar in its middle — visible only on the selected

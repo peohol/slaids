@@ -44,6 +44,7 @@ import { canTypeIn, type StageTextEditing } from './stageFocus'
 import type { StageZoom } from './stageView'
 import { RichTextEditor } from './RichTextEditor'
 import { ShrunkZoneMarker } from './ShrunkZoneMarker'
+import { LogoHandles, useLogoMoving } from './LogoHandles'
 import type { MenuAnchor } from '../components/contextMenu'
 
 const LINE_TEXT: Record<
@@ -101,6 +102,7 @@ export function SectionStage({
   const pillRefs = useRef<Partial<Record<SectionLine, HTMLElement | null>>>({})
   const run = useEditorStore((state) => state.run)
   const { theme } = useSlideRender()
+  const logoMoving = useLogoMoving()
   // Stable, so React does not detach and reattach the pill on every keystroke.
   const setPillRef = useCallback((line: SectionLine, element: HTMLElement | null) => {
     pillRefs.current[line] = element
@@ -161,6 +163,7 @@ export function SectionStage({
         <>
           <SectionFrame
             section={section}
+            className={logoMoving ? 'slide--logo-moving' : undefined}
             accentColor={section.accentColor}
             backgroundColor={section.backgroundColor}
             lines={SECTION_LINES}
@@ -189,6 +192,9 @@ export function SectionStage({
               decides that, not this component.
             */}
             <SlideProgressBar pageId={section.id} />
+
+            {/* Logoen dras og endres i størrelse her (§ 15.3). */}
+            <LogoHandles page={{ kind: 'section', section }} scale={scale || 1} />
           </SectionFrame>
         </>
       )}
