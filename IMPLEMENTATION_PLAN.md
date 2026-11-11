@@ -1364,7 +1364,8 @@ fremdriften fra forrige side som standard. Eieren kan telle dem med i
 **Brukerinnstillinger** i biblioteket. Valget gjelder alle eierens
 presentasjoner. Når en delt presentasjon åpnes, får publikum eierens
 gjeldende visningsvalg sammen med den publiserte kopien. Den siste siden
-som telles, fyller indikatoren.
+som telles, fyller indikatoren. Agentens `render_slide_preview` bruker også
+eierens gjeldende valg uten å endre den lagrede presentasjonen eller revisjonen.
 
 ---
 

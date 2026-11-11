@@ -68,6 +68,7 @@ export function slidePreviewRenderer(
       const assets = await loadPreviewAssets(request.page, request.assets)
       const document = previewDocument({
         presentation: request.presentation,
+        includeReferencesInProgress: request.includeReferencesInProgress,
         page: request.page,
         assets: assets.source,
         fonts,

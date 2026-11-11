@@ -130,8 +130,10 @@ export const renderSlidePreviewOperation = defineOperation({
       })
     }
 
+    const settings = await context.repository.getUserSettings(null)
     const rendered = await renderer({
       presentation,
+      includeReferencesInProgress: settings.includeReferencesInProgress,
       page,
       scale: input.scale,
       // The store the deck was just read from, so a preview can never show a
