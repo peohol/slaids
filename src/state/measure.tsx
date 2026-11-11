@@ -115,6 +115,7 @@ export function measureContentFit(
           // fit-relevant, so the defaults measure the same as any other pair.
           sectionColors: new Map(),
           progress: new Map(),
+          logo: null,
           isStatic: true,
         }}
       >
@@ -166,6 +167,7 @@ export function measureTitleFit(
           // fit-relevant, so the defaults measure the same as any other pair.
           sectionColors: new Map(),
           progress: new Map(),
+          logo: null,
           isStatic: true,
         }}
       >

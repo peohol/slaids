@@ -31,6 +31,7 @@ import {
   INLINE_IMAGE_DEFAULT_ASPECT,
 } from './constants'
 import { advanceRatioFor, DEFAULT_ADVANCE_RATIO } from './fonts'
+import type { LogoReservation } from './geometry'
 import { themeMetrics, type ThemeMetrics } from './metrics'
 import { citationLabel, type CitationLabelContext, type ReferenceNumbering } from './references'
 import { inlineImageOf } from './richdoc'
@@ -88,6 +89,12 @@ export interface FitResult {
  */
 export interface FitContext extends CitationLabelContext {
   theme: PresentationTheme
+  /**
+   * Stripen logoen reserverer på dekkets vanlige slides (§ 15.2). Avledet av
+   * hele dekket, som sitatnumrene: hvor stor logoen kan være, avgjøres av alle
+   * slidene sammen. Fraværende er ingen logo – en sone målt for seg selv.
+   */
+  logo?: LogoReservation | null
 }
 
 export type ContentFitChecker = (

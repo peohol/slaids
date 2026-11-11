@@ -21,6 +21,7 @@ import {
 } from '../content'
 import { findLeaf, replaceNode } from '../layout'
 import { findContentSlide, touch, withSlide } from '../presentation'
+import { remapThemeAssetIds, themeAssetIds, type LogoDeck } from '../logo'
 import { collectDocAssetIds } from '../richdoc'
 import { err, ok, type Result } from '../result'
 import type { AssetRef, Presentation, RichNode, Slide, ZoneContent } from '../types'
@@ -63,9 +64,21 @@ export function slideAssetIds(slides: readonly Slide[]): Set<string> {
   return collectAssetIds(slideContent(slides))
 }
 
-/** Asset ids actually referenced from slides or the sandbox. */
+/**
+ * Filene et dekk viser for publikum: det som står på sidene, og temaets logo.
+ * Det delte øyeblikksbildet og hver headless side snevres inn med dette.
+ */
+export function deckAssetIds(deck: LogoDeck): Set<string> {
+  const ids = slideAssetIds(deck.slides)
+  for (const id of themeAssetIds(deck.theme)) ids.add(id)
+  return ids
+}
+
+/** Asset ids actually referenced from slides, the sandbox or the theme's logo. */
 export function usedAssetIds(presentation: Presentation): Set<string> {
-  return collectAssetIds(allContent(presentation))
+  const ids = collectAssetIds(allContent(presentation))
+  for (const id of themeAssetIds(presentation.theme)) ids.add(id)
+  return ids
 }
 
 function collectAssetIds(contents: readonly ZoneContent[]): Set<string> {
@@ -110,6 +123,8 @@ export interface AssetUsageSummary {
   total: number
   slides: AssetUsageCounts
   sandbox: AssetUsageCounts
+  /** 1 når filen er temaets logo. Den fjernes i temaet, ikke i innholdet. */
+  theme: number
 }
 
 function countUses(contents: readonly ZoneContent[], assetId: string): AssetUsageCounts {
@@ -137,10 +152,13 @@ export function summarizeAssetUsage(
 ): AssetUsageSummary {
   const slides = countUses(slideContent(presentation.slides), assetId)
   const sandbox = countUses(sandboxContent(presentation), assetId)
+  const theme = themeAssetIds(presentation.theme).filter((id) => id === assetId).length
   return {
-    total: slides.zoneContent + slides.inlineText + sandbox.zoneContent + sandbox.inlineText,
+    total:
+      slides.zoneContent + slides.inlineText + sandbox.zoneContent + sandbox.inlineText + theme,
     slides,
     sandbox,
+    theme,
   }
 }
 
@@ -161,7 +179,9 @@ export function removeAsset(presentation: Presentation, assetId: string): Result
   if (usage.total > 0) {
     return err(
       'ASSET_IN_USE',
-      'Filen vises i dekket og kan ikke slettes. Fjern den fra innholdet først.',
+      usage.total === usage.theme
+        ? 'Filen er logoen i temaet og kan ikke slettes. Fjern logoen i temaet først.'
+        : 'Filen vises i dekket og kan ikke slettes. Fjern den fra innholdet først.',
       { assetId, usage },
     )
   }
@@ -340,6 +360,10 @@ export function mergeDuplicateAssets(
     remapContentAssetIds(content, replacements),
   )
   return ok(
-    touch({ ...merged, assets: merged.assets.filter((asset) => !replacements.has(asset.id)) }),
+    touch({
+      ...merged,
+      theme: remapThemeAssetIds(merged.theme, replacements),
+      assets: merged.assets.filter((asset) => !replacements.has(asset.id)),
+    }),
   )
 }

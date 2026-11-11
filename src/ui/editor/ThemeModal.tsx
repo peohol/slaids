@@ -1,6 +1,6 @@
 /**
- * Temaeditoren: fonter, luft, skriftstørrelse, skygger og kortutseende for hele
- * presentasjonen, og forsidens to farger.
+ * Temaeditoren: logo, fonter, luft, skriftstørrelse, skygger og kortutseende
+ * for hele presentasjonen, og forsidens to farger.
  *
  * Fargene er forsidens, ikke globale: de er de samme to forsidens
  * egenskapspanel endrer, og senere inndelinger beholder sine egne (§ 8.5).
@@ -23,6 +23,8 @@ import { ensureWebFonts } from '../fonts'
 import { Modal } from '../components/Modal'
 import { ColorPickerButton } from '../components/ColorPicker'
 import { ThemePreview } from './ThemePreview'
+import { ThemeLogoSettings } from './ThemeLogoSettings'
+import { deckLogoLayout } from '../../domain/logo'
 
 /**
  * Which of the named settings is in force.
@@ -144,7 +146,7 @@ export function ThemeModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Tema"
-      description="Fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Fargene her er forsidens, og arves fram til neste inndeling."
+      description="Logo, fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Fargene her er forsidens, og arves fram til neste inndeling."
       testId="theme-modal"
       width={600}
       footer={
@@ -172,7 +174,12 @@ export function ThemeModal({
       }
     >
       <div className="theme-modal__preview">
-        <ThemePreview theme={theme} background={previewBackground} accent={previewAccent} />
+        <ThemePreview
+          theme={theme}
+          background={previewBackground}
+          accent={previewAccent}
+          logo={deckLogoLayout(presentation)}
+        />
       </div>
 
       <div className="field">
@@ -204,6 +211,8 @@ export function ThemeModal({
           egne farger.
         </p>
       </div>
+
+      <ThemeLogoSettings presentation={presentation} />
 
       <div className="theme-modal__fonts" data-font-loading={loading ?? 'none'}>
         <div className="field">

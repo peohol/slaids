@@ -21,6 +21,7 @@
  * commands would have given.
  */
 
+import { geometryForDeck, themeAssetIds } from './logo'
 import { contentAssetIds, contentDocs } from './content'
 import {
   fitContextFor,
@@ -32,7 +33,6 @@ import {
 import { FIT_TOLERANCE, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from './constants'
 import { interactiveHtmlBytesIn, storedInteractiveRefusal } from './interactive'
 import { collectLeaves, validateTree } from './layout'
-import { geometryForTheme } from './metrics'
 import { TITLE_NODE_ID, validateSlideGeometry } from './geometry'
 import { collectCitationIds } from './richdoc'
 import { presentationSchema } from './schema'
@@ -184,7 +184,7 @@ export function findSlideIssues(
   // the files and references the content points at — is a plain traversal and
   // holds either way.
   if (structural.length === 0) {
-    const geometry = { ...geometryForTheme(presentation.theme), ...options.geometry }
+    const geometry = { ...geometryForDeck(presentation), ...options.geometry }
     for (const violation of validateSlideGeometry(slide, geometry)) {
       issues.push({
         code: violation.kind === 'below-minimum' ? 'ZONE_TOO_SMALL' : 'INVALID_GEOMETRY',
@@ -350,6 +350,14 @@ export function findPresentationIssues(
 
   const knownAssets = new Set(presentation.assets.map((asset) => asset.id))
   const knownReferences = new Set(presentation.references.map((reference) => reference.id))
+  for (const assetId of themeAssetIds(presentation.theme)) {
+    if (knownAssets.has(assetId)) continue
+    issues.push({
+      code: 'ASSET_NOT_FOUND',
+      message: 'Logoen i temaet peker på en fil som ikke finnes i presentasjonen.',
+      details: { assetId, theme: 'logo' },
+    })
+  }
   for (const item of presentation.sandbox) {
     const where = { details: { sandboxItemId: item.id } }
     issues.push(...missingAssetIssues(item.content, knownAssets, where))

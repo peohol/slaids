@@ -1258,3 +1258,12 @@ button.interactive-page__activate:focus-visible {
   transition-property: width;
   transition-timing-function: ease-in-out;
 }
+
+/* Logoen i temaet (§ 15.2). Plassen og størrelsen er regnet ut på forhånd, så
+   bildet bare fyller rammen sin uten å endre formen. */
+.slide-logo {
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}

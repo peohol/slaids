@@ -25,9 +25,9 @@
  *    rectangle and the measured overflow before it goes back out.
  */
 
+import { geometryForDeck } from '../domain/logo'
 import { estimateFitChecker, estimateTitleFitChecker } from '../domain/fit'
 import { computeSlideGeometry, TITLE_NODE_ID } from '../domain/geometry'
-import { geometryForTheme } from '../domain/metrics'
 import { findContentSlide } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import type { StructuralOptions } from '../domain/commands'
@@ -321,7 +321,7 @@ function zoneRect(
   const slide = findContentSlide(presentation, slideId)
   if (!slide) return null
   const geometry = computeSlideGeometry(slide, {
-    ...geometryForTheme(presentation.theme),
+    ...geometryForDeck(presentation),
     ...context.geometry,
   })
   return geometry.rects.get(nodeId) ?? null

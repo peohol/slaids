@@ -97,6 +97,7 @@ function provider(presentation: Presentation, isStatic: boolean, node: React.Rea
         numbering: new Map(),
         sectionColors: deckSectionColors(pages),
         progress: deckProgress(pages),
+        logo: null,
         isStatic,
       }}
     >

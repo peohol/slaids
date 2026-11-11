@@ -31,6 +31,8 @@ import {
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import type { Presentation } from '../domain/types'
+import { setThemeLogo } from '../domain/commands/logo'
+import { DEFAULT_LOGO_SECTION_HEIGHT, DEFAULT_LOGO_SLIDE_HEIGHT } from '../domain/constants'
 import { contentAt } from '../domain/testDecks'
 import type { PresentationView, ContentSlideInspection } from './operations/deck'
 import type { ThemeView } from './operations/theme'
@@ -151,10 +153,58 @@ describe('å lese temaet', () => {
       fontScale: DEFAULT_FONT_SCALE,
       boxShadows: true,
       titledCardStyle: 'joined',
+      logo: null,
     })
     // The id is the name `set_theme` takes back, and the stack is what the
     // document stores — an agent can see both without being handed the JSON.
     expect(view.theme.headingFont.stack).toBe(findFontById('quicksand')?.stack)
+  })
+
+  it('viser logoen, hvor stor den tegnes og stripen den tar, og sonene er regnet uten den', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const before = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+    const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+      presentationId: deck.presentationId,
+      name: 'logo',
+      svgMarkup: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100"><rect width="300" height="100"/></svg>',
+    })
+    // Logoen settes i editoren; agenten kan bare lese den.
+    const document = await stored(context, deck.presentationId)
+    const withLogo = setThemeLogo(document, asset.assetId)
+    if (!withLogo.ok) throw new Error(withLogo.error.message)
+    await context.repository.savePresentation(withLogo.value)
+
+    const view = await ok<PresentationView>(context, 'get_presentation', {
+      presentationId: deck.presentationId,
+    })
+    const { gap } = geometryForTheme(document.theme)
+    expect(view.theme.logo).toEqual({
+      assetId: asset.assetId,
+      aspect: 3,
+      sections: { visibility: 'front', placement: 'above', height: DEFAULT_LOGO_SECTION_HEIGHT, drawnHeight: expect.any(Number) },
+      slides: {
+        visible: true,
+        position: 'bottom-right',
+        height: DEFAULT_LOGO_SLIDE_HEIGHT,
+        drawnHeight: DEFAULT_LOGO_SLIDE_HEIGHT,
+        reservedEdge: 'bottom',
+        reservedSize: DEFAULT_LOGO_SLIDE_HEIGHT + gap,
+      },
+    })
+
+    // Hovedsonen er nøyaktig stripen lavere enn den var.
+    const after = await ok<ContentSlideInspection>(context, 'inspect_slide', {
+      presentationId: deck.presentationId,
+      slideId: deck.slideId,
+    })
+    const zone = (inspection: ContentSlideInspection) =>
+      inspection.zones.find((entry) => entry.nodeId === deck.nodeId)!.rect
+    expect(zone(after).height).toBe(zone(before).height - (DEFAULT_LOGO_SLIDE_HEIGHT + gap))
+    expect(zone(after).y).toBe(zone(before).y)
   })
 
   it('svarer med det samme temaet fra create_presentation', async () => {

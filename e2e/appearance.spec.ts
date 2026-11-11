@@ -69,7 +69,9 @@ test.describe('utseende', () => {
     await page.getByTestId('menu-appearance-dark').focus()
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('context-menu')).toBeHidden()
-    expect(await isLight(page.getByTestId('top-toolbar'))).toBe(false)
+    // Et menyvalg kjøres først når menyen har lukket seg (`afterClose`), så
+    // fargen leses til den har kommet, ikke i samme øyeblikk som menyen forsvinner.
+    await expect.poll(() => isLight(page.getByTestId('top-toolbar'))).toBe(false)
 
     await backToLibrary(page)
     expect(await isLight(body(page))).toBe(false)

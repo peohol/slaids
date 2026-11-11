@@ -13,18 +13,19 @@
  * token, so the authenticated path is closed to it; and a page that fetches
  * nothing cannot be made to fetch something by what is stored in a deck.
  *
- * Which ids a page uses is `slideAssetIds`, the same traversal the shared
+ * Which ids a page uses is `deckAssetIds`, the same traversal the shared
  * snapshot narrows its file list with — not a second walk that could miss the
  * inline images inside a card's text.
  */
 
-import { slideAssetIds } from '../domain/commands/assets'
+import { deckAssetIds } from '../domain/commands/assets'
 import { pageSlide, type DeckPage } from '../domain/pages'
 import { encodeBase64 } from '../agent/binary'
 import type { PreviewAssetReader } from '../agent/preview'
 import { blobToBytes } from '../persistence/blob'
 import type { StoredAsset } from '../persistence/repository'
 import type { AssetUrlSource } from '../state/assetSource'
+import type { PresentationTheme } from '../domain/types'
 
 export interface PreviewAssets {
   /** Mounted over the renderer, so a picture resolves on the first render. */
@@ -33,20 +34,25 @@ export interface PreviewAssets {
   warnings: string[]
 }
 
-/** Which files this page draws. A cover has none: it is two lines of type. */
-export function pageAssetIds(page: DeckPage): string[] {
+/**
+ * Which files this page draws: what is on the slide, and the theme's logo. The
+ * logo is fetched for every slide page, whether or not this one shows it – one
+ * small file, and no second copy of the rule for where it stands.
+ */
+export function pageAssetIds(page: DeckPage, theme: PresentationTheme): string[] {
   const slide = pageSlide(page)
-  return slide ? [...slideAssetIds([slide])] : []
+  return slide ? [...deckAssetIds({ theme, slides: [slide] })] : []
 }
 
 export async function loadPreviewAssets(
   page: DeckPage,
+  theme: PresentationTheme,
   reader: PreviewAssetReader,
 ): Promise<PreviewAssets> {
   const urls = new Map<string, string>()
   const warnings: string[] = []
 
-  for (const id of pageAssetIds(page)) {
+  for (const id of pageAssetIds(page, theme)) {
     let stored: StoredAsset | null
     try {
       stored = await reader.getAsset(id)

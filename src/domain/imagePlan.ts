@@ -42,6 +42,7 @@
  * plan lives beside the slides, exactly as the sandbox and the ideas list do.
  */
 
+import { geometryForDeck } from './logo'
 import {
   MAX_PLANNED_IMAGES,
   MAX_PLANNED_IMAGE_FIELD_CHARS,
@@ -55,7 +56,7 @@ import { computeSlideGeometry } from './geometry'
 import { IMAGE_FILE_EXTENSION_LIST } from './imageBytes'
 import { panelFrame } from './imageOptimization'
 import { collectLeaves } from './layout'
-import { geometryForTheme, themeMetrics } from './metrics'
+import { themeMetrics } from './metrics'
 import { docToPlainText } from './richdoc'
 import { imagePanelOf } from './content'
 import type { Presentation, Size, ZoneContent } from './types'
@@ -242,7 +243,7 @@ export function resolveImagePlan(presentation: Presentation): ResolvedPlannedIma
   if (plan.length === 0) return []
   const byZone = new Map(plan.map((entry) => [imageZoneKey(entry.slideId, entry.nodeId), entry]))
   const tokens = themeMetrics(presentation.theme)
-  const options = geometryForTheme(presentation.theme)
+  const options = geometryForDeck(presentation)
   const resolved: ResolvedPlannedImage[] = []
 
   presentation.slides.forEach((slide, index) => {

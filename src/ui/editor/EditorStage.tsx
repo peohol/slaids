@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FIT_TOLERANCE, SLIDE_WIDTH, TITLE_LINE_HEIGHT } from '../../domain/constants'
-import { geometryForTheme, themeMetrics } from '../../domain/metrics'
+import { themeMetrics } from '../../domain/metrics'
 import {
   TITLE_NODE_ID,
   computeSlideGeometry,
@@ -47,7 +47,11 @@ import type {
 } from '../../domain/types'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
 import { SlideView, absoluteStyle } from '../slide/SlideView'
-import { useSectionColorsFor, useSlideRender } from '../slide/SlideRenderContext'
+import {
+  useSectionColorsFor,
+  useSlideGeometryOptions,
+  useSlideRender,
+} from '../slide/SlideRenderContext'
 import { domFitCheckers } from '../../state/measure'
 import { TitleFitLine } from '../slide/TitleFitLine'
 import { ZoneContentView } from '../slide/ZoneContentView'
@@ -308,7 +312,8 @@ export function EditorStage({
     ? normalizedSlide({ ...slide, root: replaceNode(slide.root, preview.nodeId, preview.node) })
     : slide
 
-  const geometry = computeSlideGeometry(displaySlide, geometryForTheme(theme))
+  const geometryOptions = useSlideGeometryOptions()
+  const geometry = computeSlideGeometry(displaySlide, geometryOptions)
 
   /**
    * A point on screen, as a point on the slide.
@@ -466,7 +471,7 @@ export function EditorStage({
    * nothing drifts as the pointer travels.
    */
   const beginDrag = (start: ZoneDragStart, event: React.PointerEvent): boolean => {
-    const options = geometryForTheme(theme)
+    const options = geometryOptions
     const context: ZoneDragContext = {
       root: displaySlide.root,
       rects: geometry.rects,

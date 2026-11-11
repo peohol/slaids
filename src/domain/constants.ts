@@ -139,6 +139,50 @@ export type TitledCardStyle = (typeof TITLED_CARD_STYLES)[number]
 
 export const DEFAULT_TITLED_CARD_STYLE: TitledCardStyle = 'joined'
 
+/* ------------------------------------------------------------------ *
+ * Logo (§ 15.2)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Hvilke inndelinger logoen står på: ingen, bare forsiden, eller alle.
+ */
+export const LOGO_SECTION_VISIBILITIES = ['none', 'front', 'all'] as const
+export type LogoSectionVisibility = (typeof LOGO_SECTION_VISIBILITIES)[number]
+
+/** Over eller under overskriften på en inndeling. Alltid vannrett midtstilt. */
+export const LOGO_SECTION_PLACEMENTS = ['above', 'below'] as const
+export type LogoSectionPlacement = (typeof LOGO_SECTION_PLACEMENTS)[number]
+
+/**
+ * De åtte plassene logoen kan stå på en vanlig slide, i lesefølge.
+ *
+ * Øverst og nederst reserverer en vannrett stripe over hele bredden; venstre og
+ * høyre reserverer en loddrett stripe ved siden av hovedsonen og står midt i
+ * den i høyden. Midten finnes ikke: der er innholdet.
+ */
+export const LOGO_SLIDE_POSITIONS = [
+  'top-left',
+  'top',
+  'top-right',
+  'left',
+  'right',
+  'bottom-left',
+  'bottom',
+  'bottom-right',
+] as const
+export type LogoSlidePosition = (typeof LOGO_SLIDE_POSITIONS)[number]
+
+/**
+ * Den minste høyden en logo tegnes i, i logiske enheter. Er det ikke plass til
+ * den en gang, tegnes logoen ikke i den gruppen – den forminskes aldri til en
+ * prikk og legges aldri over noe.
+ */
+export const LOGO_MIN_HEIGHT = 24
+
+/** Hva en nyopplastet logo starter som. Et forslag; tegnet høyde er alltid begrenset av plassen. */
+export const DEFAULT_LOGO_SECTION_HEIGHT = 120
+export const DEFAULT_LOGO_SLIDE_HEIGHT = 72
+
 /**
  * The caption over a picture.
  *

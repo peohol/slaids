@@ -23,7 +23,7 @@
  */
 
 import { z } from 'zod'
-import { slideAssetIds } from './commands/assets'
+import { deckAssetIds } from './commands/assets'
 import { withoutDepositNumbers } from './imageDeposit'
 import { migratePresentation } from './migrations'
 import { splitReferences, type CitationStyle } from './references'
@@ -79,8 +79,8 @@ const PLACEHOLDER_ID = 'shared'
  * Cut the publishable snapshot out of a presentation.
  *
  * Both the reference list and the asset list are narrowed by the same traversal
- * the rest of the app uses — `splitReferences` for what is cited, `slideAssetIds`
- * for what is shown — rather than by a second implementation that could drift
+ * the rest of the app uses — `splitReferences` for what is cited, `deckAssetIds`
+ * for what is shown (the slides and the theme's logo) — rather than by a second implementation that could drift
  * from it. The sandbox is not consulted by either, which is the point: content
  * parked there is unfinished work, not part of the deck. The image brief and
  * the image plan are not listed here at all, for the same reason and by the
@@ -100,7 +100,7 @@ export function buildSharedSnapshot(
   publishedAt: string = new Date().toISOString(),
 ): SharedPresentationSnapshot {
   const published = withoutDepositNumbers(presentation)
-  const shownAssetIds = slideAssetIds(published.slides)
+  const shownAssetIds = deckAssetIds(published)
   const snapshot: SharedPresentationSnapshot = {
     format: SHARED_SNAPSHOT_FORMAT,
     snapshotVersion: SHARED_SNAPSHOT_VERSION,

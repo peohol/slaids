@@ -2738,6 +2738,8 @@ type LogoSlidePosition =
 
 type ThemeLogo = {
   assetId: string
+  /** Filens bredde delt på høyden, lest fra filen når den settes som logo. */
+  aspect: number
   sections: { visibility: LogoSectionVisibility; placement: LogoSectionPlacement; height: number }
   slides: { visible: boolean; position: LogoSlidePosition; height: number }
 }
@@ -2758,14 +2760,20 @@ feltet fantes, og gamle presentasjoner tegnes uten noen synlig endring.
   en sone. De samme formatene er tillatt, også SVG. Det finnes ingen egen eller
   svakere vei inn.
 - Filen er en vanlig `AssetRef` i `presentation.assets`. Proporsjonene er filens
-  `width`/`height` og endres aldri; bare **én** størrelse lagres per gruppe
-  (`height`, i logiske enheter), og bredden følger av forholdet.
+  `width`/`height` og endres aldri. De kopieres inn i temaet som `aspect` når
+  filen settes som logo, så geometrien trenger bare temaet og slidene – også i
+  et delt øyeblikksbilde og i en temamal. Bare **én** størrelse lagres per
+  gruppe (`height`, i logiske enheter), og bredden følger av forholdet.
 - Logoen er et asset-*bruk* på lik linje med en sone. Én funksjon
   (`themeAssetIds`) sier hvilke filer temaet bruker, og de sentrale
   traverseringene leser den: `usedAssetIds` (og dermed opprydding av ubrukte
-  filer), `slideAssetIds`-baserte utvalg for publiserte snapshots og
-  `pageAssetIds` for headless rendering, `remapAssetIds` ved import, duplisering
-  og innliming. Ingen av dem får en egen, parallell logovei.
+  filer og nektet sletting), `deckAssetIds` (slidenes filer pluss temaets) for
+  publiserte snapshots og `pageAssetIds` for headless rendering, `remapAssetIds`
+  ved import, duplisering og innliming, `dropAssetIds` når en fil ikke kan tas
+  med, sammenslåing av like filer og `validate_presentation`. Ingen av dem får
+  en egen, parallell logovei.
+- Standardtemaet for nye presentasjoner bærer aldri logoen: en ny presentasjon
+  har ingen filer. Temamalene (§ 15.4) tar med en egen kopi.
 
 ### To grupper innstillinger
 
@@ -2780,8 +2788,9 @@ alltid vannrett midtstilt.
   underoverskriften når den er i bruk.
 - Overskrift og underoverskrift flyttes aldri av logoen.
 
-**Vanlige slides** (innholdsslides og miniapper): av/på og én av åtte
-plasseringer.
+**Vanlige slides** (innholdsslides, også de avledede referanseslidene): av/på
+og én av åtte plasseringer. Miniappsider og QR-siden får ingen logo: en miniapp
+fyller hele sliden når den kjører, og QR-siden er en egen, fast side.
 
 - *Øverst* (venstre, midt, høyre): en vannrett stripe reserveres øverst. Tittel
   og hovedsone flyttes ned, og hovedsonen blir lavere.
@@ -2808,7 +2817,7 @@ fremdriftsindikator, eller gjøre hovedsonens geometri ugyldig.
 
 **Én størrelse per gruppe.** Alle inndelinger som omfattes deler én størrelse og
 plassering, og alle vanlige slides deler én. Største lovlige størrelse beregnes
-derfor på tvers av **alle** berørte slides (`maxLogoHeight(presentation, group)`),
+derfor på tvers av **alle** berørte slides (`logoLimits(deck)`),
 ikke bare den som vises: den er den minste av hver enkelt slides grense.
 Grensen for en vanlig slide er det som lar hovedsonens tre fortsatt oppfylle
 **hard** minimumsstørrelse (§ 7); tekst som da ikke får plass i normal størrelse
@@ -2816,6 +2825,9 @@ forminskes med de eksisterende mekanismene (§ 7 og § 17: en person nektes aldr
 En agent måles strengt som før.
 
 En lagret størrelse er et ønske; det som tegnes er `min(lagret, største lovlige)`.
+Er største lovlige mindre enn `LOGO_MIN_HEIGHT`, tegnes logoen ikke i den
+gruppen, og temaeditoren sier det. Grensen for vanlige slides tar alltid med en
+tom slide med tittel, så referanseslidene alltid har plass.
 Når innholdet senere endres – en underoverskrift legges til, en tittelsone slås
 på – tegnes logoen derfor mindre i stedet for å overlappe, uten at dokumentet
 skrives om.

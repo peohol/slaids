@@ -76,11 +76,20 @@ import {
 import {
   FONT_SCALE_PRESETS,
   FONT_SCALE_RANGE,
+  geometryForTheme,
   SPACING_PRESETS,
   SPACING_RANGE,
   type ThemeScalePreset,
 } from '../../domain/metrics'
-import { TITLED_CARD_STYLES, type TitledCardStyle } from '../../domain/constants'
+import {
+  TITLED_CARD_STYLES,
+  type LogoSectionPlacement,
+  type LogoSectionVisibility,
+  type LogoSlidePosition,
+  type TitledCardStyle,
+} from '../../domain/constants'
+import type { LogoReservation } from '../../domain/geometry'
+import { deckLogoLayout, type LogoDeck } from '../../domain/logo'
 import { ok } from '../../domain/result'
 import type { PresentationTheme } from '../../domain/types'
 import { defineOperation, expectedRevisionSchema, presentationIdSchema } from '../operation'
@@ -127,6 +136,60 @@ export interface ThemeView {
   boxShadows: boolean
   /** Hvordan et kort med tittel tegner tittelen. */
   titledCardStyle: TitledCardStyle
+  /**
+   * Logoen i temaet, eller `null` uten logo. Den settes i editorens temaeditor;
+   * her leses den, så det er tydelig hvorfor sonene har mindre plass.
+   */
+  logo: ThemeLogoView | null
+}
+
+/**
+ * Logoen slik dekket tegner den. `height` er ønsket som er lagret;
+ * `drawnHeight` er det som faktisk tegnes – aldri mer enn det alle sidene i
+ * gruppen har plass til, og `null` når logoen ikke står i gruppen i det hele
+ * tatt (slått av, eller ikke plass til minstemålet).
+ */
+export interface ThemeLogoView {
+  assetId: string
+  /** Bredde delt på høyde, fra filen. */
+  aspect: number
+  sections: {
+    visibility: LogoSectionVisibility
+    placement: LogoSectionPlacement
+    height: number
+    drawnHeight: number | null
+  }
+  slides: {
+    visible: boolean
+    position: LogoSlidePosition
+    height: number
+    drawnHeight: number | null
+    /**
+     * Stripen logoen tar langs én kant av innholdsområdet på hver vanlig
+     * slide, inkludert gapet til tittel og hovedsone. Rektanglene
+     * `inspect_slide` gir, er allerede regnet uten den.
+     */
+    reservedEdge: LogoReservation['edge'] | null
+    reservedSize: number | null
+  }
+}
+
+function logoView(deck: LogoDeck): ThemeLogoView | null {
+  const logo = deck.theme.logo
+  if (!logo) return null
+  const layout = deckLogoLayout(deck)
+  const reservation = layout?.slides?.reservation ?? null
+  return {
+    assetId: logo.assetId,
+    aspect: logo.aspect,
+    sections: { ...logo.sections, drawnHeight: layout?.sections?.height ?? null },
+    slides: {
+      ...logo.slides,
+      drawnHeight: layout?.slides?.height ?? null,
+      reservedEdge: reservation?.edge ?? null,
+      reservedSize: reservation ? reservation.size + geometryForTheme(deck.theme).gap : null,
+    },
+  }
 }
 
 function fontView(stack: string): ThemeFontView {
@@ -139,7 +202,9 @@ function fontView(stack: string): ThemeFontView {
   }
 }
 
-export function themeView(theme: PresentationTheme): ThemeView {
+/** Temaet til et dekk. Hele dekket, fordi logoens størrelse avhenger av slidene. */
+export function themeView(deck: LogoDeck): ThemeView {
+  const { theme } = deck
   return {
     headingFont: fontView(theme.headingFontFamily),
     bodyFont: fontView(theme.bodyFontFamily),
@@ -147,6 +212,7 @@ export function themeView(theme: PresentationTheme): ThemeView {
     fontScale: theme.fontScale,
     boxShadows: theme.boxShadows,
     titledCardStyle: theme.titledCardStyle,
+    logo: logoView(deck),
   }
 }
 
@@ -225,7 +291,7 @@ export const setThemeOperation = defineOperation({
       if (!themed.ok) return themed
       return ok({
         presentation: themed.value,
-        value: { presentationId: presentation.id, theme: themeView(themed.value.theme) },
+        value: { presentationId: presentation.id, theme: themeView(themed.value) },
       })
     })
   },

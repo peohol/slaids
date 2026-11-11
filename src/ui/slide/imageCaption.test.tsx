@@ -39,6 +39,7 @@ function render(content: ZoneContent): string {
         numbering: new Map(),
         sectionColors: new Map(),
         progress: new Map(),
+        logo: null,
         isStatic: true,
       }}
     >

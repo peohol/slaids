@@ -138,6 +138,7 @@ import { citationLabel, citationLabelsFor, type CitationLabelContext, type Citat
 import { walkRichNodes } from '../richdoc'
 import { err, ERROR_MESSAGES_NB, ok, type Result } from '../result'
 import { airMeetings } from '../negativeSpace'
+import { geometryForDeck, logoReservationFor } from '../logo'
 import type { GeometryOptions } from '../geometry'
 import type {
   ContentSlide,
@@ -160,7 +161,16 @@ import type { StructuralOptions } from './types'
  * measured is what will be rendered.
  */
 export function fitContextFor(presentation: Presentation, citationStyle?: CitationStyle): FitContext {
-  return { theme: presentation.theme, ...citationLabelsFor(presentation, citationStyle) }
+  return {
+    theme: presentation.theme,
+    ...citationLabelsFor(presentation, citationStyle),
+    logo: logoReservationFor(presentation),
+  }
+}
+
+/** Om logoen reserverer det samme i to tilstander – en endring der flytter hver vanlig slide. */
+function sameLogoReservation(a: FitContext, b: FitContext): boolean {
+  return a.logo?.edge === b.logo?.edge && (a.logo?.size ?? 0) === (b.logo?.size ?? 0)
 }
 
 /** Every document rendered on a slide, including its title zone. */
@@ -307,6 +317,7 @@ export function slideOverflow(
   // fit is judged against are the ones the slide will actually have.
   const geometry = computeSlideGeometry(slide, {
     ...geometryForTheme(context.theme),
+    logo: context.logo,
     ...options.geometry,
   })
   const overflow = subtreeOverflow(slide.root, geometry.mainRect, context, options)
@@ -435,7 +446,8 @@ export function findFitRegressions(
   if (!options.fits && !options.fitsTitle) return []
   const beforeContext = fitContextFor(before, options.citationStyle)
   const afterContext = fitContextFor(after, options.citationStyle)
-  const typographyUnchanged = sameFitRelevantTheme(before.theme, after.theme)
+  const typographyUnchanged =
+    sameFitRelevantTheme(before.theme, after.theme) && sameLogoReservation(beforeContext, afterContext)
   const previousSlides = new Map(before.slides.map((slide) => [slide.id, slide]))
   const regressions: FitRegression[] = []
 
@@ -530,8 +542,8 @@ export function findGeometryRegression(
   after: Presentation,
   options: StructuralOptions = {},
 ): GeometryRegression | null {
-  const afterGeometry = { ...geometryForTheme(after.theme), ...options.geometry }
-  const beforeGeometry = { ...geometryForTheme(before.theme), ...options.geometry }
+  const afterGeometry = { ...geometryForDeck(after), ...options.geometry }
+  const beforeGeometry = { ...geometryForDeck(before), ...options.geometry }
   const previous = new Map([...before.slides, ...(before.sandboxSlides ?? [])].map((slide) => [slide.id, slide]))
 
   // Et temabytte må også la parkerte slides passe når de settes tilbake.
@@ -693,6 +705,6 @@ function failingRect(
   }
   // Nothing on an interactive slide is measured, so nothing on it can regress.
   if (slide.kind !== 'content') return null
-  const geometry = { ...geometryForTheme(after.theme), ...options.geometry }
+  const geometry = { ...geometryForDeck(after), ...options.geometry }
   return computeSlideGeometry(slide, geometry).rects.get(regression.nodeId) ?? null
 }

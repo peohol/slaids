@@ -9,6 +9,7 @@
  * printed under every selection.
  */
 
+import { useSlideGeometryOptions } from '../slide/SlideRenderContext'
 import {
   setBodyAxis,
   setCardColor,
@@ -28,7 +29,7 @@ import { findLeaf, findNode } from '../../domain/layout'
 import { computeSlideGeometry } from '../../domain/geometry'
 import { panelFrame } from '../../domain/imageOptimization'
 import { aspectRatioLabel } from '../../domain/imagePlan'
-import { geometryForTheme, themeMetrics } from '../../domain/metrics'
+import { themeMetrics } from '../../domain/metrics'
 import { sectionGoverning } from '../../domain/presentation'
 import { INHERITS_FROM_SECTION, inheritedPill, standardLabel } from './colorInheritance'
 import { useEditorStore } from '../../state/store'
@@ -109,6 +110,7 @@ export function Inspector({
 }) {
   const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
   const theme = useEditorStore((state) => state.presentation?.theme)
+  const geometryOptions = useSlideGeometryOptions()
   const assets = useEditorStore((state) => state.presentation?.assets)
   // The colours a swatch offers as "the default" are the governing section's:
   // a heading with no colour of its own is painted with that one.
@@ -124,7 +126,7 @@ export function Inspector({
   const body = content ? bodyOf(content) : null
   const panel = content ? imagePanelOf(content) : null
   const file = panel?.assetId ? (assets?.find((asset) => asset.id === panel.assetId) ?? null) : null
-  const geometry = computeSlideGeometry(slide, geometryForTheme(theme))
+  const geometry = computeSlideGeometry(slide, geometryOptions)
   const rect = selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
   // Measured the way the image brief measures it — the picture's own frame,
   // a titled card's header removed — so the ratio copied here is the one the

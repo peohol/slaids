@@ -6,7 +6,7 @@ export { subtreeFitsInRect as subtreeFitsHelper } from '../geometry'
 import { computeSlideGeometry, resolveOptions } from '../geometry'
 import { contentKindRefusal } from '../contentSize'
 import type { GeometryOptions } from '../geometry'
-import { geometryForTheme } from '../metrics'
+import { geometryForDeck } from '../logo'
 import { interactiveBudgetRegression, interactiveSlidesIn } from '../interactive'
 import { asDeckSlides, findSlide, normalizedSlide, touch } from '../presentation'
 import { err, ok, type Refusal, type Result } from '../result'
@@ -110,7 +110,7 @@ export function geometryFor(
   presentation: Presentation,
   options?: GeometryOptions,
 ): GeometryOptions {
-  return { ...geometryForTheme(presentation.theme), ...options }
+  return { ...geometryForDeck(presentation), ...options }
 }
 
 /**

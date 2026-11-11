@@ -4031,3 +4031,149 @@
 .card-look[data-shadows='on'][data-look='joined'] .card-look__card {
   border-radius: 4px;
 }
+
+/* ------------------------------------------------------------------ *
+ * Logoen i temaeditoren (§ 15.2)
+ * ------------------------------------------------------------------ */
+
+.theme-logo__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-logo__thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  min-width: 40px;
+  max-width: 140px;
+  padding: 4px 8px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-sm);
+  /* Et rutemønster, så en logo med gjennomsiktig bakgrunn vises som det den er. */
+  background: repeating-conic-gradient(var(--chrome-bg-inset) 0 25%, var(--chrome-bg-raised) 0 50%) 0 0 / 12px 12px;
+}
+
+.theme-logo__thumb img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.theme-logo__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 10px;
+}
+
+.theme-logo__group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-md);
+}
+
+.theme-logo__group legend {
+  padding: 0 4px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--chrome-text-dim);
+}
+
+.theme-logo__choice {
+  position: relative;
+}
+
+.theme-logo__choice:has(input:focus-visible),
+.theme-logo__position:has(input:focus-visible) {
+  outline: 2px solid var(--chrome-accent);
+  outline-offset: 2px;
+}
+
+.theme-logo__choice[aria-disabled='true'] {
+  opacity: 0.42;
+}
+
+/* Åtte plasser på en liten slide: en prikk i hvert hjørne og midt på hver kant. */
+.theme-logo__positions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  width: 144px;
+  aspect-ratio: 16 / 9;
+  padding: 4px;
+  border: 1px solid var(--chrome-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--chrome-bg-inset);
+}
+
+.theme-logo__position {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.theme-logo__position input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.theme-logo__position::after {
+  content: '';
+  width: 12px;
+  height: 8px;
+  border-radius: 2px;
+  border: 1px solid var(--chrome-border-control);
+  background: var(--chrome-bg-raised);
+}
+
+.theme-logo__position:hover::after {
+  border-color: var(--chrome-accent);
+}
+
+.theme-logo__position[data-checked]::after {
+  width: 18px;
+  height: 11px;
+  border-color: var(--chrome-accent);
+  background: var(--chrome-accent);
+}
+
+.theme-logo__position:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+:root[data-coarse='true'] .theme-logo__positions {
+  width: 198px;
+}
+
+.theme-logo__size {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-logo__size label {
+  font-size: var(--text-sm);
+  color: var(--chrome-text-dim);
+}
+
+.theme-logo__size input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--chrome-accent);
+}

@@ -28,7 +28,7 @@ import { setSplitWeightsByHand } from '../../../domain/commands/manualLayout'
 import { contentDocs, contentLabel } from '../../../domain/content'
 import { computeSlideGeometry } from '../../../domain/geometry'
 import { findLeaf, findNode, findParent } from '../../../domain/layout'
-import { geometryForTheme } from '../../../domain/metrics'
+import { geometryForDeck } from '../../../domain/logo'
 import { describeError, type Result } from '../../../domain/result'
 import { docToPlainText } from '../../../domain/richdoc'
 import type {
@@ -204,7 +204,7 @@ export function contentKindSubmenu(
   const { presentation, slide, nodeId } = input
   const leaf = findLeaf(slide.root, nodeId)
   const content = leaf?.content ?? null
-  const rect = computeSlideGeometry(slide, geometryForTheme(presentation.theme)).rects.get(nodeId)
+  const rect = computeSlideGeometry(slide, geometryForDeck(presentation)).rects.get(nodeId)
   const options = contentKindOptions(rect ?? null, presentation.theme, content)
   return {
     kind: 'submenu',

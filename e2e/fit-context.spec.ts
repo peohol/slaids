@@ -160,7 +160,8 @@ test.describe('fit measurement and web fonts', () => {
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-body-font').selectOption({ label: 'Inter' })
 
-    await expect(toast(page, 'kunne ikke lastes')).toBeVisible()
+    // Avvisningen av valget, ikke varselet om at dekkets egne fonter ikke lastet.
+    await expect(toast(page, 'kan ikke tas i bruk')).toBeVisible()
     expect(await renderedBodyFont(page)).toBe(before)
     await expect(page.getByTestId('theme-body-font')).toBeEnabled()
   })

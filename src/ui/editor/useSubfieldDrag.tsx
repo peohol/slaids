@@ -18,7 +18,7 @@ import { setBodyWeightsByHand } from '../../domain/commands/manualLayout'
 import { FIT_TOLERANCE, SUBFIELD_DIVIDER_THICKNESS } from '../../domain/constants'
 import { bodyOf, withBody } from '../../domain/content'
 import { minimumSubfieldLength } from '../../domain/contentSize'
-import { subfieldPart } from '../../domain/fit'
+import { subfieldPart, type FitContext } from '../../domain/fit'
 import { themeMetrics } from '../../domain/metrics'
 import { isDocEmpty } from '../../domain/richdoc'
 import type { CardBody, Presentation, Rect, ZoneContent } from '../../domain/types'
@@ -78,7 +78,9 @@ export function useSubfieldDrag({
 }): SubfieldDragHandles {
   const run = useEditorStore((state) => state.run)
   const selectNode = useEditorStore((state) => state.selectNode)
-  const context = useSlideRender()
+  // Et delfelt måles i sonens eget rektangel, så bare typografi og sitatmerker teller.
+  const { theme, numbering, authorYearLabels } = useSlideRender()
+  const context: FitContext = { theme, numbering, authorYearLabels }
   const [preview, setPreview] = useState<{ boundary: number; weights: number[] | null } | null>(null)
   const stateRef = useRef<DragState | null>(null)
 

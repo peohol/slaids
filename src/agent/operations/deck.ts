@@ -14,6 +14,7 @@
  * that read before somebody else wrote is told so instead of overwriting them.
  */
 
+import { geometryForDeck } from '../../domain/logo'
 import { z } from 'zod'
 import {
   IMAGE_BRIEF_RULE,
@@ -58,7 +59,7 @@ import { estimateFit } from '../../domain/fit'
 import { availableContentKinds, contentKindFitsRect } from '../../domain/contentSize'
 import { interactiveByteSize } from '../../domain/interactive'
 import { computeSlideGeometry } from '../../domain/geometry'
-import { geometryForTheme, themeMetrics } from '../../domain/metrics'
+import { themeMetrics } from '../../domain/metrics'
 import { findSlide } from '../../domain/presentation'
 import { presentationRevision } from '../../domain/revision'
 import { docToPlainText } from '../../domain/richdoc'
@@ -258,7 +259,7 @@ export function presentationView(presentation: Presentation): PresentationView {
     folderId: presentation.folderId,
     updatedAt: presentation.updatedAt,
     revision: presentationRevision(presentation),
-    theme: themeView(presentation.theme),
+    theme: themeView(presentation),
     imageContext: presentation.imageContext ?? null,
     slideCount: presentation.slides.length,
     assetCount: presentation.assets.length,
@@ -271,7 +272,7 @@ export function presentationView(presentation: Presentation): PresentationView {
 export const getPresentation = defineOperation({
   name: 'get_presentation',
   summary:
-    'En presentasjon i agenttermer: tittel, revisjon, tema, slides og hvor mange filer og referanser den har.',
+    'En presentasjon i agenttermer: tittel, revisjon, tema (også logoen, som settes i editoren, og stripen den tar på slidene), slides og hvor mange filer og referanser den har.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),
@@ -914,7 +915,7 @@ function inspectZones(
   // The theme scales the gap and the title zone, so the rects reported are the
   // ones the fit guard measures against — not a second, unthemed geometry.
   const rects = computeSlideGeometry(slide, {
-    ...geometryForTheme(presentation.theme),
+    ...geometryForDeck(presentation),
     ...context.geometry,
   }).rects
   const zones: ZoneInspection[] = []

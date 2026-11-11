@@ -11,7 +11,13 @@
 import type { IdeaRow } from './ideas'
 import type { ImageDeposit } from './imageDeposit'
 import type { PlannedImage } from './imagePlan'
-import type { InteractiveStyleContract, TitledCardStyle } from './constants'
+import type {
+  InteractiveStyleContract,
+  LogoSectionPlacement,
+  LogoSectionVisibility,
+  LogoSlidePosition,
+  TitledCardStyle,
+} from './constants'
 
 export type NodeId = string
 
@@ -398,6 +404,40 @@ export interface PresentationTheme {
   boxShadows: boolean
   /** Hvordan et kort med tittel tegner tittelen. Se `TITLED_CARD_STYLES`. */
   titledCardStyle: TitledCardStyle
+  /**
+   * Presentasjonens logo, eller fraværende når den ikke har noen (§ 15.2).
+   *
+   * Valgfri, så et dekk uten logo er det samme dokumentet som et dekk fra før
+   * feltet fantes.
+   */
+  logo?: ThemeLogo
+}
+
+/**
+ * Presentasjonens ene logo og hvor den står.
+ *
+ * Filen er en vanlig fil i `Presentation.assets`. `aspect` er filens egen
+ * bredde delt på høyden, avledet av den lagrede filen når logoen settes – som
+ * `aspect` på et bilde i teksten – så geometrien kan regnes ut av temaet alene,
+ * også i et delt snapshot og i en temamal. Bare høyden lagres; bredden følger.
+ *
+ * `height` er ønsket høyde i logiske enheter. Det som tegnes er aldri mer enn
+ * plassen tillater på hver slide i gruppen (`domain/logo.ts`), så en senere
+ * endring i innholdet gjør logoen mindre i stedet for å legge den over noe.
+ */
+export interface ThemeLogo {
+  assetId: string
+  aspect: number
+  sections: {
+    visibility: LogoSectionVisibility
+    placement: LogoSectionPlacement
+    height: number
+  }
+  slides: {
+    visible: boolean
+    position: LogoSlidePosition
+    height: number
+  }
 }
 
 export interface Reference {

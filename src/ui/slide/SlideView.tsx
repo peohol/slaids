@@ -20,11 +20,18 @@ import {
   TITLE_LINE_HEIGHT,
 } from '../../domain/constants'
 import { computeSlideGeometry, type GeometryOptions } from '../../domain/geometry'
-import { geometryForTheme, themeMetrics } from '../../domain/metrics'
+import { themeMetrics } from '../../domain/metrics'
+import { slideLogoRect } from '../../domain/logo'
 import { collectLeaves } from '../../domain/layout'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import type { ContentSlide, LeafNode, PresentationTheme, Rect } from '../../domain/types'
-import { PageColorsProvider, useSectionColorsFor, useSlideRender } from './SlideRenderContext'
+import {
+  PageColorsProvider,
+  useSectionColorsFor,
+  useSlideGeometryOptions,
+  useSlideRender,
+} from './SlideRenderContext'
+import { ThemeLogoImage } from './ThemeLogoImage'
 import { RichDocView } from './RichDocView'
 import { TitleFitLine } from './TitleFitLine'
 import { ZoneContentView } from './ZoneContentView'
@@ -98,12 +105,10 @@ export function SlideView({
   children,
   className,
 }: SlideViewProps) {
-  const { theme } = useSlideRender()
+  const { theme, logo } = useSlideRender()
   const colors = useSectionColorsFor(slide.id)
-  const geometry = computeSlideGeometry(slide, {
-    ...geometryForTheme(theme),
-    ...geometryOptions,
-  })
+  const options = { ...useSlideGeometryOptions(), ...geometryOptions }
+  const geometry = computeSlideGeometry(slide, options)
   const leaves = collectLeaves(slide.root)
   const titleColor = bestTextColor(colors.background)
 
@@ -158,6 +163,10 @@ export function SlideView({
           </div>
         )
       })}
+
+      {logo && (
+        <ThemeLogoImage assetId={logo.assetId} rect={slideLogoRect(logo, slide.title !== null, options)} />
+      )}
 
       {children}
     </div>
