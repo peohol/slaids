@@ -184,6 +184,13 @@ export const DEFAULT_LOGO_SECTION_HEIGHT = 120
 export const DEFAULT_LOGO_SLIDE_HEIGHT = 72
 
 /**
+ * Hvor mye nærmere en annen plass må være før logoen bytter til den mens den
+ * dras (§ 15.3), i logiske enheter. Uten den hopper logoen fram og tilbake
+ * når pekeren står nær midten mellom to plasser.
+ */
+export const LOGO_MOVE_HYSTERESIS = 48
+
+/**
  * The caption over a picture.
  *
  * A caption is chrome on a photograph rather than a paragraph on a slide, so it

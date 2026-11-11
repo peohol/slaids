@@ -27,6 +27,8 @@
 
 import {
   LOGO_MIN_HEIGHT,
+  LOGO_SECTION_PLACEMENTS,
+  LOGO_SLIDE_POSITIONS,
   PROGRESS_BAR_HEIGHT,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
@@ -81,6 +83,28 @@ export interface DeckLogoLayout {
 export interface LogoLimits {
   sections: number
   slides: number
+}
+
+/** Det en endring av logoen kan si noe om. Det som ikke nevnes, står. */
+export interface ThemeLogoPatch {
+  sections?: Partial<ThemeLogo['sections']>
+  slides?: Partial<ThemeLogo['slides']>
+}
+
+/** Logoen med endringen gjort. Det ene stedet en endring slås sammen med det som står. */
+export function patchedLogo(logo: ThemeLogo, patch: ThemeLogoPatch): ThemeLogo {
+  return {
+    ...logo,
+    sections: { ...logo.sections, ...patch.sections },
+    slides: { ...logo.slides, ...patch.slides },
+  }
+}
+
+/** Dekket slik det ville stått med endringen – for en forhåndsvisning, uten å lagre noe. */
+export function withLogoPatch<T extends LogoDeck>(deck: T, patch: ThemeLogoPatch): T {
+  const logo = deck.theme.logo
+  if (!logo) return deck
+  return { ...deck, theme: { ...deck.theme, logo: patchedLogo(logo, patch) } }
 }
 
 /** Filene temaet viser: logoen, når det har en. */
@@ -395,4 +419,169 @@ export function geometryForDeck(deck: LogoDeck): ReturnType<typeof geometryForTh
   logo: LogoReservation | null
 } {
   return { ...geometryForTheme(deck.theme), logo: logoReservationFor(deck) }
+}
+
+/* ------------------------------------------------------------------ *
+ * Direkte manipulering (§ 15.3)
+ * ------------------------------------------------------------------ */
+
+/** De to gruppene logoen har én plassering og én størrelse i. */
+export type LogoGroup = 'sections' | 'slides'
+
+/** Et valg av plass i en gruppe: en av de åtte plassene, eller over/under overskriften. */
+export type LogoChoice = LogoSlidePosition | LogoSectionPlacement
+
+/** Siden logoen står på: den bestemmer gruppen, og hvor på siden logoen tegnes. */
+export type LogoPage =
+  | { kind: 'slide'; hasTitle: boolean }
+  | { kind: 'section'; section: SectionSlide }
+
+export interface Point {
+  x: number
+  y: number
+}
+
+export function logoGroupOf(page: LogoPage): LogoGroup {
+  return page.kind === 'slide' ? 'slides' : 'sections'
+}
+
+const GROUP_CHOICES: Record<LogoGroup, readonly LogoChoice[]> = {
+  slides: LOGO_SLIDE_POSITIONS,
+  sections: LOGO_SECTION_PLACEMENTS,
+}
+
+/** Valget logoen står i nå, i gruppen. */
+export function logoChoiceOf(logo: ThemeLogo, group: LogoGroup): LogoChoice {
+  return group === 'slides' ? logo.slides.position : logo.sections.placement
+}
+
+/** Endringen som setter plassen og/eller høyden i én gruppe. */
+export function logoGroupPatch(
+  group: LogoGroup,
+  change: { choice?: LogoChoice; height?: number },
+): ThemeLogoPatch {
+  const height = change.height === undefined ? {} : { height: change.height }
+  if (group === 'slides') {
+    const position = change.choice === undefined ? {} : { position: change.choice as LogoSlidePosition }
+    return { slides: { ...position, ...height } }
+  }
+  const placement = change.choice === undefined ? {} : { placement: change.choice as LogoSectionPlacement }
+  return { sections: { ...placement, ...height } }
+}
+
+/** Logoens rektangel på siden – den samme utregningen sidene selv tegner med. */
+export function logoRectOnPage(
+  layout: DeckLogoLayout | null,
+  page: LogoPage,
+  theme: PresentationTheme,
+): Rect | null {
+  if (page.kind === 'section') return sectionLogoRect(layout, page.section, theme)
+  return slideLogoRect(layout, page.hasTitle, {
+    ...geometryForTheme(theme),
+    logo: layout?.slides?.reservation ?? null,
+  })
+}
+
+function centreOf(rect: Rect): Point {
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+}
+
+export interface LogoMoveTarget {
+  choice: LogoChoice
+  /** Logoens sentrum på siden når den står her. */
+  centre: Point
+}
+
+/**
+ * Plassene logoen kan dras til på denne siden, med sentrum slik den ville
+ * tegnes der. En plass der det ikke er plass til minstemålet, er ikke med –
+ * logoen slippes aldri der den ikke kan tegnes.
+ */
+export function logoMoveTargets(deck: LogoDeck, page: LogoPage): LogoMoveTarget[] {
+  const group = logoGroupOf(page)
+  return GROUP_CHOICES[group].flatMap((choice) => {
+    // Regnet uten hurtigbufferen: den husker dekkets egen logo, ikke kandidatene.
+    const layout = computeDeckLogoLayout(withLogoPatch(deck, logoGroupPatch(group, { choice })))
+    const rect = logoRectOnPage(layout, page, deck.theme)
+    return rect ? [{ choice, centre: centreOf(rect) }] : []
+  })
+}
+
+function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+/**
+ * Plassen nærmest punktet. Den logoen allerede står på, vinner til en annen
+ * er `hysteresis` nærmere – ellers hopper logoen fram og tilbake nær grensen.
+ */
+export function nearestLogoTarget(
+  targets: readonly LogoMoveTarget[],
+  point: Point,
+  current: LogoChoice,
+  hysteresis: number,
+): LogoChoice {
+  let best: LogoChoice = current
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const target of targets) {
+    const measured = distance(target.centre, point) - (target.choice === current ? hysteresis : 0)
+    if (measured < bestDistance) {
+      best = target.choice
+      bestDistance = measured
+    }
+  }
+  return best
+}
+
+/** Håndtakene: fire hjørner og fire kanter, som kompassretninger. */
+export const LOGO_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
+export type LogoHandle = (typeof LOGO_HANDLES)[number]
+
+/** Hvilken vei «bort fra sentrum» er for hvert håndtak. */
+export const LOGO_HANDLE_DIRECTION: Record<LogoHandle, { x: -1 | 0 | 1; y: -1 | 0 | 1 }> = {
+  nw: { x: -1, y: -1 },
+  n: { x: 0, y: -1 },
+  ne: { x: 1, y: -1 },
+  e: { x: 1, y: 0 },
+  se: { x: 1, y: 1 },
+  s: { x: 0, y: 1 },
+  sw: { x: -1, y: 1 },
+  w: { x: -1, y: 0 },
+}
+
+/**
+ * Hvor mye en kant flytter seg når logoen blir én enhet større langs en akse:
+ * 1 når den motsatte kanten står fast mot sidens kant, ½ når logoen er
+ * midtstilt på den aksen og vokser like mye til begge sider. Med den følger
+ * håndtaket pekeren i stedet for å løpe fra den eller henge etter.
+ */
+export function logoGrowth(layout: DeckLogoLayout, page: LogoPage): Point {
+  if (page.kind === 'section') return { x: 0.5, y: 0.5 }
+  const placed = layout.slides
+  if (!placed) return { x: 1, y: 1 }
+  const edge = placed.reservation.edge
+  if (edge === 'left' || edge === 'right') return { x: 1, y: 0.5 }
+  return { x: alongOf(placed.position) === 'centre' ? 0.5 : 1, y: 1 }
+}
+
+/**
+ * Høyden et dra i et håndtak gir. Bort fra sentrum forstørrer, mot sentrum
+ * forminsker, og formen står. Et hjørne følger den aksen pekeren har flyttet
+ * seg mest langs. Høyden holdes mellom minstemålet og det gruppen har plass til.
+ */
+export function resizedLogoHeight(input: {
+  height: number
+  aspect: number
+  handle: LogoHandle
+  delta: Point
+  growth: Point
+  limit: number
+}): number {
+  const { height, aspect, handle, delta, growth, limit } = input
+  const direction = LOGO_HANDLE_DIRECTION[handle]
+  const changes: number[] = []
+  if (direction.y !== 0) changes.push((direction.y * delta.y) / growth.y)
+  if (direction.x !== 0) changes.push((direction.x * delta.x) / growth.x / aspect)
+  const change = changes.reduce((largest, each) => (Math.abs(each) > Math.abs(largest) ? each : largest), 0)
+  return Math.min(Math.max(Math.round(height + change), LOGO_MIN_HEIGHT), Math.max(limit, LOGO_MIN_HEIGHT))
 }

@@ -129,6 +129,7 @@ import { SectionStage } from './SectionStage'
 import { InteractiveInspector } from './InteractiveInspector'
 import { InteractiveStage } from './InteractiveStage'
 import { EditorStage, type StageMenuHit } from './EditorStage'
+import { LogoDragScope } from './LogoHandles'
 import { Filmstrip } from './Filmstrip'
 import { insertionIndex, pageName, placementText, type NewPageRequest } from './pageKinds'
 import { Inspector } from './Inspector'
@@ -2052,12 +2053,14 @@ export function EditorView({
       {...stageZoomProps}
     />
   ) : section ? (
-    <SectionStage
-      section={section}
-      {...stageFocusProps}
-      {...stageZoomProps}
-      onContextMenu={handleSectionMenu}
-    />
+    <LogoDragScope>
+      <SectionStage
+        section={section}
+        {...stageFocusProps}
+        {...stageZoomProps}
+        onContextMenu={handleSectionMenu}
+      />
+    </LogoDragScope>
   ) : interactive ? (
     // Keyed by the slide, so moving between two interactive slides replaces
     // the surface — and closes whatever was running on it. The stage and the
@@ -2066,25 +2069,27 @@ export function EditorView({
     // them never removed.
     <InteractiveStage key={`stage:${interactive.id}`} slide={interactive} {...stageZoomProps} />
   ) : contentSlide ? (
-    <EditorStage
-      slide={contentSlide}
-      actions={zoneActions}
-      onAddContent={addContentTo}
-      onPickImage={(nodeId) => {
-        useEditorStore.getState().selectNode(nodeId)
-        setImageOpen('zone')
-      }}
-      onDropImage={beginZoneImage}
-      dropTargets={dropTargets}
-      // While a field is focused, a press means "put the caret here" again —
-      // which is what the field was made big enough for.
-      selectOnTap={compact && !focus}
-      chrome={!compact}
-      {...stageFocusProps}
-      {...stageZoomProps}
-      onPlace={activePlacement ? commitPlacement : null}
-      onContextMenu={handleStageMenu}
-    />
+    <LogoDragScope>
+      <EditorStage
+        slide={contentSlide}
+        actions={zoneActions}
+        onAddContent={addContentTo}
+        onPickImage={(nodeId) => {
+          useEditorStore.getState().selectNode(nodeId)
+          setImageOpen('zone')
+        }}
+        onDropImage={beginZoneImage}
+        dropTargets={dropTargets}
+        // While a field is focused, a press means "put the caret here" again —
+        // which is what the field was made big enough for.
+        selectOnTap={compact && !focus}
+        chrome={!compact}
+        {...stageFocusProps}
+        {...stageZoomProps}
+        onPlace={activePlacement ? commitPlacement : null}
+        onContextMenu={handleStageMenu}
+      />
+    </LogoDragScope>
   ) : null
 
   const inspectorNode = viewedDerivedPage ? (
