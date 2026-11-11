@@ -11,7 +11,7 @@ export function UserSettingsModal({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { includeReferencesInProgress, fewerDialogs, ownerId, status } = useUserSettings()
+  const { citationStyle, includeReferencesInProgress, fewerDialogs, ownerId, status } = useUserSettings()
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(false)
 
@@ -55,9 +55,25 @@ export function UserSettingsModal({
               type="checkbox"
               checked={includeReferencesInProgress}
               disabled={status !== 'ready' || saving}
-              onChange={(event) => void changeSettings({ includeReferencesInProgress: event.currentTarget.checked })}
+              onChange={(event) =>
+                void changeSettings({ includeReferencesInProgress: event.currentTarget.checked })
+              }
             />
             Tell med referanseslides i fremdriftslinjen
+          </label>
+          <label className="field">
+            <span className="field__label">Henvisninger på slides</span>
+            <select
+              className="select"
+              value={citationStyle}
+              disabled={status !== 'ready' || saving}
+              onChange={(event) => void changeSettings({
+                citationStyle: event.currentTarget.value === 'author-year' ? 'author-year' : 'numbered',
+              })}
+            >
+              <option value="numbered">Nummerert</option>
+              <option value="author-year">Forfatter, år</option>
+            </select>
           </label>
           <label className="user-settings-option">
             <input

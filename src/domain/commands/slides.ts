@@ -79,7 +79,7 @@ export function addSlide(
   const inserted = withSlides(presentation, slides)
   if (!inserted.ok) return inserted
   const next = inserted.value
-  const context = fitContextFor(next)
+  const context = fitContextFor(next, input.citationStyle)
 
   // Editor templates are layout-only, but the command is also the API surface:
   // a caller that supplies a root with content in it gets the same placement
@@ -245,7 +245,7 @@ export function addSection(
   if (!inserted.ok) return inserted
   const next = inserted.value
 
-  for (const [key, overflow] of sectionOverflow(section, fitContextFor(next), input)) {
+  for (const [key, overflow] of sectionOverflow(section, fitContextFor(next, input.citationStyle), input)) {
     if (overflow <= FIT_TOLERANCE) continue
     const nodeId = nodeIdOfKey(key)
     return err(
@@ -430,7 +430,7 @@ export function createDeck(
 ): Result<Presentation> {
   const presentation = createPresentation(input)
   const front = presentation.slides[0]
-  for (const [key, overflow] of sectionOverflow(front, fitContextFor(presentation), options)) {
+  for (const [key, overflow] of sectionOverflow(front, fitContextFor(presentation, options.citationStyle), options)) {
     if (overflow <= FIT_TOLERANCE) continue
     const nodeId = nodeIdOfKey(key)
     return err(

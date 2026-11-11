@@ -85,7 +85,7 @@ export function placeSandboxItem(
 
   // Sandbox content keeps its citations, so putting it back on a slide gives
   // those references a number again — measured against the document it lands in.
-  const fit = input.fits?.(item.content, area, fitContextFor(next))
+  const fit = input.fits?.(item.content, area, fitContextFor(next, input.citationStyle))
   if (fit && !fit.fits) {
     return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i denne sonen.', {
       overflow: fit.overflow,

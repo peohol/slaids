@@ -49,7 +49,7 @@ import {
 import { HUMAN_EDIT, setSplitWeightsByHand } from '../../domain/commands/manualLayout'
 import { contentIsEmpty, createContentOfKind, imagePanelOf } from '../../domain/content'
 import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES, contentKindOptions } from './contentKinds'
-import { computeReferenceNumbering } from '../../domain/references'
+import { citationLabelsFor } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { TITLE_NODE_ID, computeSlideGeometry } from '../../domain/geometry'
 import { geometryForTheme } from '../../domain/metrics'
@@ -558,9 +558,10 @@ export function EditorView({
    * turning `Del` off makes the QR page disappear by itself, because nothing
    * ever put it in `presentation.slides`.
    */
+  const citationStyle = useUserSettings((state) => state.citationStyle)
   const pages = useMemo(
-    () => (presentation ? deckPages(presentation, { shareUrl }) : []),
-    [presentation, shareUrl],
+    () => (presentation ? deckPages(presentation, { shareUrl, citationStyle }) : []),
+    [presentation, shareUrl, citationStyle],
   )
   const derived = useMemo(() => pages.filter(isDerivedPage), [pages])
   /**
@@ -594,9 +595,9 @@ export function EditorView({
       ? (derived.find((entry) => entry.id === derivedView.id) ?? null)
       : null
 
-  const numbering = useMemo(
-    () => (presentation ? computeReferenceNumbering(presentation) : new Map<string, number>()),
-    [presentation],
+  const citationLabels = useMemo(
+    () => (presentation ? citationLabelsFor(presentation, citationStyle) : { numbering: new Map<string, number>() }),
+    [presentation, citationStyle],
   )
 
   const selectedNode =
@@ -2120,7 +2121,7 @@ export function EditorView({
     <SlideRenderProvider
       value={{
         theme: presentation.theme,
-        numbering,
+        ...citationLabels,
         sectionColors,
         progress,
         isStatic: false,

@@ -47,14 +47,15 @@ function applyMarks(node: RichNode, children: ReactNode): ReactNode {
 }
 
 function Citation({ node }: { node: RichNode }) {
-  const { numbering, onCitationClick } = useSlideRender()
+  const { numbering, authorYearLabels, onCitationClick } = useSlideRender()
   const ids = Array.isArray(node.attrs?.referenceIds)
     ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
     : []
-  const label = citationLabel(ids, numbering)
+  const label = citationLabel(ids, numbering, authorYearLabels)
   if (!label) return null
-  const isRange = label.length > 2
+  const isRange = !authorYearLabels && label.length > 2
   const classes = [isRange ? 'rd-citation rd-citation--pill' : 'rd-citation']
+  if (authorYearLabels) classes.push('rd-citation--author-year')
   if (onCitationClick) classes.push('rd-citation--clickable')
   return (
     <sup

@@ -3732,6 +3732,25 @@ Sekvenser på minst 3 kan komprimeres:
 
 To tall på rad beholdes som `5, 6`.
 
+### Forfatter og år
+
+Brukerinnstillingen «Henvisninger på slides» velger mellom nummerert visning
+(standard) og «Forfatter, år». Det samme valget gjelder i editoren, i
+presentasjonsmodus og for publikum som åpner en delt lenke. Valget endrer
+visningen og innholdsmålingen. Presentasjonen lagrer fortsatt referanse-ID-er.
+
+Agentinngangen henter eierens visningsvalg én gang per dekk-kall. Skriving,
+inspeksjon, validering og forhåndsvisning bruker dette valget, også når
+referansesidene avledes. En manuell rettelse av forfatter eller år går gjennom
+`HUMAN_EDIT` og kan føre til forminsket visning. Agentens rettelser må fortsatt
+bestå fit-kontrollen.
+
+I forfatter–år-visningen brukes første forfatter og «et al.» ved flere.
+Kilder som ellers ville fått samme henvisning får en bokstav etter året.
+Referanseslidene bruker de samme etikettene og sorteres alfabetisk etter dem.
+Manglende forfatter erstattes av tittelen hvis den finnes, og manglende år
+vises som «u.å.».
+
 ### Referanseslides
 
 Referanseslides skal være **derived**, ikke manuelt lagret som vanlige slides.
