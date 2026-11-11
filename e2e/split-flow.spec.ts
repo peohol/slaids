@@ -199,37 +199,27 @@ test.describe('split dialog flow', () => {
     await expect(page.getByTestId('split-apply')).toBeEnabled()
   })
 
-  test('says before «Bruk» that a new structure which would hide content is refused, but not a ratio', async ({
-    page,
-  }) => {
-    await deckWithLongCard(page, 'Avslag', 3)
+  test('takes a new structure the content no longer fits, and draws the card smaller', async ({ page }) => {
+    await deckWithLongCard(page, 'Ny struktur', 3)
     await splitSelected(page, [1, 1], 'x')
     await expect(cards(page)).toHaveCount(1)
     await page.getByTestId('zone-breadcrumb').getByRole('button', { name: 'Rot' }).first().click()
     await openSplitDialog(page)
 
-    // Another direction is another structure, and is held to the fit rule.
+    // Another direction is another structure — and still a person's choice:
+    // nothing is refused for lack of room.
     await page.getByTestId('split-axis-y').click()
     await page.getByTestId('split-weight-1').fill('2')
-    await expect(page.getByTestId('split-check')).toHaveText(
-      'Innholdet får ikke plass med disse forholdstallene. Gjelder sone 1 (skravert).',
-    )
-    await expect(page.getByTestId('split-apply')).toBeDisabled()
-    await expect(
-      page.getByTestId('split-preview').locator('[data-preview-zone="1"]'),
-    ).toHaveAttribute('data-too-small', 'true')
-
-    // A ratio along the split's own direction is a resize by hand, as in the
-    // zone menu: the card is drawn smaller rather than refused.
-    await page.getByTestId('split-axis-x').click()
-    await page.getByTestId('split-weight-1').fill('5')
     await expect(page.getByTestId('split-check')).toHaveCount(0)
     await expect(page.getByTestId('split-apply')).toBeEnabled()
     await page.getByTestId('split-apply').click()
+    await expect(page.getByTestId('split-modal')).toBeHidden()
+    await expect(cards(page)).toHaveCount(1)
     await expect(stage(page).locator('.zone-fit[data-fit-scale]')).toHaveCount(1)
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(1)
   })
 
-  test('says before «Bruk» where the content goes, and when it goes to the sandbox', async ({ page }) => {
+  test('says before «Bruk» where the content goes, and keeps it there drawn smaller', async ({ page }) => {
     await deckWithLongCard(page, 'Innholdsmål', 6)
     await openSplitDialog(page)
     const line = page.getByTestId('split-content-line')
@@ -244,20 +234,19 @@ test.describe('split dialog flow', () => {
     await expect(described).toHaveAttribute('aria-label', /Innholdet havner i sone 1\./)
     await expect(page.getByTestId('split-check')).toHaveCount(0)
 
-    // Half the height is room enough for a card, but not for this one's text.
+    // Half the height is room enough for a card, but not for this one's text at
+    // normal size: it still goes where it was sent, and is drawn smaller there.
     await page.getByTestId('split-weight-0').fill('1')
     await page.getByTestId('split-content-target-1').click()
     await expect(page.getByTestId('split-invalid')).toHaveCount(0)
-    await expect(page.getByTestId('split-check')).toHaveText(
-      'Innholdet får ikke plass i sone 2, så det flyttes til sandkassen når du trykker «Bruk».',
-    )
-    // Then nothing else may claim a zone for it: not the caption, the picture or its description.
-    await expect(line).toHaveCount(0)
-    await expect(marked).toHaveCount(0)
-    await expect(described).not.toHaveAttribute('aria-label', /Innholdet/)
+    await expect(page.getByTestId('split-check')).toHaveCount(0)
+    await expect(line).toHaveText('Innholdet havner i sone 2.')
+    await expect(marked).toHaveAttribute('data-preview-zone', '2')
 
     await page.getByTestId('split-apply').click()
     await expect(page.getByTestId('split-modal')).toBeHidden()
-    await expect(sandboxCount(page)).toHaveText('1')
+    await expect(sandboxCount(page)).toHaveCount(0)
+    await expect(cards(page)).toHaveCount(1)
+    await expect(stage(page).locator('.zone-fit[data-fit-scale]')).toHaveCount(1)
   })
 })

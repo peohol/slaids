@@ -44,7 +44,7 @@ import {
   type ContentDisposition,
   type StructuralOutcome,
 } from '../../domain/commands'
-import { setSplitWeightsByHand } from '../../domain/commands/manualLayout'
+import { HUMAN_EDIT, setSplitWeightsByHand } from '../../domain/commands/manualLayout'
 import { contentIsEmpty, createContentOfKind, imagePanelOf } from '../../domain/content'
 import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES, contentKindOptions } from './contentKinds'
 import { computeReferenceNumbering } from '../../domain/references'
@@ -77,7 +77,6 @@ import { readPref, writePref } from '../../state/prefs'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import { notify } from '../../state/toast'
-import { domFitCheckers, overflowingCount } from '../../state/measure'
 import { ensureWebFonts, webFontsReady } from '../fonts'
 import { copyZoneToClipboard, cutZoneToClipboard, pasteClipboardIntoZone } from './zoneClipboard'
 import type { InteractiveSource } from '../../domain/interactive'
@@ -141,6 +140,7 @@ import { SandboxWindow } from './SandboxWindow'
 import { SplitModal, type SplitModalResult } from './SplitModal'
 import { defaultSplitAxis, splitCheck, type SplitCheck } from './splitDraft'
 import { ShortcutsModal } from './ShortcutsModal'
+import { editorShortcutFor } from './editorShortcuts'
 import { AutocorrectModal } from './AutocorrectModal'
 import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
@@ -223,9 +223,12 @@ type ImageStep = null | 'intro' | 'brief' | 'deposit'
 export function EditorView({
   presentationId,
   onClose,
+  openThemeOnLoad = false,
 }: {
   presentationId: string
   onClose: () => void
+  /** Åpne temaeditoren straks dekket er lastet: et nettopp opprettet dekk (§ 15.1). */
+  openThemeOnLoad?: boolean
 }) {
   const presentation = useEditorStore((state) => state.presentation)
   const loading = useEditorStore((state) => state.loading)
@@ -258,7 +261,7 @@ export function EditorView({
   /** Reference to scroll to and highlight when the list is opened from a pill. */
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
-  const [themeOpen, setThemeOpen] = useState(false)
+  const [themeOpen, setThemeOpen] = useState(openThemeOnLoad)
   /**
    * Where the deck's picture errand is on screen, as one value.
    *
@@ -279,6 +282,7 @@ export function EditorView({
   const [optimizeScope, setOptimizeScope] = useState<OptimizationScope | null>(null)
   const [ideasOpen, setIdeasOpen] = useState(() => readPref('ideasOpen', false))
   const [sandboxOpen, setSandboxOpen] = useState(() => readPref('sandboxOpen', false))
+  const toggleSandbox = useCallback(() => setSandboxOpen((open) => !open), [])
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [presenting, setPresenting] = useState(false)
@@ -484,14 +488,13 @@ export function EditorView({
     : ''
 
   /**
-   * Web fonts are loaded, waited for, and then the deck is re-measured.
+   * Web fonts are loaded and waited for.
    *
    * A presentation that already uses a web font renders with the fallback for
-   * the first frames and swaps when the real faces arrive — which changes the
-   * metrics under content that was written, and validated, against the real
-   * font. Nothing can be rolled back here (the document is simply what it is),
-   * but it must not pass unnoticed, so the swap is followed by one pass over
-   * the deck and a warning naming how many zones no longer fit.
+   * the first frames and swaps when the real faces arrive. Text that no longer
+   * fits at normal size after the swap is drawn smaller and marked, like any
+   * other text that does not fit (`ZoneFitBox`, `titleFit.ts`), so there is
+   * nothing to warn about — only a font that could not be loaded at all.
    */
   useEffect(() => {
     if (!themeFonts) return
@@ -502,17 +505,6 @@ export function EditorView({
       if (loaded.failed.length > 0) {
         notify.warning(
           `Fonten «${loaded.failed.join('», «')}» kunne ikke lastes. Slidene vises med reservefonten.`,
-        )
-      }
-      if (loaded.ready.length === 0) return
-      const deck = useEditorStore.getState().presentation
-      if (!deck) return
-      const clipped = overflowingCount(deck)
-      if (clipped > 0) {
-        notify.warning(
-          clipped === 1
-            ? 'Ett sted i presentasjonen får ikke plass til innholdet sitt etter at fonten ble lastet ferdig.'
-            : `${clipped} steder i presentasjonen får ikke plass til innholdet sitt etter at fonten ble lastet ferdig.`,
         )
       }
     })
@@ -655,7 +647,7 @@ export function EditorView({
           slideId: contentSlide.id,
           nodeId,
           content,
-          ...domFitCheckers,
+          ...HUMAN_EDIT,
         }),
       )
       useEditorStore.getState().selectNode(nodeId)
@@ -692,7 +684,7 @@ export function EditorView({
             slideId: contentSlide.id,
             nodeId,
             kind,
-            ...domFitCheckers,
+            ...HUMAN_EDIT,
           }),
         )
         return
@@ -717,9 +709,9 @@ export function EditorView({
    *
    * A proposal that keeps the split's direction and its zones and changes only
    * the ratio is a resize by hand, as the same ratio picked from the zone menu
-   * is (`setWeights` below): content that no longer fits at normal size is
-   * drawn smaller, not refused. A new direction or another number of zones is
-   * a different structure and is held to the fit rule.
+   * is (`setWeights` below). En ny retning eller et annet antall soner er en ny
+   * struktur, men også den er en persons valg: innhold som ikke lenger får
+   * plass i normal størrelse, blir i sonen sin og tegnes mindre (`HUMAN_EDIT`).
    */
   const splitCommand = useCallback(
     (result: SplitModalResult) =>
@@ -744,7 +736,7 @@ export function EditorView({
               weights: result.weights,
               childCount: result.weights.length,
               removedDisposition: result.removedDisposition,
-              ...domFitCheckers,
+              ...HUMAN_EDIT,
             })
           : splitLeaf(current, {
               slideId: contentSlide.id,
@@ -752,7 +744,7 @@ export function EditorView({
               axis: result.axis,
               weights: result.weights,
               contentTargetIndex: result.contentTargetIndex,
-              ...domFitCheckers,
+              ...HUMAN_EDIT,
             })
       },
     [contentSlide, selectedNode, selectedNodeId],
@@ -846,23 +838,18 @@ export function EditorView({
   )
 
   /**
-   * Take the zone away — measured, even though this slide only gains room.
+   * Take the zone away.
    *
-   * The checkers are what make the removal a *guarded* one, and leaving them out
-   * is invisible: the guard runs, finds no measurer, and reports no regression.
-   * They matter here for a reason that has nothing to do with this slide. A
-   * title may cite, and a citation that goes away takes its reference's first
-   * occurrence with it — every number after it moves up, and a label that was
-   * `1–4` can come back as `1, 2, 5, 6`, wider, in a zone on a slide nobody
-   * touched. `restoreTitle` below needs them for the opposite reason, and the
-   * command owns both rules.
+   * A title may cite, and a citation that goes away renumbers the deck, so a
+   * label in a zone on a slide nobody touched can get wider. Som alt en person
+   * gjør, avvises det ikke for det (`HUMAN_EDIT`): den sonen tegnes mindre.
    */
   const removeTitle = useCallback(() => {
     if (!contentSlide?.title) return
     const removed = contentSlide.title
     // Brukeren har bekreftet fjerningen eller valgt færre popuper.
     const done = run('toggle-title', (current) =>
-      setSlideHasTitle(current, contentSlide.id, false, { ...domFitCheckers, force: true }),
+      setSlideHasTitle(current, contentSlide.id, false, { ...HUMAN_EDIT, force: true }),
     )
     if (done) removedTitles.current.set(contentSlide.id, removed)
   }, [contentSlide, run])
@@ -870,18 +857,16 @@ export function EditorView({
   /**
    * Put the zone and the remembered text back in one command.
    *
-   * The text was written under whatever font was in force then; the zone it is
-   * going back into is measured under the font in force now. Doing it in two
-   * steps would validate the zone but not the text, and a failure halfway would
-   * leave an empty title zone behind — so the command takes both and either
-   * commits both or changes nothing. The remembered title is kept until it has
-   * actually been restored.
+   * One command for both, so a failure halfway cannot leave an empty title
+   * zone behind. The remembered title is kept until it has actually been
+   * restored. Tekst som ikke lenger får plass – tittelen selv, eller sonene
+   * tittelen tar plass fra – tegnes mindre.
    */
   const restoreTitle = useCallback(() => {
     if (!contentSlide) return
     const remembered = removedTitles.current.get(contentSlide.id)
     const restored = run('toggle-title', (current) =>
-      setSlideHasTitle(current, contentSlide.id, true, { ...domFitCheckers, title: remembered }),
+      setSlideHasTitle(current, contentSlide.id, true, { ...HUMAN_EDIT, title: remembered }),
     )
     if (restored) removedTitles.current.delete(contentSlide.id)
   }, [contentSlide, run])
@@ -890,15 +875,13 @@ export function EditorView({
    * A new section.
    *
    * The heading is asked for up front rather than left blank: a section is a
-   * heading, and an empty one is a coloured page that says nothing. It is
-   * measured on the way in by the command, so a heading too long for one line
-   * leaves the dialog open with the text still in it — which is where the
-   * author shortens it.
+   * heading, and an empty one is a coloured page that says nothing. En
+   * overskrift for lang for linjen tas imot og settes i mindre skrift.
    */
   const insertSection = useCallback(
     (title: string, place: Pick<NewPageRequest, 'before' | 'after'> = {}) =>
       insertPage('add-section', place, (presentationState, index) =>
-        addSection(presentationState, { index, title, ...domFitCheckers }),
+        addSection(presentationState, { index, title, ...HUMAN_EDIT }),
       ),
     [insertPage],
   )
@@ -1044,7 +1027,7 @@ export function EditorView({
       // Reordering renumbers citations, so this is fit-validated like any
       // other change that can shrink what a zone has room for.
       run('reorder-slide', (current) =>
-        moveSlide(current, String(active.id), targetIndex, domFitCheckers),
+        moveSlide(current, String(active.id), targetIndex, HUMAN_EDIT),
       )
       return
     }
@@ -1057,7 +1040,7 @@ export function EditorView({
           itemId: String(data.itemId),
           slideId: contentSlide.id,
           nodeId: overId.slice('zone:'.length),
-          ...domFitCheckers,
+          ...HUMAN_EDIT,
         }),
       )
     }
@@ -1082,7 +1065,7 @@ export function EditorView({
     const started: Placement = { ...next, slideId }
     const targets = placementTargets(current, slideId, started)
     if (targets.size === 0) {
-      notify.warning('Ingen soner på denne sliden har plass til innholdet.')
+      notify.warning('Ingen ledige soner på denne sliden kan ta imot innholdet.')
       return
     }
     setPlacement(started)
@@ -1105,7 +1088,7 @@ export function EditorView({
             itemId: placement.itemId,
             slideId: slide.id,
             nodeId,
-            ...domFitCheckers,
+            ...HUMAN_EDIT,
           }),
         )
       } else {
@@ -1114,7 +1097,7 @@ export function EditorView({
             slideId: slide.id,
             fromNodeId: placement.nodeId,
             toNodeId: nodeId,
-            ...domFitCheckers,
+            ...HUMAN_EDIT,
           }),
         )
       }
@@ -1203,7 +1186,7 @@ export function EditorView({
       paste: (nodeId) => void pasteClipboardIntoZone(nodeId),
       placeSandboxItem: (nodeId, itemId) =>
         void runStructural('place-sandbox-item', (current) =>
-          placeSandboxItem(current, { itemId, slideId, nodeId, ...domFitCheckers }),
+          placeSandboxItem(current, { itemId, slideId, nodeId, ...HUMAN_EDIT }),
         ),
       openSandbox: () => setSandboxOpen(true),
       moveContent: (nodeId) => beginPlacement({ kind: 'zone', nodeId }),
@@ -1221,7 +1204,7 @@ export function EditorView({
             axis,
             weights: [1, 1],
             contentTargetIndex: 0,
-            ...domFitCheckers,
+            ...HUMAN_EDIT,
           }),
         ),
       openSplitDialog: (nodeId) => {
@@ -1237,7 +1220,7 @@ export function EditorView({
       duplicate: (nodeId) => {
         const parentId = findParent(contentSlide.root, nodeId)?.id
         const done = runStructural('duplicate-zone', (current) =>
-          duplicateLayoutNode(current, { slideId, nodeId, ...domFitCheckers }),
+          duplicateLayoutNode(current, { slideId, nodeId, ...HUMAN_EDIT }),
         )
         // The copy is what the author is about to work on, so it is what is
         // selected: the sibling right after the original.
@@ -1249,7 +1232,7 @@ export function EditorView({
       // The zone keeps its id, so the selection follows it to its new place.
       reorder: (nodeId, toIndex) =>
         void runStructural('reorder-zone', (current) =>
-          reorderLayoutNode(current, { slideId, nodeId, toIndex, ...domFitCheckers }),
+          reorderLayoutNode(current, { slideId, nodeId, toIndex, ...HUMAN_EDIT }),
         ),
       clear: (nodeId) => {
         if (fewerDialogs) removeZone('clear', slideId, nodeId, 'delete')
@@ -1276,7 +1259,7 @@ export function EditorView({
       const slide = state.currentContentSlide()
       if (!state.presentation || !slide || !zoneHandlers) return false
       const menu = zoneModeMenu(
-        { presentation: state.presentation, slide, nodeId, checks: domFitCheckers },
+        { presentation: state.presentation, slide, nodeId, checks: HUMAN_EDIT },
         zoneHandlers,
       )
       if (!menu) return false
@@ -1336,7 +1319,7 @@ export function EditorView({
           presentation: state.presentation,
           slide,
           nodeId,
-          checks: domFitCheckers,
+          checks: HUMAN_EDIT,
           commit: (label, change) => useEditorStore.getState().run(label, change),
         },
         contentHandlers,
@@ -1599,6 +1582,38 @@ export function EditorView({
 
       const state = useEditorStore.getState()
 
+      const shortcut = editorShortcutFor(event)
+      if (shortcut && state.presentation && !hasOpenDialog()) {
+        let act: (() => void) | undefined
+        if (shortcut === 'sandbox') act = toggleSandbox
+        if (shortcut === 'slide') act = () => setNewPage({ kind: 'content' })
+        if (shortcut === 'reference') {
+          const editor = useActiveEditor.getState().editor
+          if (editor?.isFocused && editor.isEditable && typeof editor.commands.insertCitation === 'function') {
+            act = textHandlers.insertReference
+          }
+        }
+
+        const slide = state.currentContentSlide()
+        const id = state.selectedNodeId
+        if (!typing && state.mode === 'zone' && slide && !viewedDerivedPage && id && zoneHandlers) {
+          const node = findNode(slide.root, id)
+          if (shortcut === 'splitVertical' && node?.kind === 'leaf') act = () => zoneHandlers.split(id, 'x')
+          if (shortcut === 'splitHorizontal' && node?.kind === 'leaf') act = () => zoneHandlers.split(id, 'y')
+          if (shortcut === 'clear' && node && canClearZone(node)) act = () => zoneHandlers.clear(id)
+          if (shortcut === 'remove' && node && id !== slide.root.id) act = () => zoneHandlers.remove(id)
+          if (shortcut === 'toSandbox' && node?.kind === 'leaf' && node.content) {
+            act = () => zoneHandlers.moveToSandbox(id)
+          }
+        }
+
+        if (act) {
+          event.preventDefault()
+          if (!event.repeat) act()
+          return
+        }
+      }
+
       /*
        * Escape leaves zone editing for content editing.
        *
@@ -1699,7 +1714,10 @@ export function EditorView({
 
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [openKeyboardMenu, presenting, redo, setMode, stepDeck, toggleMode, undo, zoneHandlers])
+  }, [
+    openKeyboardMenu, presenting, redo, setMode, setNewPage, stepDeck, textHandlers,
+    toggleMode, toggleSandbox, undo, viewedDerivedPage, zoneHandlers,
+  ])
 
   /* -------------------------------------------------------------- *
    * Render
@@ -1991,7 +2009,7 @@ export function EditorView({
       onOpenTemplates: () => setTemplatesOpen(true),
       onOpenImage: () => setImageOpen('ask'),
       onToggleIdeas: () => setIdeasOpen((open) => !open),
-      onToggleSandbox: () => setSandboxOpen((open) => !open),
+      onToggleSandbox: toggleSandbox,
       ideasOpen,
       sandboxOpen,
       onShowShortcuts: () => setShortcutsOpen(true),

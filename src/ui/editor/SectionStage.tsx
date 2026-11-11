@@ -15,11 +15,8 @@
  * moment something is typed below it the pair is centred instead, with nothing
  * to switch on and nothing to remember.
  *
- * Over-long text is rolled back against the live DOM rather than measured by a
- * command, exactly as a slide title is: the pill clips at the width the
- * geometry engine handed the fit gate, so `scrollWidth - clientWidth` is the
- * same overflow that gate would compute — and reading it from the DOM is what
- * keeps an IME composition from being interrupted mid-word.
+ * En linje for lang for pillen tas imot og settes i mindre skrift, som en
+ * slidetittel (`ui/slide/titleFit.ts`), og pillen merkes så lenge den er det.
  */
 
 import { useCallback, useEffect, useRef } from 'react'
@@ -46,21 +43,20 @@ import { StageSurface } from './StageSurface'
 import { canTypeIn, type StageTextEditing } from './stageFocus'
 import type { StageZoom } from './stageView'
 import { RichTextEditor } from './RichTextEditor'
+import { ShrunkZoneMarker } from './ShrunkZoneMarker'
 import type { MenuAnchor } from '../components/contextMenu'
 
 const LINE_TEXT: Record<
   SectionLine,
-  { placeholder: string; overflow: string; nodeId: string; field: 'section-title' | 'section-subtitle' }
+  { placeholder: string; nodeId: string; field: 'section-title' | 'section-subtitle' }
 > = {
   title: {
     placeholder: 'Overskrift',
-    overflow: 'Overskriften får ikke plass på inndelingssliden.',
     nodeId: SECTION_TITLE_NODE_ID,
     field: 'section-title',
   },
   subtitle: {
     placeholder: 'Underoverskrift (valgfri)',
-    overflow: 'Underoverskriften får ikke plass på inndelingssliden.',
     nodeId: SECTION_SUBTITLE_NODE_ID,
     field: 'section-subtitle',
   },
@@ -161,23 +157,20 @@ export function SectionStage({
       }}
       onContextMenu={onContextMenu ? handleContextMenu : undefined}
     >
-      {() => (
+      {(scale) => (
         <>
           <SectionFrame
             accentColor={section.accentColor}
             backgroundColor={section.backgroundColor}
             lines={SECTION_LINES}
             pillRef={setPillRef}
+            marker={(box) => <ShrunkZoneMarker stageScale={scale || 1} width={box.width} height={box.height} />}
             renderLine={(line) => (
               <SectionLineEditor
                 section={section}
                 line={line}
                 editable={canTypeIn(textEditing, LINE_TEXT[line].nodeId)}
                 takeCaret={caret?.nodeId === LINE_TEXT[line].nodeId}
-                measureOverflow={() => {
-                  const pill = pillRefs.current[line]
-                  return pill ? Math.max(0, pill.scrollWidth - pill.clientWidth) : 0
-                }}
                 onChange={(doc) =>
                   run(`typing:section:${section.id}:${line}`, (presentation) =>
                     line === 'title'
@@ -220,7 +213,6 @@ function SectionLineEditor({
   line,
   editable,
   takeCaret,
-  measureOverflow,
   onChange,
 }: {
   section: SectionSlide
@@ -228,7 +220,6 @@ function SectionLineEditor({
   editable: boolean
   /** Whether this is the line somebody named, rather than one they pressed. */
   takeCaret: boolean
-  measureOverflow: () => number
   onChange: (doc: RichDoc) => void
 }) {
   const setActiveField = useEditorStore((state) => state.setActiveField)
@@ -267,8 +258,6 @@ function SectionLineEditor({
       editable={editable}
       takeCaret={takeCaret && editable}
       placeholder={LINE_TEXT[line].placeholder}
-      overflowMessage={LINE_TEXT[line].overflow}
-      measureOverflow={measureOverflow}
       onEditorReady={handleReady}
       onFocus={handleFocus}
       onChange={onChange}

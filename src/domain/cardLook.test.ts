@@ -19,7 +19,7 @@ import { createPresentation, defaultTheme } from './presentation'
 import { paragraphDoc, titleAlign, titleDoc } from './richdoc'
 import { setTheme, setZoneContent } from './commands'
 import { computeSlideGeometry } from './geometry'
-import { setCardLookByHand } from './commands/manualLayout'
+import { HUMAN_EDIT } from './commands/manualLayout'
 import { contentAt } from './testDecks'
 import type { Presentation, Rect, TitledCardContent } from './types'
 
@@ -175,13 +175,13 @@ describe('å bytte utseende', () => {
     expect(refused.ok).toBe(false)
     if (!refused.ok) expect(refused.error.code).toBe('CONTENT_DOES_NOT_FIT')
 
-    const chosen = setCardLookByHand(deck, { titledCardStyle: 'floating' })
+    const chosen = setTheme(deck, { titledCardStyle: 'floating' }, HUMAN_EDIT)
     expect(chosen.ok).toBe(true)
     if (chosen.ok) expect(chosen.value.theme.titledCardStyle).toBe('floating')
   })
 
   it('slår av skygger uten å måle noe, fordi en skygge ikke skjuler noe', () => {
-    const chosen = setCardLookByHand(fullCard(), { boxShadows: false })
+    const chosen = setTheme(fullCard(), { boxShadows: false }, HUMAN_EDIT)
     expect(chosen.ok).toBe(true)
     if (chosen.ok) expect(chosen.value.theme.boxShadows).toBe(false)
   })

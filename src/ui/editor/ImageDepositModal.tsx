@@ -46,7 +46,7 @@ import {
   discardUploadedAssets,
   storeUploadedFile,
 } from '../../state/assetUpload'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
 import { Icon } from '../components/Icon'
@@ -266,7 +266,7 @@ export function ImageDepositModal({ onClose }: { onClose: () => void }) {
 
     // One write for the whole set: a deck that took three of five pictures is
     // the state this dialog exists to prevent.
-    const done = completeImageDeposit(next, placements, domFitCheckers)
+    const done = completeImageDeposit(next, placements, HUMAN_EDIT)
     if (!done.ok) {
       notify.error(describeError(done.error))
       return false

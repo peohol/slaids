@@ -1,5 +1,13 @@
 import { expect, test } from './fixtures'
-import { chooseFolderAction, choosePresentationAction, createPresentation, toast, watchForErrors } from './helpers'
+import {
+  chooseFolderAction,
+  choosePresentationAction,
+  createPresentation,
+  stage,
+  toast,
+  watchForErrors,
+  worstOverflow,
+} from './helpers'
 
 test.describe('presentation library', () => {
   test('runs in local mode without a sign-in gate, and says so', async ({ page }) => {
@@ -19,37 +27,45 @@ test.describe('presentation library', () => {
     await expect(page.getByTestId('presentation-card')).toHaveCount(0)
 
     await page.getByTestId('new-presentation').click()
-    await expect(page.getByTestId('new-presentation-modal')).toBeVisible()
+    const dialog = page.getByTestId('new-presentation-modal')
+    await expect(dialog).toBeVisible()
+    // Bare tittelen spørres om: fonter og farger velges i temaeditoren etterpå.
+    await expect(dialog.locator('input, select, textarea')).toHaveCount(1)
+    await expect(dialog.getByTestId('palette')).toHaveCount(0)
     await expect(page.getByTestId('create-presentation')).toBeDisabled()
     await page.getByTestId('presentation-title-input').fill('Første presentasjon')
     await page.getByTestId('create-presentation').click()
 
     await expect(page.getByTestId('editor')).toBeVisible()
     await expect(page.getByTestId('presentation-title')).toHaveText('Første presentasjon')
+    // Temaeditoren åpnes over det nye dekket, og å lukke den beholder dekket.
+    await expect(page.getByTestId('theme-modal')).toBeVisible()
+    await expect(page.getByTestId('theme-preview')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('theme-modal')).toHaveCount(0)
 
     await page.getByTestId('back-to-library').click()
     await expect(page.getByTestId('presentation-card')).toHaveCount(1)
     expect(guard.errors).toEqual([])
   })
 
-  test('refuses a name too long for the forside it becomes', async ({ page }) => {
-    // Navnet er også forsidens første linje, så det måles som en hvilken som
-    // helst annen linje på en side. Dialogen blir stående med navnet i seg.
+  test('takes a name too long for one line and sets it smaller on the forside', async ({ page }) => {
+    // Navnet er også forsidens første linje. En person nektes aldri et navn
+    // fordi det er langt: linjen settes i mindre skrift og merkes.
     await page.goto('/')
     await page.getByTestId('new-presentation').click()
     await page
       .getByTestId('presentation-title-input')
       .fill('Et navn som er altfor langt til å stå på én linje på forsiden av dette dekket, uansett hvilken font det settes i')
     await page.getByTestId('create-presentation').click()
-
-    await expect(toast(page, 'får ikke plass på forsiden')).toHaveCount(1)
-    await expect(page.getByTestId('new-presentation-modal')).toBeVisible()
-    await expect(page.getByTestId('editor')).toHaveCount(0)
-
-    // Kortet ned, og den blir opprettet.
-    await page.getByTestId('presentation-title-input').fill('Kort nok')
-    await page.getByTestId('create-presentation').click()
     await expect(page.getByTestId('editor')).toBeVisible()
+    await page.getByTestId('theme-done').click()
+
+    await page.getByTestId('filmstrip-item').nth(0).getByTestId('filmstrip-thumb').click()
+    const pill = stage(page).locator('[data-section-line="title"]')
+    await expect(pill).toHaveAttribute('data-title-fit', /^0\.\d+$/)
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    expect(await worstOverflow(page)).toBeLessThan(1)
   })
 
   test('renames, duplicates and deletes into the trash', async ({ page }) => {

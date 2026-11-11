@@ -1,26 +1,28 @@
 /**
- * Presentation-wide fonts, air and type size.
+ * Temaeditoren: fonter, luft, skriftstørrelse, skygger og kortutseende for hele
+ * presentasjonen, og forsidens to farger.
  *
- * The background colour used to be here and deliberately is not any more: it is
- * a section's, so a deck can change ground colour partway through, and it is
- * picked on the section slide that governs it. What is left is what genuinely
- * applies to every page at once.
+ * Fargene er forsidens, ikke globale: de er de samme to forsidens
+ * egenskapspanel endrer, og senere inndelinger beholder sine egne (§ 8.5).
+ * Dialogen er den samme om den åpnes fra menyen eller rett etter at et dekk er
+ * opprettet (§ 15.1), og hver endring i den er en vanlig, angrebar endring.
  */
 
 import { useState } from 'react'
-import { setTheme } from '../../domain/commands'
-import { setCardLookByHand } from '../../domain/commands/manualLayout'
+import { setSectionAccentColor, setSectionBackgroundColor, setTheme } from '../../domain/commands'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { TITLED_CARD_STYLES, type TitledCardStyle } from '../../domain/constants'
 import { FONT_OPTIONS, findFontByStack } from '../../domain/fonts'
 import { FONT_SCALE_PRESETS, SPACING_PRESETS, type ThemeScalePreset } from '../../domain/metrics'
 import { bestTextColor } from '../../domain/color'
 import type { PresentationTheme } from '../../domain/types'
-import { domFitCheckers } from '../../state/measure'
 import { notify } from '../../state/toast'
 import { useEditorStore } from '../../state/store'
 import { writeDefaultTheme } from '../../state/defaultTheme'
 import { ensureWebFonts } from '../fonts'
 import { Modal } from '../components/Modal'
+import { ColorPickerButton } from '../components/ColorPicker'
+import { ThemePreview } from './ThemePreview'
 
 /**
  * Which of the named settings is in force.
@@ -98,32 +100,26 @@ export function ThemeModal({
   const [loading, setLoading] = useState<'heading' | 'body' | null>(null)
   if (!presentation) return null
   const theme = presentation.theme
-  // The deck no longer has one background, so a preview of its typography sits
-  // on the ground the reader meets first: the front page's.
-  const previewBackground = presentation.slides[0].backgroundColor
-  const previewAccent = presentation.slides[0].accentColor
+  // Dekket har ikke én bakgrunn, så forhåndsvisningene står på den leseren møter
+  // først: forsidens.
+  const front = presentation.slides[0]
+  const previewBackground = front.backgroundColor
+  const previewAccent = front.accentColor
 
   /**
-   * De to utseendevalgene er en persons valg av uttrykk, ikke en endring som
-   * skal måles mot dekket: en skygge skjuler ingenting, og tekst et
-   * tittelutseende gir for lite plass, tegnes mindre, som i en sone dratt liten.
+   * Alt i temadialogen er en persons valg: tekst som ikke lenger får plass i
+   * normal størrelse etter et nytt tema, tegnes mindre og merkes, i stedet for
+   * at valget avvises (`HUMAN_EDIT`). Agentens `set_theme` måles fortsatt.
    */
-  const setLook = (
-    label: string,
-    patch: Partial<Pick<PresentationTheme, 'boxShadows' | 'titledCardStyle'>>,
-  ): void => {
-    run(label, (current) => setCardLookByHand(current, patch))
+  const applyTheme = (label: string, patch: Partial<PresentationTheme>): void => {
+    run(label, (current) => setTheme(current, patch, HUMAN_EDIT))
   }
 
   /**
    * Pick a font — but only commit it once the browser can actually draw it.
    *
-   * The fit gate answers "does this still fit?" by measuring the real DOM. Ask
-   * it while the web font is still downloading and it measures the fallback,
-   * approves the change, and the swap a moment later pushes text out of zones
-   * that were just declared fine. So: load first, wait for readiness, then let
-   * the command measure. A font that will not load is not silently accepted
-   * against fallback metrics either — the change is refused and said out loud.
+   * A font that will not load is not silently accepted and drawn with the
+   * fallback: the change is refused and said out loud.
    */
   const applyFont = async (field: 'heading' | 'body', stack: string): Promise<void> => {
     setLoading(field)
@@ -137,7 +133,7 @@ export function ThemeModal({
       }
       const patch =
         field === 'heading' ? { headingFontFamily: stack } : { bodyFontFamily: stack }
-      run(`theme-${field}-font`, (current) => setTheme(current, patch, domFitCheckers))
+      applyTheme(`theme-${field}-font`, patch)
     } finally {
       setLoading(null)
     }
@@ -148,9 +144,9 @@ export function ThemeModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Tema"
-      description="Fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Farger velges per inndeling."
+      description="Fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Fargene her er forsidens, og arves fram til neste inndeling."
       testId="theme-modal"
-      width={560}
+      width={600}
       footer={
         <>
           <button
@@ -164,13 +160,52 @@ export function ThemeModal({
           >
             Bruk som standard for nye presentasjoner
           </button>
-          <button type="button" className="btn btn--primary" onClick={() => onOpenChange(false)}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            data-testid="theme-done"
+            onClick={() => onOpenChange(false)}
+          >
             Ferdig
           </button>
         </>
       }
     >
-      <div className="new-presentation__fonts" data-font-loading={loading ?? 'none'}>
+      <div className="theme-modal__preview">
+        <ThemePreview theme={theme} background={previewBackground} accent={previewAccent} />
+      </div>
+
+      <div className="field">
+        <label id="theme-front-colors-label">Forsidens farger</label>
+        <div className="theme-modal__colors" role="group" aria-labelledby="theme-front-colors-label">
+          <ColorPickerButton
+            value={front.backgroundColor}
+            label="Bakgrunnsfarge"
+            testId="theme-front-background"
+            onChange={(color) =>
+              run('section-background', (current) =>
+                setSectionBackgroundColor(current, current.slides[0].id, color),
+              )
+            }
+          />
+          <ColorPickerButton
+            value={front.accentColor}
+            label="Aksentfarge"
+            testId="theme-front-accent"
+            onChange={(color) =>
+              run('section-accent', (current) =>
+                setSectionAccentColor(current, current.slides[0].id, color),
+              )
+            }
+          />
+        </div>
+        <p className="hint">
+          Gjelder forsiden og slidene fram til neste inndeling. Senere inndelinger beholder sine
+          egne farger.
+        </p>
+      </div>
+
+      <div className="theme-modal__fonts" data-font-loading={loading ?? 'none'}>
         <div className="field">
           <label htmlFor="theme-heading-font">Font for titler</label>
           <select
@@ -179,9 +214,6 @@ export function ThemeModal({
             value={theme.headingFontFamily}
             data-testid="theme-heading-font"
             disabled={loading !== null}
-            // A wider heading font can push slide titles and card headers out
-            // of their fixed-height zones, so the command validates the whole
-            // deck against the prospective theme — after the font is loaded.
             onChange={(event) => void applyFont('heading', event.target.value)}
           >
             {FONT_OPTIONS.map((font) => (
@@ -213,7 +245,7 @@ export function ThemeModal({
             Laster {findFontByStack(
               loading === 'heading' ? theme.headingFontFamily : theme.bodyFontFamily,
             )?.label ?? 'fonten'}
-            … endringen måles først når fonten er klar.
+            … endringen tas i bruk når fonten er klar.
           </p>
         )}
       </div>
@@ -232,9 +264,7 @@ export function ThemeModal({
               data-testid={`theme-spacing-${step.value}`}
               aria-pressed={isCurrent(step.value, theme.spacing, SPACING_PRESETS)}
               onClick={() =>
-                run('theme-spacing', (current) =>
-                  setTheme(current, { spacing: step.value }, domFitCheckers),
-                )
+                applyTheme('theme-spacing', { spacing: step.value })
               }
             >
               {step.label}
@@ -262,9 +292,7 @@ export function ThemeModal({
               data-testid={`theme-font-scale-${step.value}`}
               aria-pressed={isCurrent(step.value, theme.fontScale, FONT_SCALE_PRESETS)}
               onClick={() =>
-                run('theme-font-scale', (current) =>
-                  setTheme(current, { fontScale: step.value }, domFitCheckers),
-                )
+                applyTheme('theme-font-scale', { fontScale: step.value })
               }
             >
               {step.label}
@@ -286,7 +314,7 @@ export function ThemeModal({
             aria-checked={theme.boxShadows}
             className="switch"
             data-testid="theme-shadows"
-            onClick={() => setLook('theme-shadows', { boxShadows: !theme.boxShadows })}
+            onClick={() => applyTheme('theme-shadows', { boxShadows: !theme.boxShadows })}
           >
             <span className="switch__thumb" />
           </button>
@@ -322,7 +350,7 @@ export function ThemeModal({
                   value={look}
                   checked={chosen}
                   aria-label={TITLED_CARD_LOOK_LABELS[look]}
-                  onChange={() => setLook('theme-titled-card', { titledCardStyle: look })}
+                  onChange={() => applyTheme('theme-titled-card', { titledCardStyle: look })}
                 />
                 <TitledCardLookPreview
                   look={look}
@@ -339,17 +367,6 @@ export function ThemeModal({
         </p>
       </div>
 
-      <div
-        className="new-presentation__preview"
-        style={{ background: previewBackground, color: bestTextColor(previewBackground) }}
-      >
-        <span style={{ fontFamily: theme.headingFontFamily, fontSize: 24, fontWeight: 600 }}>
-          {presentation.title}
-        </span>
-        <span style={{ fontFamily: theme.bodyFontFamily, fontSize: 15 }}>
-          Brødtekst vises slik i presentasjonen.
-        </span>
-      </div>
     </Modal>
   )
 }

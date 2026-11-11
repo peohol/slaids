@@ -97,37 +97,37 @@ test.describe('luft and skriftstørrelse', () => {
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('refuses air a full zone cannot afford, and shows the same text after', async ({ page }) => {
+  test('takes air a full zone cannot afford, and draws the zone smaller', async ({ page }) => {
     await createPresentation(page, 'For mye luft')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
     await fillZoneToCapacity(page, zones[0].id)
-    const gapBefore = await renderedGap(page)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
 
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId(`theme-spacing-${AIRY}`).click()
 
-    await expect(toast(page, 'Så mye luft gjør at innhold ikke lenger får plass')).toBeVisible()
-    await expect(page.getByTestId(`theme-spacing-${AIRY}`)).toHaveAttribute('aria-pressed', 'false')
-    expect(await renderedGap(page)).toBe(gapBefore)
+    await expect(page.getByTestId(`theme-spacing-${AIRY}`)).toHaveAttribute('aria-pressed', 'true')
+    await expect(zone.locator('.zone-fit')).toHaveAttribute('data-fit-scale', /^0\.\d+$/)
+    await expect(zone.getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    await expect(toast(page, 'ikke lenger får plass')).toHaveCount(0)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('refuses type larger than a full zone can afford', async ({ page }) => {
+  test('takes type larger than a full zone can afford, and draws the zone smaller', async ({ page }) => {
     await createPresentation(page, 'For stor skrift')
     const zones = await zoneRects(page)
     await addContentToZone(page, zones[0].id, 'untitled-card')
     await fillZoneToCapacity(page, zones[0].id)
-    const before = await renderedBodySize(page)
+    const zone = stage(page).locator(`.slide-zone[data-node-id="${zones[0].id}"]`)
 
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId('theme-font-scale-1.75').click()
 
-    await expect(
-      toast(page, 'Denne skriftstørrelsen gjør at innhold ikke lenger får plass'),
-    ).toBeVisible()
-    await expect(page.getByTestId('theme-font-scale-1.75')).toHaveAttribute('aria-pressed', 'false')
-    expect(await renderedBodySize(page)).toBe(before)
+    await expect(page.getByTestId('theme-font-scale-1.75')).toHaveAttribute('aria-pressed', 'true')
+    await expect(zone.locator('.zone-fit')).toHaveAttribute('data-fit-scale', /^0\.\d+$/)
+    await expect(zone.getByTestId('zone-shrunk-marker')).toHaveCount(1)
+    await expect(toast(page, 'ikke lenger får plass')).toHaveCount(0)
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
