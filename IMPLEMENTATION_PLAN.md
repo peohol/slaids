@@ -181,7 +181,12 @@ Ved sletting av et barn:
 - søsknenes tilgjengelige plass fordeles på nytt ved samme vekter/prinsipp;
 - dersom en split står igjen med ett barn, kollapses splitten automatisk til dette barnet;
 - subtree-sletting skal være eksplisitt og håndteres atomisk;
-- destruktive handlinger skal ha trygg bekreftelse når innhold går tapt.
+- destruktive handlinger skal som standard ha trygg bekreftelse når innhold går tapt.
+
+Brukerinnstillingen **Færre popuper** er av som standard. Når den er på, utføres
+eksplisitte slettehandlinger som kan angres i editoren direkte. Innholdet
+slettes fremfor å flyttes til sandkassen. Bekreftelse for permanent sletting
+og avbrudd av en aktiv bildedeponering vises fortsatt.
 
 ---
 
@@ -1888,6 +1893,10 @@ Begge går gjennom den samme kommandoen som dragehåndtaket.
 
 ## 11\. Splitt-modal
 
+Med **Færre popuper** oppretter «Ny slide» en slide med overskrift. «Del sone»
+deler en bladsone i to like deler langs samme akse som dialogen ville foreslått.
+«Avansert deling» og «Rediger deling» åpner fortsatt dialogen.
+
 Splitt-dialogen skal vise valgt sone med riktig aspektforhold og live preview.
 
 Den er én dialog med samme mål, sti og handling uansett hvor den åpnes fra
@@ -1949,8 +1958,9 @@ angrebar endring.
 - **Lavere antall** fjerner de siste direkte subsonene med hele undertrærne
   deres. Dialogen sier hvilke soner som fjernes og hvor mange innholdselementer
   som finnes i dem, uansett hvor dypt. Standard er å flytte innholdet til
-  sandkassen; å slette det krever en egen bekreftelse som oppgir antallet, og
-  bekreftelsen kan gjøres om til sandkassen i stedet.
+  sandkassen; å slette det krever som standard en egen bekreftelse som oppgir
+  antallet, og bekreftelsen kan gjøres om til sandkassen i stedet. Med
+  **Færre popuper** holder det å velge sletting og trykke «Bruk» i dialogen.
 - **Deling av en fylt sone**: dialogen viser hvilken subsone som er valgt for
   innholdet – som forslag til tørrkjøringen har svart, deretter som resultat i
   tekst og preview. Går innholdet til sandkassen fordi det ikke får plass,
@@ -2353,6 +2363,8 @@ Dersom antall barn reduseres og fjernede subtrees har innhold:
 
 - brukeren må få et eksplisitt valg om å flytte dette til Sandbox eller slette;
 - appen skal ikke stille miste innhold.
+
+Med **Færre popuper** er valget i dialogen og «Bruk» tilstrekkelig.
 
 Direkte manipulasjon av ratios finnes: separatoren mellom to soner kan dras
 (langs splitten flytter den grensen, på tvers komprimerer den hele splitten inn
