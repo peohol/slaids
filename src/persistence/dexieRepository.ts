@@ -15,6 +15,7 @@ import {
 import { migratePresentation } from '../domain/migrations'
 import { presentationRevision } from '../domain/revision'
 import { validateLayoutTemplate } from '../domain/schema'
+import { parseThemeTemplateContent, type ThemeTemplate } from '../domain/themeTemplate'
 import { documentByteSize, summarize } from '../domain/presentation'
 import type {
   AssetRef,
@@ -28,20 +29,25 @@ import {
   RepositoryConflictError,
   RepositoryError,
   RepositoryNotFoundError,
+  type NewThemeTemplate,
   type SaveGuard,
   type SlaidsRepository,
   type StoredAsset,
+  type ThemeTemplateRepository,
 } from './repository'
 
 /** The `settings` key the autoerstatt list is stored under. */
 const AUTOCORRECT_SETTING = 'autocorrect'
+
+/** Innstillingen som peker ut standardmalen, med samme navn som i `UserSettings`. */
+const DEFAULT_THEME_TEMPLATE_SETTING = 'defaultThemeTemplateId' satisfies keyof UserSettings
 
 /** Why a trashed presentation is not found: it is somewhere else, and can come back. */
 export function trashedMessage(id: string): string {
   return `Presentasjonen «${id}» ligger i søppelkassen. Gjenopprett den fra biblioteket for å åpne den.`
 }
 
-export class DexieSlaidsRepository implements SlaidsRepository {
+export class DexieSlaidsRepository implements SlaidsRepository, ThemeTemplateRepository {
   /**
    * The presentation ids this repository has seen as rows.
    *
@@ -354,16 +360,18 @@ export class DexieSlaidsRepository implements SlaidsRepository {
   }
 
   async getUserSettings(_ownerId: string | null): Promise<UserSettings> {
-    const [progress, dialogs, citation] = await this.database.settings.bulkGet([
+    const [progress, dialogs, citation, template] = await this.database.settings.bulkGet([
       'includeReferencesInProgress',
       'fewerDialogs',
       'citationStyle',
+      DEFAULT_THEME_TEMPLATE_SETTING,
     ])
     return {
       ...DEFAULT_USER_SETTINGS,
       citationStyle: citation?.value === 'author-year' ? 'author-year' : 'numbered',
       includeReferencesInProgress: progress?.value === true,
       fewerDialogs: dialogs?.value === true,
+      defaultThemeTemplateId: typeof template?.value === 'string' ? template.value : null,
     }
   }
 
@@ -438,4 +446,67 @@ export class DexieSlaidsRepository implements SlaidsRepository {
       },
     )
   }
+
+  /* ---------------------------------------------------------------- *
+   * Temamaler
+   * ---------------------------------------------------------------- */
+
+  async listThemeTemplates(): Promise<ThemeTemplate[]> {
+    const records = await this.database.themeTemplates.orderBy('createdAt').toArray()
+    const templates: ThemeTemplate[] = []
+    for (const record of records) {
+      const content = parseThemeTemplateContent(record.content)
+      if (content) templates.push({ ...record, content, own: true })
+    }
+    return templates
+  }
+
+  async createThemeTemplate(template: NewThemeTemplate, logo: Blob | null): Promise<void> {
+    const content = parseThemeTemplateContent(template.content)
+    if (!content || Boolean(content.logo) !== Boolean(logo)) {
+      throw new RepositoryError('Malen er ugyldig og kan ikke lagres.')
+    }
+    // Én transaksjon: malen og logoen lagres sammen eller ikke i det hele tatt.
+    await this.database.transaction(
+      'rw',
+      this.database.themeTemplates,
+      this.database.themeTemplateLogos,
+      async () => {
+        if (await this.database.themeTemplates.get(template.id)) {
+          throw new RepositoryConflictError(`Malen «${template.name}» har en id som allerede er i bruk.`)
+        }
+        await this.database.themeTemplates.add({
+          id: template.id,
+          name: template.name,
+          visibility: template.visibility,
+          content: JSON.parse(JSON.stringify(content)) as typeof content,
+          createdAt: template.createdAt,
+          updatedAt: template.updatedAt,
+        })
+        if (logo) await this.database.themeTemplateLogos.put({ templateId: template.id, blob: logo })
+      },
+    )
+  }
+
+  async getThemeTemplateLogo(id: string): Promise<Blob | null> {
+    return (await this.database.themeTemplateLogos.get(id))?.blob ?? null
+  }
+
+  async deleteThemeTemplate(id: string): Promise<void> {
+    await this.database.transaction(
+      'rw',
+      [this.database.themeTemplates, this.database.themeTemplateLogos, this.database.settings],
+      async () => {
+        await this.database.themeTemplates.delete(id)
+        await this.database.themeTemplateLogos.delete(id)
+        // Som `on delete set null` i Supabase: standardvalget peker aldri på en
+        // mal som er borte.
+        const chosen = await this.database.settings.get(DEFAULT_THEME_TEMPLATE_SETTING)
+        if (chosen?.value === id) {
+          await this.database.settings.put({ key: DEFAULT_THEME_TEMPLATE_SETTING, value: null })
+        }
+      },
+    )
+  }
+
 }

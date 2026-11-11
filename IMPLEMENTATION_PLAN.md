@@ -2670,8 +2670,9 @@ agentkontraktens publiserte fontenum leses ut av den.
 Temaet kan lagres som standard for nye presentasjoner. Det er en lokal
 preferanse (localStorage, som vindusgeometri), ikke presentasjonsdata, og
 valideres på vei ut igjen.
-Denne lokale standarden erstattes av temamaler (§ 15.4, etappe 4): et menneske
-skal ikke møte to konkurrerende måter å si «slik starter mine dekk» på.
+Denne lokale standarden er erstattet av temamaler (§ 15.4): et menneske skal
+ikke møte to konkurrerende måter å si «slik starter mine dekk» på. Et tema som
+allerede er lagret lokalt, gjelder til brukeren velger en mal som standard.
 
 ---
 
@@ -2915,6 +2916,50 @@ mal som standard (lagret per bruker, ikke i nettleseren), og et nytt dekk starte
 i den. Et tema som allerede er lagret som lokal standard, fortsetter å virke til
 brukeren velger en mal – bakoverkompatibelt, og uten at to standarder kan gjelde
 samtidig.
+
+**Slik er det løst.**
+
+- *Modellen* står i `src/domain/themeTemplate.ts`: `ThemeTemplateContent` er
+  `{ theme, front, logo }`, der `theme` er temaet uten logo, `front` forsidens to
+  farger og `logo` filens beskrivelse (`AssetRef` uten id) og innstillingene
+  (`ThemeLogo` uten `assetId`), eller `null`. Innholdet kontrolleres av
+  `themeTemplateContentSchema` ved hver lesing og skriving, og temaet legges
+  over dagens standardverdier, så en eldre mal får nye innstillingers standard
+  i stedet for å bli ugyldig.
+- *Å bruke en mal* er domenekommandoen `applyThemeTemplate`, som setter temaet,
+  forsidens farger (med de samme kommandoene som temaeditoren) og logoen, og
+  kontrolleres med `guardThemeChange` – det samme spørsmålet som `setTheme`
+  stiller, så en agent avvises og en person slipper gjennom som ellers.
+  `ui/editor/themeTemplates.ts` henter logofilen, kopierer den inn gjennom
+  `storeUploadedFile` (`assetIngress`, SVG-rensing, deduplisering) og kjører
+  kommandoen i samme angresteg som filen registreres
+  (`ui/editor/placeStoredAsset.ts`, som logoopplastingen også bruker). Avvises
+  steget, eller er en annen presentasjon åpnet i mellomtiden, tas kopien
+  tilbake – aldri en fil presentasjonen hadde fra før.
+- *Lagring* er grensesnittet `ThemeTemplateRepository`, ved siden av
+  `SlaidsRepository` slik delingen er det. I Supabase: tabellen
+  `slaids_theme_templates` og den private bucketen `slaids-theme-templates`
+  med stien `<eier>/<mal>/logo`, låst til eieren med en `check`. Filen lastes
+  opp før raden og tas tilbake om raden avvises; ved sletting går raden før
+  filen. Logoen i en delt mal kan leses av alle aktive brukere, resten av
+  bucketen bare av eieren. Malens JSON kan ikke bære `;base64,` og er høyst
+  64 kB. I Dexie: tabellene `themeTemplates` og `themeTemplateLogos`
+  (databaseversjon 3).
+- *Standardmalen* er `UserSettings.defaultThemeTemplateId`
+  (`slaids_user_settings.default_theme_template_id`, med `on delete set null`;
+  i Dexie tømmes valget i samme transaksjon som malen slettes). Velges en mal,
+  glemmes standardtemaet i nettleseren (`clearDefaultTheme`), så to standarder
+  aldri gjelder samtidig. Knappen «Bruk som standard for nye presentasjoner» i
+  temaeditoren er erstattet av stjernen på hver mal og et avkrysningsfelt når
+  en mal lagres. Et nytt dekk opprettes og lagres som før, og får deretter
+  standardmalen (`startInThemeTemplate`); går det ikke, beholdes dekket i
+  standardtemaet med en melding.
+- *I temaeditoren* (`ThemeTemplates.tsx`) står Mine maler (private) og Delte
+  maler (alle delte, egne merket «Din») med en liten forhåndsvisning: forsidens
+  farger, «Aa» i titlenes font og logoen.
+- *Migrasjonen* er `20261111120000_slaids_theme_templates.sql`, med
+  tilbakerulling i `supabase/rollback/` og tilgangstester i
+  `supabase/tests/access.test.ts`.
 
 **Agent-API.** Temaets felt eksponeres for agentene gjennom de samme kontraktene
 som i dag (`set_theme`, `get_presentation`); nye felt og operasjoner (logo, maler)
@@ -4330,9 +4375,10 @@ Krav som gjelder:
 
 ### Datamodell
 
-Fem tabeller i `public`, alle med `owner_id uuid → auth.users`. RLS gir en
-aktiv Slaids-bruker tilgang til rader der `owner_id` er brukerens egen UUID, og
-ingen andre noe som helst:
+Tabellene i `public` har alle `owner_id uuid → auth.users`. RLS gir en aktiv
+Slaids-bruker tilgang til rader der `owner_id` er brukerens egen UUID, og ingen
+andre noe som helst – med ett unntak: en delt temamal kan leses (men ikke endres
+eller slettes) av alle aktive brukere:
 
 | Tabell                  | Innhold                                                  |
 | ----------------------- | -------------------------------------------------------- |
@@ -4340,7 +4386,8 @@ ingen andre noe som helst:
 | `slaids_presentations`  | hele `Presentation` som `document jsonb`, pluss `title`, `folder_id`, `slide_count`, `byte_size`, `version` og `deleted_at` (søppelkassen, § 21) |
 | `slaids_templates`      | hele `LayoutTemplate` som `template jsonb`                |
 | `slaids_assets`         | hele `AssetRef` som `ref jsonb` + `object_path` i Storage  |
-| `slaids_user_settings`  | én rad per bruker (`owner_id` er nøkkelen): brukerens egne innstillinger, nå `autocorrect jsonb` (§ «Autoerstatning mens man skriver») |
+| `slaids_user_settings`  | én rad per bruker (`owner_id` er nøkkelen): brukerens egne innstillinger, nå `autocorrect jsonb` (§ «Autoerstatning mens man skriver») og `default_theme_template_id` (§ 15.4) |
+| `slaids_theme_templates` | temamaler (§ 15.4): innholdet som `template jsonb`, `visibility` (`private`/`shared`) og `logo_path` i Storage. Den eneste tabellen der andre aktive brukere kan lese rader: de delte malene |
 
 Slides, soner og referanser normaliseres **ikke** ut i egne tabeller. Dokumentet
 er domenemodellen Slaids allerede validerer og migrerer; en oppsplitting ville

@@ -1,27 +1,23 @@
 /**
  * Last opp en fil og bruk den som logo i presentasjonen som er åpen (§ 15.2).
  *
- * Opplastingen tar tid, og mens den pågår kan personen gå til en annen
- * presentasjon. Filen lagres under presentasjonen som var åpen da opplastingen
- * startet, så logoen settes bare hvis den samme presentasjonen fortsatt er
- * åpen etterpå. Ellers – og når kommandoen avvises – slettes filen igjen, så
- * ingenting blir liggende uten at noe peker på det. En fil presentasjonen
- * allerede hadde (`reused`), slettes aldri: den kan stå på en slide.
+ * Opplastingen tar tid, og personen kan gå til en annen presentasjon mens den
+ * pågår. Logoen settes bare i presentasjonen filen ble lagret under, og en fil
+ * som ikke blir brukt, tas tilbake (`placeStoredAsset`).
  *
  * Avhengighetene kan byttes ut, så regelen kan testes uten lager og editor.
  */
 
-import { registerAsset, setThemeLogo } from '../../domain/commands'
+import { setThemeLogo } from '../../domain/commands'
 import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
-import { describeError } from '../../domain/result'
+import { describeError, err } from '../../domain/result'
 import { describeSanitizing, discardUploadedAssets, storeUploadedFile } from '../../state/assetUpload'
 import { useEditorStore } from '../../state/store'
 import { notify } from '../../state/toast'
+import { placeStoredAsset, type PlacementDependencies } from './placeStoredAsset'
 
-export interface LogoUploadDependencies {
-  store: Pick<typeof useEditorStore, 'getState'>
+export interface LogoUploadDependencies extends PlacementDependencies {
   storeFile: typeof storeUploadedFile
-  discard: typeof discardUploadedAssets
 }
 
 const DEFAULTS: LogoUploadDependencies = {
@@ -37,7 +33,7 @@ export async function uploadThemeLogo(
   file: File,
   dependencies: LogoUploadDependencies = DEFAULTS,
 ): Promise<LogoUploadOutcome> {
-  const { store, storeFile, discard } = dependencies
+  const { store, storeFile } = dependencies
   const target = store.getState().presentation
   if (!target) return 'moved-on'
 
@@ -53,24 +49,15 @@ export async function uploadThemeLogo(
     return 'refused'
   }
 
-  const { ref, reused, report } = stored.value
-  const written = reused ? [] : [ref.id]
-  const state = store.getState()
-  if (state.presentation?.id !== target.id) {
-    await discard(written)
-    notify.warning('En annen presentasjon ble åpnet før logoen var lastet opp, så den ble ikke satt.')
-    return 'moved-on'
-  }
-
-  const sanitized = describeSanitizing(report)
+  const outcome = await placeStoredAsset(
+    dependencies,
+    target.id,
+    stored.value,
+    'theme-logo',
+    (current, ref) => (ref ? setThemeLogo(current, ref.id, HUMAN_EDIT) : err('ASSET_NOT_FOUND', 'Fant ikke filen.')),
+    'En annen presentasjon ble åpnet før logoen var lastet opp, så den ble ikke satt.',
+  )
+  const sanitized = outcome === 'set' ? describeSanitizing(stored.value.report) : null
   if (sanitized) notify.warning(sanitized)
-  // Filen og logoen i ett steg, så én angring tar begge.
-  const placed = state.run('theme-logo', (current) => {
-    const registered = registerAsset(current, ref)
-    return registered.ok ? setThemeLogo(registered.value, ref.id, HUMAN_EDIT) : registered
-  })
-  if (placed) return 'set'
-  // `run` har allerede sagt hvorfor; filen ingenting peker på, tas tilbake.
-  await discard(written)
-  return 'refused'
+  return outcome
 }

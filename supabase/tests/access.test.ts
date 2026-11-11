@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PGlite } from '@electric-sql/pglite'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { LAST_ACTIVE_ADMIN_ERROR, SLAIDS_USERS_TABLE } from '../../src/persistence/slaidsUsers'
 import {
   affectedAs,
@@ -61,6 +61,7 @@ function libraryFor(owner: string, tag: string): string {
       values ('${owner}', 'Token ${tag}', '${hash}', array['presentations:read']);
     insert into public.slaids_agent_audit (owner_id, operation, success) values ('${owner}', 'list_presentations', true);
     insert into public.slaids_user_settings (owner_id, autocorrect) values ('${owner}', '[]'::jsonb);
+    insert into public.slaids_theme_templates (id, owner_id, name, template) values ('tt_${tag}', '${owner}', 'Temamal ${tag}', '{}'::jsonb);
     insert into storage.objects (bucket_id, name) values ('slaids-assets', '${owner}/pr_${tag}/as_${tag}');
   `
 }
@@ -169,7 +170,13 @@ describe('hver bruker sitt eget bibliotek', () => {
     },
   )
 
-  it.each(['slaids_folders', 'slaids_presentations', 'slaids_templates', 'slaids_user_settings'] as const)(
+  it.each([
+    'slaids_folders',
+    'slaids_presentations',
+    'slaids_templates',
+    'slaids_user_settings',
+    'slaids_theme_templates',
+  ] as const)(
     '%s: kan ikke flytte en egen rad over til en annen eier',
     async (table) => {
       await expect(
@@ -369,6 +376,116 @@ describe('det finnes alltid en aktiv administrator', () => {
   })
 })
 
+describe('temamaler', () => {
+  const BUCKET = 'slaids-theme-templates'
+  const logo = (owner: string, id: string): string => `${owner}/${id}/logo`
+
+  // Peder har én privat og én delt mal med logo. Lagt inn her og tatt bort
+  // etterpå, så de andre testene ser bibliotekene slik de var.
+  beforeAll(async () => {
+    await db.exec(`
+      insert into public.slaids_theme_templates (id, owner_id, name, visibility, template, logo_path) values
+        ('tt_private', '${PEDER}', 'Privat', 'private', '{}'::jsonb, '${logo(PEDER, 'tt_private')}'),
+        ('tt_shared', '${PEDER}', 'Delt', 'shared', '{}'::jsonb, '${logo(PEDER, 'tt_shared')}');
+      insert into storage.objects (bucket_id, name) values
+        ('${BUCKET}', '${logo(PEDER, 'tt_private')}'),
+        ('${BUCKET}', '${logo(PEDER, 'tt_shared')}');
+    `)
+  })
+
+  afterAll(async () => {
+    await db.exec(`
+      delete from storage.objects where bucket_id = '${BUCKET}';
+      delete from public.slaids_theme_templates where id in ('tt_private', 'tt_shared');
+    `)
+  })
+
+  it('en privat mal ser bare eieren, en delt mal ser alle aktive brukere', async () => {
+    const ids = async (caller: Caller): Promise<string[]> =>
+      (await rowsAs<{ id: string }>(db, caller, `select id from public.slaids_theme_templates order by id`)).map(
+        (row) => row.id,
+      )
+    expect(await ids(peder)).toEqual(['tt_p', 'tt_private', 'tt_shared'])
+    expect(await ids(anna)).toEqual(['tt_a', 'tt_shared'])
+  })
+
+  it('bare eieren kan endre eller slette en mal, også en delt', async () => {
+    for (const id of ['tt_private', 'tt_shared']) {
+      expect(await affectedAs(db, anna, `update public.slaids_theme_templates set name = 'Min nå' where id = $1`, [id])).toBe(0)
+      expect(await affectedAs(db, anna, `delete from public.slaids_theme_templates where id = $1`, [id])).toBe(0)
+    }
+    expect(await affectedAs(db, peder, `update public.slaids_theme_templates set name = 'Ny' where id = 'tt_shared'`)).toBe(1)
+  })
+
+  it('alle aktive brukere kan lage delte maler, men bare i sitt eget navn', async () => {
+    expect(
+      await affectedAs(db, anna, `insert into public.slaids_theme_templates (id, owner_id, name, visibility, template) values ('tt_new', $1, 'Annas', 'shared', '{}')`, [ANNA]),
+    ).toBe(1)
+    await expect(
+      affectedAs(db, anna, `insert into public.slaids_theme_templates (id, owner_id, name, visibility, template) values ('tt_fake', $1, 'Falsk', 'shared', '{}')`, [PEDER]),
+    ).rejects.toThrow(/row-level security/)
+  })
+
+  it('logoen i en delt mal kan leses av alle aktive brukere, en privat bare av eieren', async () => {
+    const names = async (caller: Caller): Promise<string[]> =>
+      (await rowsAs<{ name: string }>(db, caller, `select name from storage.objects where bucket_id = $1 order by name`, [BUCKET])).map(
+        (row) => row.name,
+      )
+    expect(await names(peder)).toEqual([logo(PEDER, 'tt_private'), logo(PEDER, 'tt_shared')])
+    expect(await names(anna)).toEqual([logo(PEDER, 'tt_shared')])
+  })
+
+  it('ingen kan legge, endre eller slette logoer i en annens mappe', async () => {
+    await expect(
+      affectedAs(db, anna, `insert into storage.objects (bucket_id, name) values ($1, $2)`, [BUCKET, logo(PEDER, 'tt_stolen')]),
+    ).rejects.toThrow(/row-level security/)
+    expect(await affectedAs(db, anna, `delete from storage.objects where bucket_id = $1`, [BUCKET])).toBe(0)
+    expect(await affectedAs(db, anna, `update storage.objects set name = name where bucket_id = $1`, [BUCKET])).toBe(0)
+    expect(await affectedAs(db, anna, `insert into storage.objects (bucket_id, name) values ($1, $2)`, [BUCKET, logo(ANNA, 'tt_a')])).toBe(1)
+  })
+
+  it('en mal kan bare peke på eierens egen logo', async () => {
+    await expect(
+      db.query(
+        `insert into public.slaids_theme_templates (id, owner_id, name, template, logo_path) values ('tt_steal', $1, 'x', '{}', $2)`,
+        [ANNA, logo(PEDER, 'tt_shared')],
+      ),
+    ).rejects.toThrow(/slaids_theme_templates_check|logo_path/)
+  })
+
+  it('en mal kan ikke bære en bildefil som base64', async () => {
+    await expect(
+      db.query(
+        `insert into public.slaids_theme_templates (id, owner_id, name, template) values ('tt_b64', $1, 'x', $2)`,
+        [ANNA, JSON.stringify({ logo: 'data:image/png;base64,iVBORw0KGgo=' })],
+      ),
+    ).rejects.toThrow(/check constraint/)
+  })
+
+  it('deaktiverte brukere, andre apper og anon ser verken maler eller logoer', async () => {
+    await setActive(ANNA, false)
+    try {
+      for (const caller of [anna, outsider, anon]) {
+        expect(await rowsAs(db, caller, `select 1 from public.slaids_theme_templates`).catch(() => [])).toEqual([])
+        expect(
+          await rowsAs(db, caller, `select 1 from storage.objects where bucket_id = $1`, [BUCKET]).catch(() => []),
+        ).toEqual([])
+      }
+    } finally {
+      await setActive(ANNA, true)
+    }
+  })
+
+  it('standardvalget blir tomt når malen slettes', async () => {
+    await as(db, server, async (tx) => {
+      await tx.query(`update public.slaids_user_settings set default_theme_template_id = 'tt_shared' where owner_id = $1`, [ANNA])
+      await tx.query(`delete from public.slaids_theme_templates where id = 'tt_shared'`)
+      const rows = await tx.query(`select default_theme_template_id from public.slaids_user_settings where owner_id = $1`, [ANNA])
+      expect(rows.rows).toEqual([{ default_theme_template_id: null }])
+    })
+  })
+})
+
 describe('policyene som helhet', () => {
   it('rører ikke andre appers tabeller, policyer, tilgang eller buckets', async () => {
     expect(otherAppBefore.length).toBeGreaterThan(8)
@@ -433,25 +550,31 @@ describe('tilbakerulling', () => {
     await rolledBack.close()
   }, 60_000)
 
-  it('fjerner brukerinnstillingene uten å røre noe annet', async () => {
+  it.each([
+    ['brukerinnstillingene', 'user_settings'],
+    ['temamalene og standardvalget', 'theme_templates'],
+  ])('fjerner %s uten å røre noe annet', async (_label, part) => {
     const users = insertAuthUsers([{ id: PEDER, email: 'peder.holman@gmail.com' }])
     const schema = `select tablename, policyname from pg_policies where policyname like 'slaids\\_%'
       union all select relname, '' from pg_class
        where relnamespace = 'public'::regnamespace and relkind = 'r' and relname like 'slaids\\_%'
+      union all select table_name, column_name from information_schema.columns
+       where table_schema = 'public' and table_name like 'slaids\\_%'
+      union all select 'bucket', id from storage.buckets
       order by 1, 2`
-    const settings = migrationFiles().find((name) => name.includes('user_settings'))!
+    const migration = migrationFiles().find((name) => name.includes(part))!
     const before = await migratedDatabase(users, {
-      migrations: migrationFiles().filter((name) => name < settings),
+      migrations: migrationFiles().filter((name) => name < migration),
     })
     const expected = (await before.query(schema)).rows
     await before.close()
 
     const rolledBack = await migratedDatabase(users, {
-      migrations: migrationFiles().filter((name) => name <= settings),
+      migrations: migrationFiles().filter((name) => name <= migration),
     })
     await rolledBack.exec('create table public.slaids_migrations (version text primary key, name text)')
     await rolledBack.exec(
-      readFileSync(join(process.cwd(), 'supabase', 'rollback', settings.replace('.sql', '.down.sql')), 'utf8'),
+      readFileSync(join(process.cwd(), 'supabase', 'rollback', migration.replace('.sql', '.down.sql')), 'utf8'),
     )
     const after = (await rolledBack.query(schema)).rows.filter(
       (row) => (row as { tablename: string }).tablename !== 'slaids_migrations',

@@ -253,7 +253,7 @@ function LogoPlacement({
   )
 }
 
-function RadioRow<T extends string>({
+export function RadioRow<T extends string>({
   label,
   name,
   options,

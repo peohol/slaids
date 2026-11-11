@@ -131,13 +131,17 @@ test.describe('luft and skriftstørrelse', () => {
     expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
   })
 
-  test('starts new presentations from the theme saved as the default', async ({ page }) => {
+  test('starts new presentations from the theme template chosen as the default', async ({ page }) => {
     await createPresentation(page, 'Standardtema')
     await chooseFromToolbarMenu(page, 'presentation', 'open-theme')
     await page.getByTestId(`theme-spacing-${AIRY}`).click()
     await page.getByTestId('theme-font-scale-1.6').click()
-    await page.getByTestId('theme-as-default').click()
-    await expect(toast(page, 'standard for nye presentasjoner')).toBeVisible()
+    // «Bruk som standard» er et valg på en temamal (§ 15.4).
+    await page.getByTestId('theme-template-save').click()
+    await page.getByTestId('theme-template-name').fill('Luftig og stor')
+    await page.getByTestId('theme-template-as-default').check()
+    await page.getByTestId('theme-template-submit').click()
+    await expect(toast(page, 'nye presentasjoner starter i den')).toBeVisible()
     await page.getByTestId('theme-modal').getByRole('button', { name: 'Ferdig' }).click()
 
     // Reloading lands back in the deck that was open, so go to the library
