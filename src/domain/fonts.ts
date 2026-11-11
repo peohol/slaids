@@ -61,6 +61,13 @@ const CATALOGUE = [
     webFont: 'Inter',
     advance: 0.52,
   },
+  {
+    id: 'plus-jakarta-sans',
+    label: 'Plus Jakarta Sans',
+    stack: "'Plus Jakarta Sans', 'Noto Sans Symbols', 'Segoe UI', system-ui, sans-serif",
+    webFont: 'Plus Jakarta Sans',
+    advance: 0.51,
+  },
   { id: 'arial', label: 'Arial', stack: 'Arial, Helvetica, sans-serif', advance: 0.5 },
   { id: 'calibri', label: 'Calibri', stack: 'Calibri, Candara, Segoe, sans-serif', advance: 0.46 },
   { id: 'verdana', label: 'Verdana', stack: 'Verdana, Geneva, sans-serif', advance: 0.58 },
