@@ -67,6 +67,7 @@ export type IconName =
   | 'chevron-up'
   | 'chevron-down'
   | 'check'
+  | 'star'
   | 'heading'
   | 'move'
   | 'code'
@@ -185,6 +186,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'chevron-up': <path d="M6 15l6-6 6 6" />,
   'chevron-down': <path d="M6 9l6 6 6-6" />,
   check: <path d="M5 12l5 5L19 7" />,
+  star: <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />,
   /* How the interface looks: a disc, half dark and half light. */
   appearance: (
     <>

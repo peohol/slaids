@@ -10,6 +10,7 @@
 import type { UserSettings } from '../domain/userSettings'
 import type { AutocorrectRule } from '../domain/autocorrect'
 import type { SharedPresentationSnapshot } from '../domain/sharing'
+import type { ThemeTemplate } from '../domain/themeTemplate'
 import type {
   AssetRef,
   Folder,
@@ -261,6 +262,41 @@ export interface SlaidsRepository {
   deleteAssetsForPresentation(presentationId: string): Promise<void>
   /** Remove asset rows whose owning presentation no longer exists. */
   deleteOrphanAssets(): Promise<number>
+}
+
+/** En ny temamal slik den lagres. Om den er brukerens egen, avgjør lageret. */
+export type NewThemeTemplate = Omit<ThemeTemplate, 'own'>
+
+/**
+ * Temamalene (§ 15.4): brukerens egne og de delte.
+ *
+ * Et eget grensesnitt ved siden av `SlaidsRepository`, slik delingen har sitt:
+ * agentenes lager trenger det ikke ennå, og en test som lager et falskt lager,
+ * skal ikke måtte late som den har maler. Begge lagrene i nettleseren har det.
+ *
+ * Logofilen lagres ved siden av malen, aldri inni innholdet, og hører til malen
+ * alene: den slettes med den, og ingen presentasjon peker på den. En
+ * presentasjon som bruker malen, får sin egen kopi.
+ */
+export interface ThemeTemplateRepository {
+  /**
+   * Brukerens egne maler og alle delte maler, eldste først. En rad som ikke kan
+   * leses som en mal, hoppes over i stedet for å ta med seg resten.
+   */
+  listThemeTemplates(): Promise<ThemeTemplate[]>
+  /**
+   * Lagre en ny mal, med logofilen når innholdet har en logo. Filen og malen
+   * lagres sammen eller ikke i det hele tatt: feiler den ene, tas den andre
+   * tilbake.
+   */
+  createThemeTemplate(template: NewThemeTemplate, logo: Blob | null): Promise<void>
+  /** Logofilen til en mal brukeren kan se, eller `null` når malen ikke har noen. */
+  getThemeTemplateLogo(id: string): Promise<Blob | null>
+  /**
+   * Slett en egen mal og logoen. En mal brukeren ikke eier, berøres ikke. Var
+   * malen noens standard for nye presentasjoner, er det valget tomt etterpå.
+   */
+  deleteThemeTemplate(id: string): Promise<void>
 }
 
 /**

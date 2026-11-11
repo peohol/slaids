@@ -109,6 +109,12 @@ class FakeQuery implements PromiseLike<QueryOutcome> {
     return this
   }
 
+  /** PostgREST's `or=(…)`, recorded whole: the test reads the expression it was given. */
+  or(filters: string): this {
+    this.record.filters.push({ column: 'or', value: filters, operator: 'or' })
+    return this
+  }
+
   gte(column: string, value: unknown): this {
     this.record.filters.push({ column, value, operator: 'gte' })
     return this

@@ -36,7 +36,8 @@ import {
 } from '../../state/libraryActions'
 import { useAppearance } from '../../state/appearance'
 import { readDefaultTheme } from '../../state/defaultTheme'
-import type { Folder, PresentationSummary } from '../../domain/types'
+import { defaultThemeTemplate, startInThemeTemplate } from '../editor/themeTemplates'
+import type { Folder, Presentation, PresentationSummary } from '../../domain/types'
 import { copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
 import { formatBytes, formatSlideCount } from '../format'
@@ -53,6 +54,22 @@ import { UserSettingsModal } from './UserSettingsModal'
 import { FolderSelect } from './FolderSelect'
 import { FolderShareButton } from './FolderShareButton'
 import { folderEntries, presentationEntries } from './libraryMenus'
+
+/**
+ * Gi en nettopp lagret presentasjon standardmalen brukeren har valgt (§ 15.4).
+ * Går det ikke, beholdes presentasjonen slik den ble opprettet, og personen får
+ * vite hvorfor: den finnes allerede, og temaet kan velges i temaeditoren.
+ */
+async function startInDefaultTemplate(presentation: Presentation): Promise<void> {
+  try {
+    const template = await defaultThemeTemplate()
+    if (!template) return
+    const started = await startInThemeTemplate(presentation, template)
+    if (!started.ok) notify.warning(`Standardmalen kunne ikke brukes: ${describeError(started.error)}`)
+  } catch {
+    notify.warning('Standardmalen kunne ikke hentes, så presentasjonen starter i standardtemaet.')
+  }
+}
 
 /** Which of the store's listings the grid is showing. */
 type LibraryScope = { kind: 'all' } | { kind: 'folder'; id: string } | { kind: 'trash' }
@@ -192,6 +209,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string, options?: OpenOpt
       notify.error(error instanceof Error ? error.message : 'Kunne ikke opprette presentasjonen.')
       return
     }
+    await startInDefaultTemplate(presentation)
     setCreating(false)
     onOpen(presentation.id, { openTheme: true })
   }

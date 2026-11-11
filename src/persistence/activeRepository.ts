@@ -32,6 +32,7 @@ import type {
   SharingRepository,
   SlaidsRepository,
   StoredAsset,
+  ThemeTemplateRepository,
 } from './repository'
 import type { AutocorrectRule } from '../domain/autocorrect'
 import type { SharedPresentationSnapshot } from '../domain/sharing'
@@ -128,6 +129,22 @@ export function setFolderSharingOverride(next: FolderSharingRepository | null): 
 }
 
 /**
+ * Lageret for temamaler (§ 15.4): det samme som resten av biblioteket bruker,
+ * i begge moduser. Et falskt lager i en test har ingen maler, og sier det.
+ */
+export function resolveThemeTemplates(): ThemeTemplateRepository {
+  const active = resolveRepository()
+  if (isThemeTemplateRepository(active)) return active
+  throw new Error('Temamaler er ikke tilgjengelige her.')
+}
+
+function isThemeTemplateRepository(
+  candidate: SlaidsRepository,
+): candidate is SlaidsRepository & ThemeTemplateRepository {
+  return typeof (candidate as Partial<ThemeTemplateRepository>).listThemeTemplates === 'function'
+}
+
+/**
  * Drop everything the repositories remember about the current user. Called on
  * sign-out so the next session starts from the server, not from a cache that
  * belonged to somebody else.
@@ -141,35 +158,24 @@ export function resetRepositoryCaches(): void {
  * façade promises a promise, so the failure comes back as a rejection rather
  * than as a synchronous throw out of whatever called it.
  */
-function on<T>(call: (repository: SlaidsRepository) => Promise<T>): Promise<T> {
-  let resolved: SlaidsRepository
+function via<R, T>(resolve: () => R, call: (repository: R) => Promise<T>): Promise<T> {
+  let resolved: R
   try {
-    resolved = resolveRepository()
+    resolved = resolve()
   } catch (error) {
     return Promise.reject(error instanceof Error ? error : new Error(String(error)))
   }
   return call(resolved)
 }
 
-function onSharing<T>(call: (repository: SharingRepository) => Promise<T>): Promise<T> {
-  let resolved: SharingRepository
-  try {
-    resolved = resolveSharing()
-  } catch (error) {
-    return Promise.reject(error instanceof Error ? error : new Error(String(error)))
-  }
-  return call(resolved)
-}
-
-function onFolderSharing<T>(call: (repository: FolderSharingRepository) => Promise<T>): Promise<T> {
-  let resolved: FolderSharingRepository
-  try {
-    resolved = resolveFolderSharing()
-  } catch (error) {
-    return Promise.reject(error instanceof Error ? error : new Error(String(error)))
-  }
-  return call(resolved)
-}
+const on = <T>(call: (repository: SlaidsRepository) => Promise<T>): Promise<T> =>
+  via(resolveRepository, call)
+const onSharing = <T>(call: (repository: SharingRepository) => Promise<T>): Promise<T> =>
+  via(resolveSharing, call)
+const onFolderSharing = <T>(call: (repository: FolderSharingRepository) => Promise<T>): Promise<T> =>
+  via(resolveFolderSharing, call)
+const onThemeTemplates = <T>(call: (repository: ThemeTemplateRepository) => Promise<T>): Promise<T> =>
+  via(resolveThemeTemplates, call)
 
 export const repository: SlaidsRepository = {
   listPresentations: (): Promise<PresentationSummary[]> => on((repo) => repo.listPresentations()),
@@ -238,4 +244,11 @@ export const folderSharing: FolderSharingRepository = {
     onFolderSharing((repo) => repo.enableFolderSharing(folderId)),
   disableFolderSharing: (folderId: string): Promise<ShareState> =>
     onFolderSharing((repo) => repo.disableFolderSharing(folderId)),
+}
+
+export const themeTemplates: ThemeTemplateRepository = {
+  listThemeTemplates: () => onThemeTemplates((repo) => repo.listThemeTemplates()),
+  createThemeTemplate: (template, logo) => onThemeTemplates((repo) => repo.createThemeTemplate(template, logo)),
+  getThemeTemplateLogo: (id) => onThemeTemplates((repo) => repo.getThemeTemplateLogo(id)),
+  deleteThemeTemplate: (id) => onThemeTemplates((repo) => repo.deleteThemeTemplate(id)),
 }

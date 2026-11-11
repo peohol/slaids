@@ -30,6 +30,11 @@ import { migratePresentation } from '../domain/migrations'
 import { presentationByteSize } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
 import { assetRefSchema, folderSchema, validateLayoutTemplate } from '../domain/schema'
+import {
+  THEME_TEMPLATE_VISIBILITIES,
+  parseThemeTemplateContent,
+  type ThemeTemplate,
+} from '../domain/themeTemplate'
 import { buildSharedSnapshot, type SharedPresentationSnapshot } from '../domain/sharing'
 import type {
   AssetRef,
@@ -45,11 +50,13 @@ import {
   RepositoryError,
   RepositoryNotFoundError,
   type FolderSharingRepository,
+  type NewThemeTemplate,
   type SaveGuard,
   type ShareState,
   type SharingRepository,
   type SlaidsRepository,
   type StoredAsset,
+  type ThemeTemplateRepository,
 } from './repository'
 
 export const PRESENTATIONS_TABLE = 'slaids_presentations'
@@ -58,6 +65,27 @@ export const TEMPLATES_TABLE = 'slaids_templates'
 export const ASSETS_TABLE = 'slaids_assets'
 export const USER_SETTINGS_TABLE = 'slaids_user_settings'
 export const ASSETS_BUCKET = 'slaids-assets'
+export const THEME_TEMPLATES_TABLE = 'slaids_theme_templates'
+export const THEME_TEMPLATES_BUCKET = 'slaids-theme-templates'
+
+/** En rad i `slaids_theme_templates`, slik den hentes. */
+interface ThemeTemplateRow {
+  id: string
+  owner_id: string
+  name: string
+  visibility: string
+  template: unknown
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Hvor logoen til en mal ligger. Den samme stien står i databasens regel
+ * (`slaids_theme_templates.logo_path`), så en mal kan bare peke på eierens fil.
+ */
+export function themeTemplateLogoPath(ownerId: string, templateId: string): string {
+  return `${ownerId}/${templateId}/logo`
+}
 
 /** Postgres `unique_violation`, i.e. the row already exists. */
 const UNIQUE_VIOLATION = '23505'
@@ -182,7 +210,7 @@ function readingKey(id: string, revision: string): string {
 }
 
 export class SupabaseSlaidsRepository
-  implements SlaidsRepository, SharingRepository, FolderSharingRepository
+  implements SlaidsRepository, SharingRepository, FolderSharingRepository, ThemeTemplateRepository
 {
   /**
    * The `version` each presentation was last seen at. Every update is written
@@ -1152,20 +1180,144 @@ export class SupabaseSlaidsRepository
   }
 
   /* ---------------------------------------------------------------- *
+   * Temamaler
+   * ---------------------------------------------------------------- */
+
+  /**
+   * Egne maler og alle delte. Filteret skrives ut selv om radreglene sier det
+   * samme i nettleseren: serverens nøkkel ser forbi dem, og der er det dette
+   * filteret som holder andres private maler unna.
+   */
+  async listThemeTemplates(): Promise<ThemeTemplate[]> {
+    const ownerId = await this.ownerId()
+    const { data, error } = await this.client
+      .from(THEME_TEMPLATES_TABLE)
+      .select('id, owner_id, name, visibility, template, created_at, updated_at')
+      .or(`owner_id.eq.${ownerId},visibility.eq.shared`)
+      .order('created_at')
+    if (error) fail('Kunne ikke hente temamalene', error)
+
+    const templates: ThemeTemplate[] = []
+    for (const row of (data ?? []) as ThemeTemplateRow[]) {
+      const content = parseThemeTemplateContent(row.template)
+      const visibility = THEME_TEMPLATE_VISIBILITIES.find((entry) => entry === row.visibility)
+      if (!content || !visibility) continue
+      templates.push({
+        id: row.id,
+        name: row.name,
+        visibility,
+        own: row.owner_id === ownerId,
+        content,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })
+    }
+    return templates
+  }
+
+  /**
+   * Filen først og raden etterpå, så en delt mal aldri vises uten logoen sin.
+   * Avvises raden, tas filen tilbake: ingenting peker på den.
+   */
+  async createThemeTemplate(template: NewThemeTemplate, logo: Blob | null): Promise<void> {
+    const content = parseThemeTemplateContent(template.content)
+    if (!content || Boolean(content.logo) !== Boolean(logo)) {
+      throw new RepositoryError('Malen er ugyldig og kan ikke lagres.')
+    }
+    const ownerId = await this.ownerId()
+    const logoPath = content.logo && logo ? themeTemplateLogoPath(ownerId, template.id) : null
+    if (content.logo && logo && logoPath) {
+      const upload = await this.client.storage.from(THEME_TEMPLATES_BUCKET).upload(logoPath, logo, {
+        contentType: content.logo.file.mimeType || 'application/octet-stream',
+        upsert: false,
+      })
+      if (upload.error) fail('Kunne ikke laste opp logoen til malen', upload.error)
+    }
+
+    const { error } = await this.client.from(THEME_TEMPLATES_TABLE).insert({
+      id: template.id,
+      owner_id: ownerId,
+      name: template.name,
+      visibility: template.visibility,
+      template: content,
+      logo_path: logoPath,
+      created_at: template.createdAt,
+      updated_at: template.updatedAt,
+    })
+    if (!error) return
+    if (logoPath) await this.removeThemeTemplateLogos([logoPath])
+    if (error.code === UNIQUE_VIOLATION) {
+      throw new RepositoryConflictError(`Malen «${template.name}» har en id som allerede er i bruk.`, error)
+    }
+    fail('Kunne ikke lagre malen', error)
+  }
+
+  async getThemeTemplateLogo(id: string): Promise<Blob | null> {
+    const ownerId = await this.ownerId()
+    const { data, error } = await this.client
+      .from(THEME_TEMPLATES_TABLE)
+      .select('logo_path')
+      .eq('id', id)
+      .or(`owner_id.eq.${ownerId},visibility.eq.shared`)
+      .maybeSingle()
+    if (error) fail('Kunne ikke hente malen', error)
+    const path = (data as { logo_path: string | null } | null)?.logo_path
+    if (!path) return null
+    const download = await this.client.storage.from(THEME_TEMPLATES_BUCKET).download(path)
+    if (download.error || !download.data) fail('Kunne ikke laste ned logoen i malen', download.error)
+    return download.data
+  }
+
+  /**
+   * Raden først, så filen: det som kan bli igjen er en fil ingenting peker
+   * på, aldri en mal uten logoen sin. Standardvalget som pekte på malen,
+   * tømmes av databasen selv (`on delete set null`).
+   */
+  async deleteThemeTemplate(id: string): Promise<void> {
+    const { data, error } = await this.client
+      .from(THEME_TEMPLATES_TABLE)
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', await this.ownerId())
+      .select('logo_path')
+    if (error) fail('Kunne ikke slette malen', error)
+    const paths = ((data ?? []) as { logo_path: string | null }[])
+      .map((row) => row.logo_path)
+      .filter((path): path is string => Boolean(path))
+    await this.removeThemeTemplateLogos(paths)
+  }
+
+  /** Beste forsøk: en fil ingen mal peker på, er bare litt brukt plass. */
+  private async removeThemeTemplateLogos(paths: readonly string[]): Promise<void> {
+    if (paths.length === 0) return
+    try {
+      await this.client.storage.from(THEME_TEMPLATES_BUCKET).remove([...paths])
+    } catch {
+      // Se over.
+    }
+  }
+
+  /* ---------------------------------------------------------------- *
    * The user's own settings
    * ---------------------------------------------------------------- */
 
   async getUserSettings(ownerId: string | null): Promise<UserSettings> {
+    // Hele raden, ikke navngitte kolonner: en innstilling hvis kolonne ennå
+    // ikke finnes i databasen, leses da som «ikke valgt» i stedet for å ta med
+    // seg alle de andre innstillingene i en feil.
     const { data, error } = await this.scoped(
       this.client.from(USER_SETTINGS_TABLE)
-        .select('include_references_in_progress, fewer_dialogs, citation_style')
+        .select('*')
         .eq('owner_id', ownerId ?? await this.ownerId()),
     ).maybeSingle()
     if (error) fail('Kunne ikke hente brukerinnstillingene', error)
+    const row = (data ?? {}) as Record<string, unknown>
     return {
-      includeReferencesInProgress: data?.include_references_in_progress === true,
-      fewerDialogs: data?.fewer_dialogs === true,
-      citationStyle: data?.citation_style === 'author-year' ? 'author-year' : 'numbered',
+      includeReferencesInProgress: row.include_references_in_progress === true,
+      fewerDialogs: row.fewer_dialogs === true,
+      citationStyle: row.citation_style === 'author-year' ? 'author-year' : 'numbered',
+      defaultThemeTemplateId:
+        typeof row.default_theme_template_id === 'string' ? row.default_theme_template_id : null,
     }
   }
 
@@ -1174,15 +1326,17 @@ export class SupabaseSlaidsRepository
     if (ownerId !== null && ownerId !== activeOwnerId) {
       throw new RepositoryError('Innloggingen er endret. Åpne brukerinnstillingene på nytt.')
     }
-    const { error } = await this.client.from(USER_SETTINGS_TABLE).upsert({
-      owner_id: activeOwnerId,
-      ...(patch.citationStyle === undefined ? {} : { citation_style: patch.citationStyle }),
-      ...(patch.includeReferencesInProgress === undefined
-        ? {}
-        : { include_references_in_progress: patch.includeReferencesInProgress }),
-      ...(patch.fewerDialogs === undefined ? {} : { fewer_dialogs: patch.fewerDialogs }),
-      updated_at: new Date().toISOString(),
-    }, { defaultToNull: false })
+    const columns: Record<keyof UserSettings, string> = {
+      citationStyle: 'citation_style',
+      includeReferencesInProgress: 'include_references_in_progress',
+      fewerDialogs: 'fewer_dialogs',
+      defaultThemeTemplateId: 'default_theme_template_id',
+    }
+    const row: Record<string, unknown> = { owner_id: activeOwnerId, updated_at: new Date().toISOString() }
+    for (const [key, value] of Object.entries(patch) as [keyof UserSettings, unknown][]) {
+      if (value !== undefined && key in columns) row[columns[key]] = value
+    }
+    const { error } = await this.client.from(USER_SETTINGS_TABLE).upsert(row, { defaultToNull: false })
     if (error) fail('Kunne ikke lagre brukerinnstillingene', error)
   }
 

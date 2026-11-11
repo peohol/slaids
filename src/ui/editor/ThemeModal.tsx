@@ -1,6 +1,6 @@
 /**
- * Temaeditoren: logo, fonter, luft, skriftstørrelse, skygger og kortutseende
- * for hele presentasjonen, og forsidens to farger.
+ * Temaeditoren: temamaler, logo, fonter, luft, skriftstørrelse, skygger og
+ * kortutseende for hele presentasjonen, og forsidens to farger.
  *
  * Fargene er forsidens, ikke globale: de er de samme to forsidens
  * egenskapspanel endrer, og senere inndelinger beholder sine egne (§ 8.5).
@@ -18,12 +18,12 @@ import { bestTextColor } from '../../domain/color'
 import type { PresentationTheme } from '../../domain/types'
 import { notify } from '../../state/toast'
 import { useEditorStore } from '../../state/store'
-import { writeDefaultTheme } from '../../state/defaultTheme'
 import { ensureWebFonts } from '../fonts'
 import { Modal } from '../components/Modal'
 import { ColorPickerButton } from '../components/ColorPicker'
 import { ThemePreview } from './ThemePreview'
 import { ThemeLogoSettings } from './ThemeLogoSettings'
+import { ThemeTemplates } from './ThemeTemplates'
 import { deckLogoLayout } from '../../domain/logo'
 
 /**
@@ -146,31 +146,18 @@ export function ThemeModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Tema"
-      description="Logo, fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Fargene her er forsidens, og arves fram til neste inndeling."
+      description="Maler, logo, fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Fargene her er forsidens, og arves fram til neste inndeling."
       testId="theme-modal"
       width={600}
       footer={
-        <>
-          <button
-            type="button"
-            className="btn"
-            data-testid="theme-as-default"
-            onClick={() => {
-              writeDefaultTheme(theme)
-              notify.success('Temaet brukes som standard for nye presentasjoner.')
-            }}
-          >
-            Bruk som standard for nye presentasjoner
-          </button>
-          <button
-            type="button"
-            className="btn btn--primary"
-            data-testid="theme-done"
-            onClick={() => onOpenChange(false)}
-          >
-            Ferdig
-          </button>
-        </>
+        <button
+          type="button"
+          className="btn btn--primary"
+          data-testid="theme-done"
+          onClick={() => onOpenChange(false)}
+        >
+          Ferdig
+        </button>
       }
     >
       <div className="theme-modal__preview">
@@ -181,6 +168,8 @@ export function ThemeModal({
           logo={deckLogoLayout(presentation)}
         />
       </div>
+
+      <ThemeTemplates presentation={presentation} />
 
       <div className="field">
         <label id="theme-front-colors-label">Forsidens farger</label>

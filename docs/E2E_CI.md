@@ -41,6 +41,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `auth.spec.ts` | Innlogging med engangskode (sifrene sender inn selv), feil kode med nytt forsøk, «Hold meg innlogget» overlever at nettleseren lukkes og ellers ikke, ut og inn uten at en lagret presentasjon går tapt, deaktivering stenger en åpen økt |
 | `theme-editor.spec.ts` | Et nytt dekk åpner temaeditoren, og forhåndsvisningen er en ekte slide med kort med tittel, beholder og kort uten tittel, all tekst midtstilt og hele bildet synlig uten rulling |
 | `theme-logo.spec.ts` | En logo lastet opp i temaeditoren står på forsiden og på slidene, aldri over tittel eller soner, i miniatyrbildene og etter omlasting |
+| `theme-templates.spec.ts` | Et tema med logo og farger lagres som temamal og brukes på et annet dekk i ett steg som én angring tar tilbake |
 | `card-look.spec.ts` | Skygger slås av og på og huskes; tittel og innhold i et kort med tittel forminskes hver for seg og merkes hver for seg, likt i redigering og presentasjon; utseendet kan velges med tastaturet |
 | `sharing.spec.ts` | «Del» står før «Vis» og er avslått lokalt; en delingsadresse går utenom innloggingen og viser ingen presentasjon |
 | `workspace.spec.ts` | Modus, ulagret redigering og angrehistorikk overlever bytte mellom desktop og kompakt |

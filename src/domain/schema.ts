@@ -225,6 +225,21 @@ export const slideSchema = z.discriminatedUnion('kind', [
   interactiveSlideSchema,
 ])
 
+export const themeLogoSchema = z.object({
+  assetId: z.string().min(1),
+  aspect: z.number().finite().positive(),
+  sections: z.object({
+    visibility: z.enum(LOGO_SECTION_VISIBILITIES),
+    placement: z.enum(LOGO_SECTION_PLACEMENTS),
+    height: z.number().finite().min(LOGO_MIN_HEIGHT).max(SLIDE_HEIGHT),
+  }),
+  slides: z.object({
+    visible: z.boolean(),
+    position: z.enum(LOGO_SLIDE_POSITIONS),
+    height: z.number().finite().min(LOGO_MIN_HEIGHT).max(SLIDE_HEIGHT),
+  }),
+})
+
 export const themeSchema = z.object({
   headingFontFamily: z.string().min(1),
   bodyFontFamily: z.string().min(1),
@@ -232,22 +247,7 @@ export const themeSchema = z.object({
   fontScale: z.number().finite().min(FONT_SCALE_RANGE.min).max(FONT_SCALE_RANGE.max),
   boxShadows: z.boolean(),
   titledCardStyle: z.enum(TITLED_CARD_STYLES),
-  logo: z
-    .object({
-      assetId: z.string().min(1),
-      aspect: z.number().finite().positive(),
-      sections: z.object({
-        visibility: z.enum(LOGO_SECTION_VISIBILITIES),
-        placement: z.enum(LOGO_SECTION_PLACEMENTS),
-        height: z.number().finite().min(LOGO_MIN_HEIGHT).max(SLIDE_HEIGHT),
-      }),
-      slides: z.object({
-        visible: z.boolean(),
-        position: z.enum(LOGO_SLIDE_POSITIONS),
-        height: z.number().finite().min(LOGO_MIN_HEIGHT).max(SLIDE_HEIGHT),
-      }),
-    })
-    .optional(),
+  logo: themeLogoSchema.optional(),
 })
 
 export const referenceSchema = z.object({
@@ -394,6 +394,23 @@ export const layoutTemplateSchema = z.object({
   hasTitle: z.boolean(),
   root: layoutNodeSchema,
   createdAt: z.string(),
+})
+
+/**
+ * Innholdet i en temamal (§ 15.4): temaet uten logo, forsidens to farger og
+ * logoen – filens beskrivelse og innstillingene, aldri filen selv og aldri en
+ * fil-id, som alltid er presentasjonens egen. Typene står i
+ * `domain/themeTemplate.ts`.
+ */
+export const themeTemplateContentSchema = z.object({
+  theme: themeSchema.omit({ logo: true }),
+  front: z.object({ backgroundColor: hexColor, accentColor: hexColor }),
+  logo: z
+    .object({
+      file: assetRefSchema.omit({ id: true }),
+      settings: themeLogoSchema.omit({ assetId: true }),
+    })
+    .nullable(),
 })
 
 export const clipboardPayloadSchema = z.object({

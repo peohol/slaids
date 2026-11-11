@@ -561,7 +561,22 @@ export function setTheme(
   }
 
   const updated = touch({ ...presentation, theme: next })
+  return guardThemeChange(presentation, updated, theme, options)
+}
 
+/**
+ * Om et nytt tema kan tas i bruk: det samme spørsmålet for ett valg i
+ * temaeditoren og for en hel temamal (`applyThemeTemplate`).
+ *
+ * `patch` er det som ble endret, og avgjør bare hvilken innstilling avslaget
+ * nevner.
+ */
+export function guardThemeChange(
+  presentation: Presentation,
+  updated: Presentation,
+  patch: Partial<PresentationTheme>,
+  options: StructuralOptions = {},
+): Result<Presentation> {
   // Two questions, and the fit one cannot answer the first. Luft and
   // skriftstørrelse move the geometry itself — the gap between zones and the
   // height of the title zone — so a change can leave a zone smaller than the
@@ -573,7 +588,7 @@ export function setTheme(
     // The rect is the one the theme *would* have given the zone. The zone as it
     // stands is above the minimum — that is why the change was allowed to be
     // attempted — so answering with today's rect would contradict the error.
-    return err('ZONE_TOO_SMALL', minimumRefusalMessage(theme), {
+    return err('ZONE_TOO_SMALL', minimumRefusalMessage(patch), {
       slideId: tooSmall.slideId,
       nodeId: tooSmall.nodeId,
       ...(tooSmall.rect ? { rect: tooSmall.rect } : {}),
@@ -584,7 +599,7 @@ export function setTheme(
   // push text out of every zone in the deck at once. The guard measures only
   // the slides the change can affect and only reports zones that got worse, so
   // a change that *reduces* overflow stays available as a repair.
-  return guardFit(presentation, updated, options, refusalMessage(theme))
+  return guardFit(presentation, updated, options, refusalMessage(patch))
 }
 
 function inRange(value: number, range: { min: number; max: number }): boolean {

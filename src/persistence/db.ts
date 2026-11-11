@@ -6,6 +6,7 @@
  */
 
 import Dexie, { type Table } from 'dexie'
+import type { ThemeTemplateContent, ThemeTemplateVisibility } from '../domain/themeTemplate'
 import type { Folder, LayoutTemplate, Presentation } from '../domain/types'
 
 export interface PresentationRecord {
@@ -51,12 +52,34 @@ export interface SettingRecord {
 }
 export type FolderRecord = Folder
 
+/**
+ * En temamal (§ 15.4). Lokal modus har én bruker, så alle maler er brukerens
+ * egne; synligheten lagres likevel, så modellen er den samme som i Supabase.
+ * `content` kontrolleres av den som leser den.
+ */
+export interface ThemeTemplateRecord {
+  id: string
+  name: string
+  visibility: ThemeTemplateVisibility
+  content: ThemeTemplateContent
+  createdAt: string
+  updatedAt: string
+}
+
+/** Logofilen til en temamal, i en egen tabell så listen aldri henter bytene. */
+export interface ThemeTemplateLogoRecord {
+  templateId: string
+  blob: Blob
+}
+
 export class SlaidsDatabase extends Dexie {
   presentations!: Table<PresentationRecord, string>
   assets!: Table<AssetRecord, string>
   templates!: Table<TemplateRecord, string>
   folders!: Table<FolderRecord, string>
   settings!: Table<SettingRecord, string>
+  themeTemplates!: Table<ThemeTemplateRecord, string>
+  themeTemplateLogos!: Table<ThemeTemplateLogoRecord, string>
 
   constructor(name = 'slaids') {
     super(name)
@@ -67,6 +90,7 @@ export class SlaidsDatabase extends Dexie {
       folders: 'id, name, createdAt',
     })
     this.version(2).stores({ settings: 'key' })
+    this.version(3).stores({ themeTemplates: 'id, createdAt', themeTemplateLogos: 'templateId' })
   }
 }
 

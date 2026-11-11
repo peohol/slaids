@@ -20,7 +20,8 @@ import { MAX_INTERACTIVE_HTML_BYTES, MAX_INTERACTIVE_HTML_TOTAL_BYTES } from '..
 import { CURRENT_SCHEMA_VERSION } from '../domain/schema'
 import { createLeaf, createSplit, stripContent } from '../domain/layout'
 import { containerWithDoc, createImage, createUntitledCard } from '../domain/content'
-import { unknownAssetIds, usedAssetIds } from '../domain/commands'
+import { registerAsset, setThemeLogo, unknownAssetIds, usedAssetIds } from '../domain/commands'
+import { themeTemplateContent } from '../domain/themeTemplate'
 import { newAssetId, newTemplateId } from '../domain/ids'
 import { decodeBase64, realImageBase64 } from '../domain/testImages'
 import { bytesToBlob } from './blob'
@@ -1347,5 +1348,64 @@ describe('DexieSlaidsRepository – søppelkassen', () => {
     // Bytes, not characters: the title's three of «åæø» weigh two bytes each.
     const accented = { ...samplePresentation(), title: 'Blåbærsyltetøy' }
     expect(documentByteSize(accented)).toBe(JSON.stringify(accented).length + 3)
+  })
+})
+
+describe('DexieSlaidsRepository – temamaler', () => {
+  function sample(id: string, withLogo: boolean) {
+    const logoRef: AssetRef = {
+      id: 'a_logo',
+      name: 'logo.png',
+      mimeType: 'image/png',
+      byteSize: 4,
+      width: 200,
+      height: 100,
+      isVector: false,
+    }
+    let deck = samplePresentation()
+    if (withLogo) {
+      const registered = registerAsset(deck, logoRef)
+      if (!registered.ok) throw new Error('registerAsset')
+      const set = setThemeLogo(registered.value, logoRef.id)
+      if (!set.ok) throw new Error('setThemeLogo')
+      deck = set.value
+    }
+    return {
+      id,
+      name: `Mal ${id}`,
+      visibility: 'private' as const,
+      content: themeTemplateContent(deck).content,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
+  it('lagrer en mal med logo, og gir tilbake både malen og filen', async () => {
+    const repository = freshRepository()
+    const template = sample('tt_1', true)
+    await repository.createThemeTemplate(template, new Blob(['png!'], { type: 'image/png' }))
+    expect(await repository.listThemeTemplates()).toEqual([{ ...template, own: true }])
+    const logo = await repository.getThemeTemplateLogo('tt_1')
+    expect(await logo?.text()).toBe('png!')
+  })
+
+  it('avviser en mal uten den logoen innholdet sier den har, og en id som er tatt', async () => {
+    const repository = freshRepository()
+    await expect(repository.createThemeTemplate(sample('tt_1', true), null)).rejects.toThrow(/ugyldig/)
+    await repository.createThemeTemplate(sample('tt_2', false), null)
+    await expect(repository.createThemeTemplate(sample('tt_2', false), null)).rejects.toThrow(/i bruk/)
+    expect(await repository.listThemeTemplates()).toHaveLength(1)
+  })
+
+  it('sletter malen og logoen, og tømmer standardvalget som pekte på den', async () => {
+    const repository = freshRepository()
+    await repository.createThemeTemplate(sample('tt_1', true), new Blob(['png!']))
+    await repository.updateUserSettings(null, { defaultThemeTemplateId: 'tt_1' })
+    expect((await repository.getUserSettings(null)).defaultThemeTemplateId).toBe('tt_1')
+
+    await repository.deleteThemeTemplate('tt_1')
+    expect(await repository.listThemeTemplates()).toEqual([])
+    expect(await repository.getThemeTemplateLogo('tt_1')).toBeNull()
+    expect((await repository.getUserSettings(null)).defaultThemeTemplateId).toBeNull()
   })
 })

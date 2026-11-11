@@ -1,11 +1,15 @@
 /**
- * The theme new presentations start from.
+ * The theme new presentations start from, when the user has not chosen a
+ * theme template as their default.
  *
  * A local preference, not presentation data: it says how *this* browser likes
  * to start a deck, and every presentation keeps its own theme once created.
- * That is why it lives in `localStorage` alongside window positions rather than
- * in IndexedDB. It is validated on the way out, so a hand-edited or
- * out-of-date value can never produce an invalid presentation.
+ * It is validated on the way out, so a hand-edited or out-of-date value can
+ * never produce an invalid presentation.
+ *
+ * Nothing writes it any more. «Bruk som standard for nye presentasjoner» is a
+ * choice on a theme template now (§ 15.4), stored per user; a theme saved here
+ * before that keeps working until the user picks a template.
  */
 
 import { defaultTheme } from '../domain/presentation'
@@ -28,10 +32,14 @@ export function readDefaultTheme(): PresentationTheme {
 }
 
 /**
- * Logoen er en fil i én presentasjon, og en ny presentasjon har ingen filer.
- * Standardtemaet bærer derfor aldri logoen; temamalene (§ 15.4) gjør det, med
- * en egen kopi av filen.
+ * Glem det lokale standardtemaet. Kalles når brukeren velger en temamal som
+ * standard (§ 15.4): da gjelder malen, og to standarder kan aldri gjelde
+ * samtidig.
+ *
+ * Et tema lagres ikke lenger her. Det som allerede er lagret, leses fortsatt av
+ * `readDefaultTheme` – uten logoen, som er en fil i én presentasjon – til
+ * brukeren velger en mal.
  */
-export function writeDefaultTheme(theme: PresentationTheme): void {
-  writePref(KEY, themeWithoutLogo(theme))
+export function clearDefaultTheme(): void {
+  writePref(KEY, null)
 }

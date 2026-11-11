@@ -14,8 +14,11 @@ import {
   PRESENTATIONS_TABLE,
   SupabaseSlaidsRepository,
   TEMPLATES_TABLE,
+  THEME_TEMPLATES_BUCKET,
+  THEME_TEMPLATES_TABLE,
   USER_SETTINGS_TABLE,
 } from './supabaseRepository'
+import { themeTemplateContent } from '../domain/themeTemplate'
 import { DEFAULT_AUTOCORRECT_RULES } from '../domain/autocorrect'
 import {
   TEST_OWNER_ID,
@@ -636,6 +639,123 @@ describe('SupabaseSlaidsRepository – maler', () => {
     const failure = await repository.saveTemplate(template).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(RepositoryError)
     expect(failure).not.toBeInstanceOf(RepositoryConflictError)
+  })
+})
+
+describe('SupabaseSlaidsRepository – temamaler', () => {
+  const OTHER = '99999999-8888-4777-8666-555555555555'
+  const content = themeTemplateContent(createPresentation({ title: 'Mal' })).content
+  const logo = {
+    file: { name: 'logo.png', mimeType: 'image/png', byteSize: 4, width: 200, height: 100, isVector: false },
+    settings: {
+      aspect: 2,
+      sections: { visibility: 'front' as const, placement: 'above' as const, height: 120 },
+      slides: { visible: true, position: 'bottom-right' as const, height: 60 },
+    },
+  }
+  const row = (overrides: Record<string, unknown>) => ({
+    id: 'tt_1',
+    owner_id: TEST_OWNER_ID,
+    name: 'Firma',
+    visibility: 'private',
+    template: content,
+    created_at: '2026-11-11T10:00:00Z',
+    updated_at: '2026-11-11T10:00:00Z',
+    ...overrides,
+  })
+  const newTemplate = (withLogo: boolean) => ({
+    id: 'tt_new',
+    name: 'Ny',
+    visibility: 'shared' as const,
+    content: withLogo ? { ...content, logo } : content,
+    createdAt: '2026-11-11T10:00:00.000Z',
+    updatedAt: '2026-11-11T10:00:00.000Z',
+  })
+
+  it('henter egne og delte maler, merker hvilke som er egne og hopper over ugyldige', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: () => ({
+        data: [
+          row({}),
+          row({ id: 'tt_2', owner_id: OTHER, visibility: 'shared' }),
+          row({ id: 'tt_bad', template: { theme: 'tull' } }),
+        ],
+      }),
+    })
+    const list = await repository.listThemeTemplates()
+    expect(list.map((template) => [template.id, template.own, template.visibility])).toEqual([
+      ['tt_1', true, 'private'],
+      ['tt_2', false, 'shared'],
+    ])
+    // Filteret skrives ut, så en servernøkkel aldri ser andres private maler.
+    expect(filterValue(fake.queries[0], 'or')).toBe(`owner_id.eq.${TEST_OWNER_ID},visibility.eq.shared`)
+  })
+
+  it('laster opp logoen under eierens sti før raden, og knytter dem sammen', async () => {
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: null }) })
+    await repository.createThemeTemplate(newTemplate(true), new Blob(['png!']))
+    const path = `${TEST_OWNER_ID}/tt_new/logo`
+    expect(fake.storageCalls).toEqual([{ op: 'upload', bucket: THEME_TEMPLATES_BUCKET, paths: [path] }])
+    const insert = fake.queries.at(-1)!
+    expect(insert.table).toBe(THEME_TEMPLATES_TABLE)
+    expect(insert.op).toBe('insert')
+    expect(insert.values).toMatchObject({ owner_id: TEST_OWNER_ID, visibility: 'shared', logo_path: path })
+  })
+
+  it('tar logoen tilbake når raden avvises, og melder konflikt for en id som er tatt', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: () => ({ error: { message: 'duplicate key value', code: '23505' } }),
+    })
+    await expect(repository.createThemeTemplate(newTemplate(true), new Blob(['png!']))).rejects.toBeInstanceOf(
+      RepositoryConflictError,
+    )
+    expect(fake.storageCalls.map((call) => call.op)).toEqual(['upload', 'remove'])
+  })
+
+  it('avviser en mal uten den logoen innholdet sier den har', async () => {
+    const { repository, fake } = repositoryFor({ resolve: () => ({ data: null }) })
+    await expect(repository.createThemeTemplate(newTemplate(true), null)).rejects.toThrow(/ugyldig/)
+    expect(fake.queries).toHaveLength(0)
+    expect(fake.storageCalls).toHaveLength(0)
+  })
+
+  it('sletter bare en egen mal, og logoen etter raden', async () => {
+    const { repository, fake } = repositoryFor({
+      resolve: () => ({ data: [{ logo_path: `${TEST_OWNER_ID}/tt_1/logo` }] }),
+    })
+    await repository.deleteThemeTemplate('tt_1')
+    expect(fake.queries[0].op).toBe('delete')
+    expect(filterValue(fake.queries[0], 'owner_id')).toBe(TEST_OWNER_ID)
+    expect(fake.storageCalls).toEqual([
+      { op: 'remove', bucket: THEME_TEMPLATES_BUCKET, paths: [`${TEST_OWNER_ID}/tt_1/logo`] },
+    ])
+  })
+
+  it('henter logoen til en mal brukeren kan se, og ingenting for en mal uten logo', async () => {
+    const blob = new Blob(['png!'])
+    const withLogo = repositoryFor({
+      resolve: () => ({ data: { logo_path: `${OTHER}/tt_2/logo` } }),
+      download: () => ({ data: blob }),
+    })
+    expect(await withLogo.repository.getThemeTemplateLogo('tt_2')).toBe(blob)
+    const without = repositoryFor({ resolve: () => ({ data: { logo_path: null } }) })
+    expect(await without.repository.getThemeTemplateLogo('tt_1')).toBeNull()
+    expect(without.fake.storageCalls).toHaveLength(0)
+  })
+
+  it('leser og lagrer standardmalen som en vanlig brukerinnstilling', async () => {
+    const read = repositoryFor({ resolve: () => ({ data: { default_theme_template_id: 'tt_2' } }) })
+    expect((await read.repository.getUserSettings(null)).defaultThemeTemplateId).toBe('tt_2')
+    // En rad fra før kolonnen fantes: «ikke valgt», ikke en feil.
+    const older = repositoryFor({ resolve: () => ({ data: { fewer_dialogs: true } }) })
+    expect(await older.repository.getUserSettings(null)).toMatchObject({ fewerDialogs: true, defaultThemeTemplateId: null })
+
+    const write = repositoryFor({ resolve: () => ({ data: null }) })
+    await write.repository.updateUserSettings(null, { defaultThemeTemplateId: null })
+    const upsert = write.fake.queries.at(-1)!
+    expect(upsert.table).toBe(USER_SETTINGS_TABLE)
+    expect(upsert.values).toMatchObject({ owner_id: TEST_OWNER_ID, default_theme_template_id: null })
+    expect(upsert.values).not.toHaveProperty('fewer_dialogs')
   })
 })
 
