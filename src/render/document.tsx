@@ -45,6 +45,8 @@ import { PREVIEW_STYLESHEETS } from './styles'
 
 export interface PreviewDocumentRequest {
   presentation: Presentation
+  /** Eierens visningsvalg når dokumentet rendres utenfor editoren. */
+  includeReferencesInProgress?: boolean
   page: DeckPage
   /** Already resolved; see `assets.ts` for why it has to be synchronous. */
   assets: AssetUrlSource
@@ -121,7 +123,10 @@ export function previewDocument(request: PreviewDocumentRequest): PreviewDocumen
           // see `operations/preview.ts` — so a preview draws the indicator and
           // the section colours the audience sees on that page.
           sectionColors: deckSectionColors(pages),
-          progress: deckProgress(pages, presentation.includeReferencesInProgress),
+          progress: deckProgress(
+            pages,
+            request.includeReferencesInProgress ?? presentation.includeReferencesInProgress,
+          ),
           isStatic: true,
         }}
       >
