@@ -65,10 +65,35 @@ export interface StoredAssetResult {
   sanitized?: SvgSanitizeReport
 }
 
-export async function storeAsset(
+/**
+ * A file whose bytes are in the store, but which no document lists yet.
+ *
+ * The first half of storing, kept apart so that a caller that must register
+ * the file *and* change something else in the same guarded document save (a
+ * theme template with a logo, say) goes through the same door as
+ * `upload_asset` without a second document write. The caller then owns the
+ * rest: register `ref` unless `deduplicated`, save against `revision`, and on a
+ * failed save hand the question to `resolveAmbiguousRegistration`.
+ */
+export interface PreparedAsset {
+  /** The presentation as it was read, before anything was written. */
+  presentation: Presentation
+  /** Its revision: the guard the registering save must be written against. */
+  revision: string
+  ref: AssetRef
+  /**
+   * The presentation already lists these exact bytes as `ref`, so nothing was
+   * written and nothing needs registering or cleaning up.
+   */
+  deduplicated: boolean
+  /** Present when the file was SVG: what the sanitiser dropped, if anything. */
+  sanitized?: SvgSanitizeReport
+}
+
+export async function prepareAsset(
   context: AgentContext,
   input: StoreAssetInput,
-): Promise<AgentResult<StoredAssetResult>> {
+): Promise<AgentResult<PreparedAsset>> {
   const name = input.name.trim()
   if (name.length === 0) return agentErr('INVALID_ARGUMENT', 'Filen må ha et navn.')
 
@@ -83,33 +108,28 @@ export async function storeAsset(
   })
   if (!accepted.ok) return fromDomainError(accepted.error)
   const { bytes, mimeType, isVector, size } = accepted.value
-  const sanitized: SvgSanitizeReport | undefined = accepted.value.report
+  const sanitized = accepted.value.report ? { sanitized: accepted.value.report } : {}
 
   const loaded = await loadPresentation(context, input.presentationId)
   if (!loaded.ok) return loaded
-  const loadedRevision = presentationRevision(loaded.value)
+  const presentation = loaded.value
+  const revision = presentationRevision(presentation)
 
   // Checked before a single byte is written: a conflict that is discovered
   // after the file is stored leaves an orphan to clean up for nothing.
-  const conflict = revisionConflict(loaded.value, input.expectedRevision, loadedRevision)
+  const conflict = revisionConflict(presentation, input.expectedRevision, revision)
   if (conflict) return conflict
 
   // Identical bytes already in the deck are the file the agent is asking for,
   // under whatever name it gave this time. Answered before anything is written.
   const hash = await hashBytes(bytes)
-  const identical = await findIdenticalAsset(context.repository, loaded.value, {
+  const identical = await findIdenticalAsset(context.repository, presentation, {
     bytes,
     mimeType,
     hash,
   })
   if (identical) {
-    return agentOk({
-      assetId: identical.ref.id,
-      ref: identical.ref,
-      revision: loadedRevision,
-      deduplicated: true,
-      ...(sanitized ? { sanitized } : {}),
-    })
+    return agentOk({ presentation, revision, ref: identical.ref, deduplicated: true, ...sanitized })
   }
 
   const ref: AssetRef = {
@@ -122,34 +142,47 @@ export async function storeAsset(
     isVector,
     contentHash: hash,
   }
-  // The revision reported is the one of the document that is actually stored,
-  // which in the ambiguous case below is the copy read back from the store
-  // rather than the one this process built.
-  const success = (stored: Presentation): AgentResult<StoredAssetResult> =>
-    agentOk({
-      assetId: ref.id,
-      ref,
-      revision: presentationRevision(stored),
-      deduplicated: false,
-      ...(sanitized ? { sanitized } : {}),
-    })
-
   try {
     await context.repository.putAsset(input.presentationId, ref, bytesToBlob(bytes, ref.mimeType))
   } catch (error) {
     return storageFailure(error, 'Kunne ikke lagre filen.', { name: ref.name })
   }
+  return agentOk({ presentation, revision, ref, deduplicated: false, ...sanitized })
+}
 
-  const registered = registerAsset(loaded.value, ref)
+export async function storeAsset(
+  context: AgentContext,
+  input: StoreAssetInput,
+): Promise<AgentResult<StoredAssetResult>> {
+  const prepared = await prepareAsset(context, input)
+  if (!prepared.ok) return prepared
+  const { presentation, revision, ref, deduplicated, sanitized } = prepared.value
+
+  // The revision reported is the one of the document that is actually stored,
+  // which in the ambiguous case below is the copy read back from the store
+  // rather than the one this process built.
+  const result = (storedRevision: string): AgentResult<StoredAssetResult> =>
+    agentOk({
+      assetId: ref.id,
+      ref,
+      revision: storedRevision,
+      deduplicated,
+      ...(sanitized ? { sanitized } : {}),
+    })
+  if (deduplicated) return result(revision)
+
+  const registered = registerAsset(presentation, ref)
   if (!registered.ok) {
     // Nothing was written to the document, so the file is provably unreferenced.
     await discard(context, ref.id)
     return fromDomainError(registered.error)
   }
 
-  const saved = await savePresentation(context, registered.value, loadedRevision)
-  if (saved.ok) return success(saved.value)
-  return resolveAmbiguousRegistration(context, input.presentationId, ref, saved, success)
+  const saved = await savePresentation(context, registered.value, revision)
+  if (saved.ok) return result(presentationRevision(saved.value))
+  return resolveAmbiguousRegistration(context, input.presentationId, ref.id, saved, (stored) =>
+    result(presentationRevision(stored)),
+  )
 }
 
 /**
@@ -173,28 +206,32 @@ export async function storeAsset(
  *    costs the slide. Its id comes back in `details.retainedAssetId` so the
  *    caller can retry or clean up deliberately, and it is deleted with its
  *    presentation either way.
+ *
+ * `success` builds the caller's answer from the stored document, because a
+ * save that landed may have carried more than the registration (a theme
+ * template applied in the same write, for one).
  */
-async function resolveAmbiguousRegistration(
+export async function resolveAmbiguousRegistration<T>(
   context: AgentContext,
   presentationId: string,
-  ref: AssetRef,
+  assetId: string,
   failure: AgentFailure,
-  success: (stored: Presentation) => AgentResult<StoredAssetResult>,
-): Promise<AgentResult<StoredAssetResult>> {
+  success: (stored: Presentation) => AgentResult<T>,
+): Promise<AgentResult<T>> {
   const stored = await loadPresentation(context, presentationId)
 
   if (stored.ok) {
-    if (stored.value.assets.some((asset) => asset.id === ref.id)) return success(stored.value)
-    await discard(context, ref.id)
+    if (stored.value.assets.some((asset) => asset.id === assetId)) return success(stored.value)
+    await discard(context, assetId)
     return failure
   }
 
   if (stored.error.code === 'PRESENTATION_NOT_FOUND') {
-    await discard(context, ref.id)
+    await discard(context, assetId)
     return failure
   }
 
-  return retaining(failure, ref.id)
+  return retaining(failure, assetId)
 }
 
 function retaining(failure: AgentFailure, assetId: string): AgentFailure {

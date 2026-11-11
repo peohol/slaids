@@ -4,11 +4,12 @@
  * fillager. Mot et ekte Dexie-lager, som `theme.test.ts`.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { themeTemplateContent } from '../domain/themeTemplate'
 import type { Presentation } from '../domain/types'
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
+import { RepositoryError } from '../persistence/repository'
 import type { PresentationView } from './operations/deck'
 import type { ThemeTemplateView } from './operations/themeTemplates'
 import type { ThemeView } from './operations/theme'
@@ -158,6 +159,33 @@ describe('apply_theme_template', () => {
     const after = await ok<PresentationView>(context, 'get_presentation', { presentationId: target.presentationId })
     expect(after.theme.logo?.assetId).toBe(logoId)
     expect(await context.repository.getAsset(logoId)).not.toBeNull()
+  })
+
+  it('registrerer logoen og bruker malen i én og samme dokumentlagring', async () => {
+    const context = freshContext()
+    const templateId = await savedTemplate(context)
+    const target = await newDeck(context, 'Mål')
+    const saves = vi.spyOn(context.repository, 'savePresentation')
+    await ok(context, 'apply_theme_template', { presentationId: target.presentationId, templateId })
+    expect(saves).toHaveBeenCalledTimes(1)
+    const [written] = saves.mock.calls[0]
+    expect(written.theme.logo?.assetId).toBe(written.assets[0].id)
+  })
+
+  it('lar presentasjonen og fillageret være urørt når lagringen feiler', async () => {
+    const context = freshContext()
+    const templateId = await savedTemplate(context)
+    const target = await newDeck(context, 'Mål')
+    const before = await stored(context, target.presentationId)
+    const saves = vi
+      .spyOn(context.repository, 'savePresentation')
+      .mockRejectedValueOnce(new RepositoryError('Lagringen falt ut.'))
+    const error = await fails(context, 'apply_theme_template', { presentationId: target.presentationId, templateId })
+    expect(error.code).toBe('STORAGE_FAILED')
+    // Ingen rydde-skriving: den ene lagringen var den som feilet.
+    expect(saves).toHaveBeenCalledTimes(1)
+    expect(await stored(context, target.presentationId)).toEqual(before)
+    expect(await databases.at(-1)!.assets.where('presentationId').equals(target.presentationId).count()).toBe(0)
   })
 
   it('gjenbruker en fil presentasjonen allerede har med de samme bytene', async () => {

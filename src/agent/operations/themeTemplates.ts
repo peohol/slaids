@@ -5,7 +5,7 @@
  * Ingenting her er en ny regel. Malene er de samme som i temaeditoren, lest
  * fra det samme lageret (`ThemeTemplateRepository`); å bruke en mal er den
  * samme kommandoen editoren kjører (`applyThemeTemplate`); og logoen kopieres
- * inn gjennom den samme døren som `upload_asset` (`storeAsset`, med
+ * inn gjennom den samme døren som `upload_asset` (`prepareAsset`, med
  * `assetIngress`, SVG-rensing og deduplisering). Forskjellen fra editoren er
  * den samme som for alle andre temavalg: en agent måles strengt, så en mal som
  * ville skjult innhold, avvises med `CONTENT_DOES_NOT_FIT`.
@@ -16,22 +16,26 @@
  *
  * ### Rekkefølgen når malen har logo
  *
- * Tre trinn, og rekkefølgen er det som gjør det trygt uten en transaksjon over
- * to lagre:
+ * Filen og malen lagres i én og samme bevoktede dokumentlagring, slik at
+ * presentasjonen aldri står med en registrert logo og det gamle temaet, og en
+ * mislykket bruk aldri trenger en ekstra skriving for å rydde:
  *
  *  1. **Prøv uten å skrive.** Malen brukes på presentasjonen slik den står, med
  *     logofilen registrert under en midlertidig id. Avvises den, er ingenting
- *     lagret – heller ikke filen.
- *  2. **Lagre filen** som `upload_asset` gjør. Hadde presentasjonen de samme
- *     bytene fra før, gjenbrukes den filen.
- *  3. **Bruk malen** med den lagrede filen, mot revisjonen fra trinn 2. Feiler
- *     dette likevel (noen andre skrev i mellomtiden), tas en ny fil tilbake – en
- *     fil presentasjonen hadde fra før, røres aldri.
+ *     lagret – heller ikke bytene.
+ *  2. **Legg bytene i fillageret** gjennom den samme døren som `upload_asset`
+ *     (`prepareAsset`), men uten å røre dokumentet. Hadde presentasjonen de
+ *     samme bytene fra før, gjenbrukes den filen og ingenting skrives.
+ *  3. **Registrer filen og bruk malen i én lagring**, mot revisjonen fra trinn
+ *     2. Feiler lagringen, avgjøres det ved å lese om den likevel landet
+ *     (`resolveAmbiguousRegistration`): gjorde den det, er malen brukt; gjorde
+ *     den det ikke, slettes bare de nye bytene, som ingenting viser til.
  */
 
 import { z } from 'zod'
-import { applyThemeTemplate, registerAsset, removeAsset } from '../../domain/commands'
+import { applyThemeTemplate, registerAsset } from '../../domain/commands'
 import { ok } from '../../domain/result'
+import { presentationRevision } from '../../domain/revision'
 import type {
   ThemeTemplate,
   ThemeTemplateLogoSettings,
@@ -40,7 +44,7 @@ import type {
 import type { Presentation } from '../../domain/types'
 import type { ThemeTemplateRepository } from '../../persistence/repository'
 import { blobToBytes } from '../../persistence/blob'
-import { deleteAssetFile, storeAsset } from '../assetStore'
+import { prepareAsset, resolveAmbiguousRegistration } from '../assetStore'
 import { defineOperation, expectedRevisionSchema, presentationIdSchema } from '../operation'
 import { mutatePresentation, storageFailure, structuralOptions } from '../presentation'
 import { agentErr, agentOk, type AgentContext, type AgentResult } from '../types'
@@ -195,13 +199,14 @@ export const applyThemeTemplateOperation = defineOperation({
 
     const { content } = template
     const options = structuralOptions(context)
+    const view = (presentation: Presentation) => ({
+      presentationId: presentation.id,
+      templateId: template.id,
+      theme: themeView(presentation),
+    })
     const apply = (logoAssetId: string | null) => (presentation: Presentation) => {
       const applied = applyThemeTemplate(presentation, content, logoAssetId, options)
-      if (!applied.ok) return applied
-      return ok({
-        presentation: applied.value,
-        value: { presentationId: presentation.id, templateId: template.id, theme: themeView(applied.value) },
-      })
+      return applied.ok ? ok({ presentation: applied.value, value: view(applied.value) }) : applied
     }
 
     if (!content.logo) return mutatePresentation(context, input, apply(null))
@@ -218,7 +223,7 @@ export const applyThemeTemplateOperation = defineOperation({
     })
     if (!probe.ok) return probe
 
-    // 2. Lagre filen, gjennom den samme døren som upload_asset.
+    // 2. Legg bytene i fillageret, gjennom den samme døren som upload_asset.
     let bytes: Uint8Array
     try {
       const blob = await templates.getThemeTemplateLogo(template.id)
@@ -231,36 +236,29 @@ export const applyThemeTemplateOperation = defineOperation({
     } catch (error) {
       return storageFailure(error, 'Kunne ikke hente logoen i temamalen.', { templateId: template.id })
     }
-    const stored = await storeAsset(context, {
+    const prepared = await prepareAsset(context, {
       presentationId: input.presentationId,
       expectedRevision: probe.value.revision,
       name: logoFile.name,
       bytes,
     })
-    if (!stored.ok) return stored
+    if (!prepared.ok) return prepared
+    const { ref, deduplicated, revision } = prepared.value
 
-    // 3. Bruk malen med den lagrede filen.
+    // 3. Registrer filen og bruk malen i én bevoktet lagring.
     const applied = await mutatePresentation(
       context,
-      { presentationId: input.presentationId, expectedRevision: stored.value.revision },
-      apply(stored.value.assetId),
+      { presentationId: input.presentationId, expectedRevision: revision },
+      (presentation) => {
+        const withFile = deduplicated ? ok(presentation) : registerAsset(presentation, ref)
+        return withFile.ok ? apply(ref.id)(withFile.value) : withFile
+      },
     )
-    if (!applied.ok && !stored.value.deduplicated) await reclaim(context, input.presentationId, stored.value.assetId)
-    return applied
+    if (applied.ok || deduplicated) return applied
+    return resolveAmbiguousRegistration(context, input.presentationId, ref.id, applied, (stored) =>
+      agentOk({ ...view(stored), revision: presentationRevision(stored) }),
+    )
   },
 })
-
-/**
- * Ta tilbake en fil som ble lagret for en mal som likevel ikke ble brukt.
- * Dokumentet først, så bytene – den samme rekkefølgen som `delete_asset`.
- * Gjør ingenting med en fil som er tatt i bruk i mellomtiden.
- */
-async function reclaim(context: AgentContext, presentationId: string, assetId: string): Promise<void> {
-  const removed = await mutatePresentation(context, { presentationId }, (presentation) => {
-    const without = removeAsset(presentation, assetId)
-    return without.ok ? ok({ presentation: without.value, value: {} }) : without
-  })
-  if (removed.ok) await deleteAssetFile(context, assetId)
-}
 
 export const themeTemplateOperations = [listThemeTemplatesOperation, applyThemeTemplateOperation]
