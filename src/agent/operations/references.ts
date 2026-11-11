@@ -1,9 +1,8 @@
 /**
  * References, and the citations that point at them.
  *
- * A reference is stored once and cited by id. The number a reader sees is
- * derived from first-occurrence order across the whole deck, so an agent never
- * writes a number. Med forfatter og år kan en rettelse gjøre henvisningene
+ * Referansen lagres én gang og siteres med ID. Nummeret følger den første
+ * forekomsten i dekket. Med forfatter og år kan en rettelse gjøre henvisningene
  * lengre, så agentens rettelser måles mot brukerens valgte henvisningsformat.
  *
  * Deleting is the exception. It strips every citation that pointed at the
@@ -28,9 +27,9 @@ import { contentDocs } from '../../domain/content'
 import { allContent } from '../../domain/docs'
 import { err, ok } from '../../domain/result'
 import type { Presentation, Reference } from '../../domain/types'
+import type { CitationStyle } from '../../domain/references'
 import { defineOperation, expectedRevisionSchema, presentationIdSchema } from '../operation'
 import { mutatePresentation, storageFailure, structuralOptions } from '../presentation'
-import type { CitationStyle } from '../../domain/references'
 import type { AgentResult } from '../types'
 
 /**
