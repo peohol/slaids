@@ -3550,6 +3550,16 @@ allerede viser et bilde bytter bare filen: utsnittet, bildeteksten og, på et
 kort med tittel og bilde, tittelpanelet blir stående. Å erstatte hele innholdet
 ville kastet bort tre ting brukeren ikke ba om å miste.
 
+En bildefil kan også slippes direkte i en bladsone. Et bilde fra
+utklippstavlen følger teksteditorens innliming når markøren står i et
+tekstfelt. Utenfor tekstfelt settes det inn direkte når sliden har én
+bladsone. Med flere bladsoner velger brukeren målet på sliden. Begge veier
+bytter bare bildefilen
+i et eksisterende bildepanel og fyller en tom sone direkte. For annet
+eksisterende soneinnhold kan brukeren avbryte, slette innholdet eller flytte
+det til sandkassen. Med «Færre popuper» slettes slikt innhold direkte.
+Plasseringen og registreringen av bildefilen angres som én endring.
+
 Et nytt bilde får bredden som faktisk er ledig i feltet, og kan dras i
 størrelse etterpå. Bare bredden dras – høyden følger av aspektforholdet – så
 bildet kan aldri forvrenges, og draget stopper ved den ledige plassen i

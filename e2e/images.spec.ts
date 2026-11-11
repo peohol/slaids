@@ -11,6 +11,8 @@ import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import {
   addContentToZone,
+  chooseFromToolbarMenu,
+  clickZone,
   createPresentation,
   dismissImageModal,
   enterContentMode,
@@ -33,6 +35,40 @@ const WIDE_SVG =
   `<rect x="400" width="200" height="200" fill="#4070d0"/>` +
   `<rect x="600" width="200" height="200" fill="#d0b040"/>` +
   `</svg>`
+
+async function dropPicture(page: Page, nodeId: string): Promise<void> {
+  await stage(page).locator(`.slide-zone[data-node-id="${nodeId}"]`).evaluate((zone, svg) => {
+    const dataTransfer = new DataTransfer()
+    dataTransfer.items.add(new File([svg], 'sluppet.svg', { type: 'image/svg+xml' }))
+    const rect = zone.getBoundingClientRect()
+    const init = {
+      dataTransfer,
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    }
+    zone.dispatchEvent(new DragEvent('dragover', init))
+    zone.dispatchEvent(new DragEvent('drop', init))
+  }, WIDE_SVG)
+}
+
+async function copyPicture(page: Page): Promise<void> {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 40
+    canvas.height = 20
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Kunne ikke tegne testbildet.')
+    context.fillStyle = '#4050a0'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((image) => image ? resolve(image) : reject(new Error('Ingen bildefil.')))
+    })
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+  })
+}
 
 /** The picture panel on the stage. Thumbnails draw the same markup. */
 function panel(page: Page) {
@@ -77,6 +113,136 @@ async function captionWith(
 }
 
 test.describe('pictures', () => {
+  test('slipper en bildefil i en tom sone også i Soner-modus', async ({ page }) => {
+    await createPresentation(page, 'Slipp bilde')
+    await enterZoneMode(page)
+    const [zone] = await zoneRects(page)
+    await dropPicture(page, zone.id)
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+    await expect(page.getByTestId('confirm-dialog')).toBeHidden()
+  })
+
+  test('kan avbryte, parkere eller slette innhold ved slipp i en fylt sone', async ({ page }) => {
+    await createPresentation(page, 'Erstatt innhold')
+    const [zone] = await zoneRects(page)
+    await addContentToZone(page, zone.id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').fill('Tekst som skal erstattes')
+
+    await dropPicture(page, zone.id)
+    const confirmation = page.getByTestId('confirm-dialog')
+    await expect(confirmation).toBeVisible()
+    await confirmation.getByRole('button', { name: 'Avbryt' }).click()
+    await expect(stage(page).locator('.subfield')).toContainText('Tekst som skal erstattes')
+
+    await dropPicture(page, zone.id)
+    await confirmation.getByTestId('confirm-alternative').click()
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+    await chooseFromToolbarMenu(page, 'tools', 'open-sandbox')
+    await expect(page.getByTestId('sandbox-item')).toContainText('Tekst som skal erstattes')
+
+    await page.keyboard.press('Control+z')
+    await expect(stage(page).locator('.subfield')).toContainText('Tekst som skal erstattes')
+    await expect(page.getByTestId('sandbox-item')).toHaveCount(0)
+
+    await dropPicture(page, zone.id)
+    await confirmation.getByTestId('confirm-accept').click()
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+    await expect(page.getByTestId('sandbox-item')).toHaveCount(0)
+  })
+
+  test('limer inn i den eneste sonen og beholder oppsettet ved bildebytte', async ({ page }) => {
+    await createPresentation(page, 'Lim inn bilde')
+    await copyPicture(page)
+    await page.keyboard.press('Control+v')
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+    await captionWith(page, 'bottom', 'Bildetekst som skal beholdes')
+
+    const [zone] = await zoneRects(page)
+    const oldSource = await stage(page).locator('img.image-panel__img').getAttribute('src')
+    await dropPicture(page, zone.id)
+    await expect(stage(page).locator('img.image-panel__img')).not.toHaveAttribute('src', oldSource!)
+    await expect(stage(page).locator('.image-caption')).toContainText('Bildetekst som skal beholdes')
+    await expect(page.getByTestId('confirm-dialog')).toBeHidden()
+  })
+
+  test('velger en av flere soner før innliming og spør hvis den har innhold', async ({ page }) => {
+    await createPresentation(page, 'Velg bildesone')
+    await enterZoneMode(page)
+    await splitSelected(page, [1, 1], 'x')
+    await enterContentMode(page)
+    const zones = await zoneRects(page)
+    await addContentToZone(page, zones[1].id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').fill('Behold foreløpig')
+    await copyPicture(page)
+    await page.getByTestId('mode-content').click()
+
+    await page.keyboard.press('Control+v')
+    await expect(page.getByTestId('placement-bar')).toContainText('Velg sonen')
+    await expect(stage(page).locator('img.image-panel__img')).toHaveCount(0)
+    await clickZone(page, zones[1])
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible()
+    await page.getByTestId('confirm-accept').click()
+    const target = stage(page).locator(`.slide-zone[data-node-id="${zones[1].id}"]`)
+    await expect(target.locator('img.image-panel__img')).toBeVisible()
+    await expect(stage(page).locator('img.image-panel__img')).toHaveCount(1)
+  })
+
+  for (const fewerDialogs of [false, true]) {
+    test(`bevarer tekstsonen ved bildepaste i tekstfelt med færre popuper ${fewerDialogs ? 'på' : 'av'}`, async ({ page }) => {
+      await page.goto('/')
+      await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
+      const option = page.getByRole('checkbox', { name: 'Færre popuper' })
+      await option.setChecked(fewerDialogs)
+      await expect(option).toBeChecked({ checked: fewerDialogs })
+      await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+
+      await createPresentation(page, 'Bilde i tekstfelt')
+      const [zone] = await zoneRects(page)
+      await addContentToZone(page, zone.id, 'untitled-card')
+      const target = stage(page).locator(`.slide-zone[data-node-id="${zone.id}"]`)
+      const editor = target.locator('.subfield .tiptap')
+      await editor.fill('Denne teksten skal beholdes')
+      await editor.press('End')
+      await expect(editor).toBeFocused()
+      await editor.evaluate((element) => {
+        element.addEventListener('paste', () => {
+          element.setAttribute('data-received-paste', 'true')
+        }, { once: true })
+      })
+      await copyPicture(page)
+      await page.keyboard.press('Control+v')
+
+      await expect(editor).toHaveAttribute('data-received-paste', 'true')
+      await expect(editor).toContainText('Denne teksten skal beholdes')
+      await expect(target.locator('[data-content-kind]')).toHaveAttribute('data-content-kind', 'untitled-card')
+      await expect(target.locator('.image-panel')).toHaveCount(0)
+      await expect(page.getByTestId('confirm-dialog')).toBeHidden()
+      await expect(page.getByTestId('placement-bar')).toBeHidden()
+    })
+  }
+
+  test('erstatter soneinnhold direkte med færre popuper', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
+    const option = page.getByRole('checkbox', { name: 'Færre popuper' })
+    await option.check()
+    await expect(option).toBeChecked()
+    await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+
+    await createPresentation(page, 'Slipp bilde med færre popuper')
+    const [zone] = await zoneRects(page)
+    await addContentToZone(page, zone.id, 'untitled-card')
+    await stage(page).locator('.subfield .tiptap').fill('Innhold som erstattes')
+    await dropPicture(page, zone.id)
+    await expect(stage(page).locator('img.image-panel__img')).toBeVisible()
+    await expect(page.getByTestId('confirm-dialog')).toBeHidden()
+    await chooseFromToolbarMenu(page, 'tools', 'open-sandbox')
+    await expect(page.getByTestId('sandbox-item')).toHaveCount(0)
+
+    await page.keyboard.press('Control+z')
+    await expect(stage(page).locator('.subfield')).toContainText('Innhold som erstattes')
+  })
+
   test('offers a picture as a content type and fills the zone with it', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Bilde i sone')
