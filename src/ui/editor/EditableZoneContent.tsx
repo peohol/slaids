@@ -7,13 +7,14 @@
  * None of these fields refuses text for lack of room. The zone is drawn inside
  * a `ZoneFitBox`, which draws whatever does not fit at normal size smaller
  * until it does, so a person typing on or pasting into a full zone gets the
- * text, smaller, rather than a refusal (IMPLEMENTATION_PLAN §17).
+ * text, smaller, rather than a refusal (IMPLEMENTATION_PLAN §17). Det gjelder
+ * også når en citation endrer nummereringen og en sone et annet sted trenger
+ * mer plass: den sonen tegnes mindre.
  */
 
 import { useCallback, useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
 import { setCardTitle, setImageCaption, setSubfieldDoc } from '../../domain/commands'
-import { docEditRenumberProblem } from '../../state/citationFit'
 import { isDocEmpty } from '../../domain/richdoc'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore, type ActiveField } from '../../state/store'
@@ -92,15 +93,6 @@ export function EditableZoneContent({
             field={{ nodeId, subfieldId: null, kind: 'card-title' }}
             editable={editable}
             caret={caret}
-            validateDoc={(next, previous) =>
-              docEditRenumberProblem({
-                slideId,
-                nodeId,
-                previousDoc: previous,
-                nextDoc: next,
-                commit: (presentation, doc) => setCardTitle(presentation, { slideId, nodeId, doc }),
-              })
-            }
             onChange={(doc) =>
               run(`typing:${nodeId}:title`, (presentation) =>
                 setCardTitle(presentation, { slideId, nodeId, doc }),
@@ -116,16 +108,6 @@ export function EditableZoneContent({
             field={{ nodeId, subfieldId: field.id, kind: 'body' }}
             editable={editable}
             caret={caret}
-            validateDoc={(next, previous) =>
-              docEditRenumberProblem({
-                slideId,
-                nodeId,
-                previousDoc: previous,
-                nextDoc: next,
-                commit: (presentation, doc) =>
-                  setSubfieldDoc(presentation, { slideId, nodeId, subfieldId: field.id, doc }),
-              })
-            }
             onChange={(doc) =>
               run(`typing:${nodeId}:${field.id}`, (presentation) =>
                 setSubfieldDoc(presentation, { slideId, nodeId, subfieldId: field.id, doc }),
@@ -214,19 +196,6 @@ function CaptionEditor({
           setImageCaption(presentation, { slideId, nodeId, remove: true }),
         )
       }}
-      validateDoc={(next, previous) =>
-        // A caption may cite, and a citation's number comes from where it first
-        // occurs in the whole deck — so an edit here can widen a label on a
-        // slide nobody touched. The local measurement cannot see that.
-        docEditRenumberProblem({
-          slideId,
-          nodeId,
-          previousDoc: previous,
-          nextDoc: next,
-          commit: (presentation, doc) =>
-            setImageCaption(presentation, { slideId, nodeId, doc }),
-        })
-      }
       onChange={(doc) =>
         run(`typing:${nodeId}:caption`, (presentation) =>
           setImageCaption(presentation, { slideId, nodeId, doc }),
@@ -250,7 +219,6 @@ function FieldEditor({
   editable,
   caret,
   onChange,
-  validateDoc,
 }: {
   doc: RichDoc
   variant: 'body' | 'title'
@@ -260,7 +228,6 @@ function FieldEditor({
   /** The field that was asked for, which may or may not be this one. */
   caret: ActiveField | null
   onChange: (doc: RichDoc) => void
-  validateDoc?: (doc: RichDoc, previous: RichDoc) => string | null
 }) {
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const setActiveField = useEditorStore((state) => state.setActiveField)
@@ -300,7 +267,6 @@ function FieldEditor({
       onChange={onChange}
       onFocus={handleFocus}
       onEditorReady={handleReady}
-      validateDoc={validateDoc}
     />
   )
 }

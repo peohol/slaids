@@ -73,7 +73,7 @@ layoutet er nestet.
 **Slides**
 
 - opprett med eller uten overskriftssone, dupliser, slett, endre rekkefølge (DnD)
-- overskriftssonen er deterministisk: én linje, fast høyde, tekst som ikke får plass avvises
+- overskriftssonen er deterministisk: én linje, fast høyde; tekst som ikke får plass settes i mindre skrift og merkes i editoren
 
 **Seksjoner**
 
@@ -152,6 +152,8 @@ layoutet er nestet.
 - 12 × 4-fargepalett med automatisk tekstfarge etter kontrast
 - referanser med avledet nummerering (`1–3, 5, 6, 8–10`) og automatisk genererte
   referanseslides, som vises som skrivebeskyttede slides i filmstripen
+- oppslag fra DOI eller PubMed-ID i referansedialogen fyller inn tittel,
+  forfattere, år og lenke i et redigerbart utkast
 - sandkasse for innhold som midlertidig er utenfor en sone, med fit-bevisst DnD
 - strukturell utklippstavle (Ctrl+C/X/V i sonemodus), normalisert ekstern paste
   og Ctrl+Shift+V for ren tekst

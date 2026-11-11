@@ -88,15 +88,16 @@
  *
  * What is *not* gated here, deliberately, and why:
  *
- *  - **A person's own resize**, through `manualLayout.ts` only:
- *    `setSplitWeightsByHand` and `rearrangeZonesByHand` are `setSplitWeights`
- *    and `rearrangeZones` without the fit checkers, so a person may take a
- *    zone below what its text needs at normal size — the slide then draws the
- *    text smaller (`ui/slide/ZoneFitBox.tsx`) and nothing is hidden. Every
- *    other rule still holds: the hard minimum, quantisation, structure, air.
- *    The module is not exported from the commands index and only the editor's
- *    UI may import it (`manualLayout.boundary.test.ts`), so no agent route can
- *    reach it.
+ *  - **Alt en person gjør i editoren**, gjennom `manualLayout.ts`: `HUMAN_EDIT`
+ *    er valgene grensesnittet kjører hver kommando med – uten fit-målerne – og
+ *    `setSplitWeightsByHand`, `rearrangeZonesByHand` og `setBodyWeightsByHand`
+ *    er geometrikommandoene uten dem. En person nektes aldri en endring fordi
+ *    innholdet ikke får plass; det som ikke får plass i normal størrelse,
+ *    tegnes mindre og merkes (`ui/slide/ZoneFitBox.tsx`, `ui/slide/titleFit.ts`),
+ *    og ingenting skjules. Alle andre regler gjelder: hard minstegrense,
+ *    kvantisering, struktur, luft. Modulen eksporteres ikke fra kommandoindeksen,
+ *    og bare appens grensesnitt kan importere den
+ *    (`manualLayout.boundary.test.ts`), så ingen agentrute når den.
  *  - **Undo and redo** restore a state the document has already been in. There
  *    is nothing to validate; refusing would strand the user in the state they
  *    are trying to leave.

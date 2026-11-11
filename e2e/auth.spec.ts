@@ -9,7 +9,7 @@
 import type { Browser, BrowserContext, Page } from '@playwright/test'
 import { audit, SCHEMES } from './axe'
 import { expect, routeLocalFonts, test as base } from './fixtures'
-import { waitForSaved, watchForErrors } from './helpers'
+import { createFromLibrary, waitForSaved, watchForErrors } from './helpers'
 import { SESSION_STORAGE_KEY, SupabaseStub, type StubUser } from './supabaseStub'
 
 const PEDER = 'peder@example.com'
@@ -212,10 +212,7 @@ test.describe('hold meg innlogget', () => {
     const other = supabase.addUser('annen@example.com')
     await page.goto('/')
     await signIn(page, supabase, peder.email)
-    await page.getByTestId('new-presentation').click()
-    await page.getByTestId('presentation-title-input').fill('Peders')
-    await page.getByTestId('create-presentation').click()
-    await expect(page.getByTestId('editor')).toBeVisible()
+    await createFromLibrary(page, 'Peders')
     await waitForSaved(page)
 
     // Nettleseren lukkes uten utlogging; økten var bare for fanen.
@@ -249,10 +246,7 @@ test.describe('ut og inn', () => {
     await page.goto('/')
     await signIn(page, supabase, peder.email)
 
-    await page.getByTestId('new-presentation').click()
-    await page.getByTestId('presentation-title-input').fill('Lagret i skyen')
-    await page.getByTestId('create-presentation').click()
-    await expect(page.getByTestId('editor')).toBeVisible()
+    await createFromLibrary(page, 'Lagret i skyen')
     await waitForSaved(page)
     await page.getByTestId('back-to-library').click()
     await expect(page.getByTestId('presentation-card')).toHaveCount(1)
@@ -393,9 +387,7 @@ test.describe('administrasjon', () => {
     const guard = watchForErrors(page)
     await page.goto('/')
     await signIn(page, supabase, peder.email)
-    await page.getByTestId('new-presentation').click()
-    await page.getByTestId('presentation-title-input').fill('Bare min')
-    await page.getByTestId('create-presentation').click()
+    await createFromLibrary(page, 'Bare min')
     await waitForSaved(page)
     await page.getByTestId('back-to-library').click()
 

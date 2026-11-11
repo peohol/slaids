@@ -107,12 +107,24 @@ export async function backToLibrary(page: Page): Promise<void> {
   await expect(page.getByTestId('presentation-grid')).toBeVisible()
 }
 
-export async function createPresentation(page: Page, title: string): Promise<void> {
-  await page.goto('/')
+/**
+ * Opprett et dekk fra biblioteket som står framme, slik en person gjør det:
+ * bare tittelen, og så åpner temaeditoren seg over det nye dekket (§ 15.1).
+ * Temaeditoren lukkes med «Ferdig», som beholder dekket slik det ble laget.
+ */
+export async function createFromLibrary(page: Page, title: string): Promise<void> {
   await page.getByTestId('new-presentation').click()
   await page.getByTestId('presentation-title-input').fill(title)
   await page.getByTestId('create-presentation').click()
   await expect(page.getByTestId('editor')).toBeVisible()
+  await expect(page.getByTestId('theme-modal')).toBeVisible()
+  await page.getByTestId('theme-done').click()
+  await expect(page.getByTestId('theme-modal')).toHaveCount(0)
+}
+
+export async function createPresentation(page: Page, title: string): Promise<void> {
+  await page.goto('/')
+  await createFromLibrary(page, title)
   await expect(page.getByTestId('stage-slide')).toBeVisible()
 }
 
@@ -437,7 +449,9 @@ export async function selectionTaken(field: Locator): Promise<void> {
 
 /**
  * Whether the zone a field sits in is drawn smaller than normal size, once
- * the frame that follows the last edit has re-fitted it (`ZoneFitBox`).
+ * the frame that follows the last edit has re-fitted it (`ZoneFitBox`) — or,
+ * for a field outside a zone (a slide title, a section's line), whether its
+ * line is set smaller (`titleFit.ts`).
  */
 export async function drawnSmaller(field: Locator): Promise<boolean> {
   return field.evaluate(
@@ -446,9 +460,10 @@ export async function drawnSmaller(field: Locator): Promise<boolean> {
         // The editor's check and the re-fit both run in the next frame; the
         // one after that sees what they settled on.
         requestAnimationFrame(() =>
-          requestAnimationFrame(() =>
-            resolve(element.closest('.zone-fit')?.hasAttribute('data-fit-scale') ?? false),
-          ),
+          requestAnimationFrame(() => {
+            const zone = element.closest('.zone-fit')
+            resolve(zone ? zone.hasAttribute('data-fit-scale') : element.closest('[data-title-fit]') !== null)
+          }),
         )
       }),
   )
@@ -515,28 +530,23 @@ export async function fillZoneToCapacity(
 }
 
 /**
- * Insert one character at a time until the editor stops accepting them.
- *
- * For the fields that still refuse text that does not fit — a slide title, a
- * section's lines; a zone's fields take it and draw it smaller, see
- * `fillZoneToCapacity`. A refusal is a press that did not make the text
- * longer, seen twice running so a rollback landing late is not mistaken for
- * room. The small pause is what lets the deferred validation run between
- * attempts.
+ * Insert one character at a time until the line is set smaller, and take the
+ * last one back: the most text a slide title or a section's line holds at
+ * normal size. Nothing refuses text any more — a line too long for its box is
+ * set smaller (`titleFit.ts`) — so «full» is the last length drawn at normal
+ * size.
  */
 export async function topUpToCapacity(page: Page, field: Locator, attempts = 400): Promise<void> {
   await caretInto(field)
-  const length = () => field.evaluate((element) => element.textContent?.length ?? 0)
-  let before = await length()
-  let refused = 0
   // A narrow glyph on purpose: the slack this leaves behind is the smallest
   // effect a test can hope to observe afterwards, and 'i' is a third of 'm'.
-  for (let i = 0; i < attempts && refused < 2; i += 1) {
+  for (let i = 0; i < attempts; i += 1) {
     await page.keyboard.insertText('i')
-    await page.waitForTimeout(20)
-    const now = await length()
-    refused = now > before ? 0 : refused + 1
-    before = now
+    if (await drawnSmaller(field)) {
+      await deleteBeforeCaret(field, 1)
+      await expect.poll(() => drawnSmaller(field)).toBe(false)
+      break
+    }
   }
   await page.waitForTimeout(250)
 }

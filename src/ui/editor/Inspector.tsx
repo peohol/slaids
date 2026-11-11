@@ -15,7 +15,7 @@ import {
   setImageCaption,
   setSubfieldCount,
 } from '../../domain/commands'
-import { setBodyWeightsByHand } from '../../domain/commands/manualLayout'
+import { HUMAN_EDIT, setBodyWeightsByHand } from '../../domain/commands/manualLayout'
 import {
   bodyOf,
   CAPTION_POSITION_LABELS,
@@ -29,7 +29,6 @@ import { computeSlideGeometry } from '../../domain/geometry'
 import { panelFrame } from '../../domain/imageOptimization'
 import { aspectRatioLabel } from '../../domain/imagePlan'
 import { geometryForTheme, themeMetrics } from '../../domain/metrics'
-import { domFitCheckers } from '../../state/measure'
 import { sectionGoverning } from '../../domain/presentation'
 import { INHERITS_FROM_SECTION, inheritedPill, standardLabel } from './colorInheritance'
 import { useEditorStore } from '../../state/store'
@@ -297,7 +296,7 @@ export function Inspector({
                         slideId: slide.id,
                         nodeId: selectedNodeId,
                         count: Number(event.target.value),
-                        ...domFitCheckers,
+                        ...HUMAN_EDIT,
                       }),
                     )
                   }
@@ -319,7 +318,7 @@ export function Inspector({
                             slideId: slide.id,
                             nodeId: selectedNodeId,
                             axis,
-                            ...domFitCheckers,
+                            ...HUMAN_EDIT,
                           }),
                         )
                       }
@@ -388,7 +387,7 @@ export function Inspector({
                           slideId: slide.id,
                           nodeId: selectedNodeId,
                           position,
-                          ...domFitCheckers,
+                          ...HUMAN_EDIT,
                         }),
                       )
                     }
