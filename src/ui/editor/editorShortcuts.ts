@@ -1,3 +1,5 @@
+import type { Axis } from '../../domain/types'
+
 export const EDITOR_SHORTCUTS = {
   sandbox: ['K', 'Vis/skjul sandkassen'],
   slide: ['N', 'Ny slide'],
@@ -10,6 +12,19 @@ export const EDITOR_SHORTCUTS = {
 } as const
 
 export type EditorShortcut = keyof typeof EDITOR_SHORTCUTS
+
+/**
+ * Delingene og retningen på streken hver av dem tegner. De virker både på den
+ * valgte sonen i soneredigering og på sonen det skrives i i innholdsredigering.
+ */
+export const SPLIT_SHORTCUTS = {
+  splitVertical: 'x',
+  splitHorizontal: 'y',
+} as const satisfies Partial<Record<EditorShortcut, Axis>>
+
+export function splitAxisFor(action: EditorShortcut): Axis | undefined {
+  return (SPLIT_SHORTCUTS as Partial<Record<EditorShortcut, Axis>>)[action]
+}
 
 export function editorShortcutFor(event: KeyboardEvent): EditorShortcut | undefined {
   // Ctrl + Alt, eller ⌘ + Ctrl på Mac. AltGr kan også rapportere Ctrl + Alt.

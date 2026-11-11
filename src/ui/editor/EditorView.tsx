@@ -86,6 +86,7 @@ import { imageTransferFiles, uploadZoneImage, zoneImageRequest, type ZoneImageRe
 import type { InteractiveSource } from '../../domain/interactive'
 import type { OptimizationScope } from '../../domain/imageOptimization'
 import type {
+  Axis,
   LayoutTemplate,
   Presentation,
   Slide,
@@ -144,7 +145,7 @@ import { SandboxWindow } from './SandboxWindow'
 import { SplitModal, type SplitModalResult } from './SplitModal'
 import { defaultSplitAxis, splitCheck, type SplitCheck } from './splitDraft'
 import { ShortcutsModal } from './ShortcutsModal'
-import { editorShortcutFor } from './editorShortcuts'
+import { editorShortcutFor, splitAxisFor } from './editorShortcuts'
 import { AutocorrectModal } from './AutocorrectModal'
 import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
@@ -168,7 +169,14 @@ import {
   type Placement,
   type PlacementSource,
 } from './placement'
-import { activeFieldFor, firstFieldIn, type TextTargetEntry } from './textTarget'
+import {
+  activeFieldFor,
+  firstFieldIn,
+  isZoneTextField,
+  sameField,
+  type CaretRequest,
+  type TextTargetEntry,
+} from './textTarget'
 import { focusFieldRect, isZoneField, liveFocus, type StageFocus } from './stageFocus'
 import { NO_ZOOM, isZoomed, type StageZoom } from './stageView'
 
@@ -324,6 +332,16 @@ export function EditorView({
    * outlive the field it is about.
    */
   const [stageFocus, setStageFocus] = useState<StageFocus | null>(null)
+  /**
+   * Feltet som skal ta markøren når teksten det ble skrevet i, har flyttet til
+   * en ny sone (se `splitTypedZone`), og på hvilken side det gjelder.
+   *
+   * Leses gjennom `liveCaretRequest` nedenfor og slippes så snart feltet har
+   * fått markøren, siden blar eller modusen byttes – ellers kunne et felt som
+   * tegnes på nytt senere, ta markøren fra noe annet.
+   */
+  const [caretRequest, setCaretRequest] = useState<{ slideId: string; field: CaretRequest } | null>(null)
+  const activeField = useEditorStore((state) => state.activeField)
   /**
    * The pinch on the stage, and which step of the ladder it belongs to.
    *
@@ -1341,6 +1359,33 @@ export function EditorView({
   }, [addContentTo, applyContentKindTo, beginPlacement, contentSlide, fewerDialogs, removeZone, runStructural])
 
   /**
+   * Del sonen det skrives i, og la markøren følge teksten.
+   *
+   * Sonen som deles, blir en deling med nye barn, så feltet med markøren finnes
+   * ikke lenger etterpå. Teksten står uendret i barnet som fikk innholdet, og
+   * markøren settes der, på samme sted i teksten.
+   */
+  const splitTypedZone = useCallback(
+    (field: ActiveField, at: number, axis: Axis) => {
+      const slideId = useEditorStore.getState().currentSlideId
+      if (!zoneHandlers || !slideId) return
+      zoneHandlers.split(field.nodeId, axis)
+      const root = useEditorStore.getState().currentContentSlide()?.root
+      const split = root ? findSplit(root, field.nodeId) : null
+      const holder = split?.children.find((child) => child.kind === 'leaf' && child.content)
+      if (!holder) return
+      const caret = { ...field, nodeId: holder.id, at }
+      // En fokusert skriveflate (kompakt, eller en forminsket sone på desktop)
+      // følger teksten til barnet, ellers blir ingen av de nye feltene skrivbare.
+      setStageFocus((current) =>
+        current?.fieldId === field.nodeId ? { ...current, fieldId: holder.id, caret } : current,
+      )
+      setCaretRequest({ slideId, field: caret })
+    },
+    [zoneHandlers],
+  )
+
+  /**
    * Open the zone menu for one zone.
    *
    * The zone is selected first, so the outline and the inspector say which
@@ -1682,19 +1727,35 @@ export function EditorView({
         let act: (() => void) | undefined
         if (shortcut === 'sandbox') act = toggleSandbox
         if (shortcut === 'slide') act = () => setNewPage({ kind: 'content' })
+        const editor = useActiveEditor.getState().editor
         if (shortcut === 'reference') {
-          const editor = useActiveEditor.getState().editor
           if (editor?.isFocused && editor.isEditable && typeof editor.commands.insertCitation === 'function') {
             act = textHandlers.insertReference
           }
         }
 
+        /*
+         * Sonen hurtigtastene gjelder: den valgte sonen – den samme som
+         * inspektøren viser, også i innholdsredigering – eller, mens det skrives,
+         * sonen feltet med markøren ligger i. Skrives det i noe som ikke er en
+         * sone, som slidetittelen eller et felt i inspektøren, gjelder de ingen.
+         */
+        const field = editor?.isFocused ? state.activeField : null
+        const typedInZone = state.mode === 'content' && field && isZoneTextField(field) ? field : null
         const slide = state.currentContentSlide()
-        const id = state.selectedNodeId
+        const id = typing ? typedInZone?.nodeId : state.selectedNodeId
+        if (slide && !viewedDerivedPage && id && zoneHandlers) {
+          const node = findNode(slide.root, id)
+          const axis = splitAxisFor(shortcut)
+          if (axis && node?.kind === 'leaf') {
+            act = typedInZone && editor
+              ? () => splitTypedZone(typedInZone, editor.state.selection.head, axis)
+              : () => zoneHandlers.split(id, axis)
+          }
+        }
+        // Tømming, sletting og flytting til sandkassen hører til soneredigeringen.
         if (!typing && state.mode === 'zone' && slide && !viewedDerivedPage && id && zoneHandlers) {
           const node = findNode(slide.root, id)
-          if (shortcut === 'splitVertical' && node?.kind === 'leaf') act = () => zoneHandlers.split(id, 'x')
-          if (shortcut === 'splitHorizontal' && node?.kind === 'leaf') act = () => zoneHandlers.split(id, 'y')
           if (shortcut === 'clear' && node && canClearZone(node)) act = () => zoneHandlers.clear(id)
           if (shortcut === 'remove' && node && id !== slide.root.id) act = () => zoneHandlers.remove(id)
           if (shortcut === 'toSandbox' && node?.kind === 'leaf' && node.content) {
@@ -1805,7 +1866,7 @@ export function EditorView({
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [
-    openKeyboardMenu, presenting, redo, setMode, setNewPage, stepDeck, textHandlers,
+    openKeyboardMenu, presenting, redo, setMode, setNewPage, splitTypedZone, stepDeck, textHandlers,
     toggleMode, toggleSandbox, undo, viewedDerivedPage, zoneHandlers,
   ])
 
@@ -1918,6 +1979,15 @@ export function EditorView({
    * are conditional on there being something to drop, so neither can loop.
    */
   if (stageFocus !== null && focus !== stageFocus) setStageFocus(focus)
+  // Samme mønster for markørønsket: det som ikke lenger gjelder, slippes straks.
+  const liveCaretRequest =
+    caretRequest &&
+    caretRequest.slideId === currentSlideId &&
+    mode === 'content' &&
+    !sameField(activeField, caretRequest.field)
+      ? caretRequest.field
+      : null
+  if (caretRequest !== null && liveCaretRequest === null) setCaretRequest(null)
   if (stageZoom.key !== zoomKey && isZoomed(stageZoom.zoom)) {
     setStageZoom({ key: zoomKey, zoom: NO_ZOOM })
   }
@@ -1972,7 +2042,7 @@ export function EditorView({
            resize drew small (`ShrunkZoneNotice`): the same view, entered from
            the inspector rather than by a long press. */
         { textEditing: { only: focus.fieldId } as const, focusRect, caret: focus.caret }
-      : {}
+      : { caret: liveCaretRequest }
 
   const stageNode = viewedDerivedPage ? (
     <ReadOnlySlideStage

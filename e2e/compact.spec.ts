@@ -1121,6 +1121,38 @@ test.describe('kompakt arbeidsflate', () => {
     )
   })
 
+  test('Ctrl + Alt + V på skriveflaten deler sonen, og skrivingen fortsetter der markøren stod', async ({
+    page,
+  }) => {
+    await createPresentation(page, 'Del skriveflaten')
+    await closePanel(page)
+    const [zone] = await zoneRects(page)
+    const centre = { x: zone.x + zone.w / 2, y: zone.y + zone.h / 2 }
+    await pressSlide(page, centre.x, centre.y)
+    await openPanel(page, 'zone')
+    await page.getByTestId('inspector-add-untitled-card').click()
+    await expect(stage(page).locator('.zone-content--card')).toBeVisible()
+    await closePanel(page)
+
+    await longPressSlide(page, centre.x, centre.y)
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await page.keyboard.insertText('AB')
+    await page.keyboard.press('ArrowLeft')
+    type WithEditor = HTMLElement & { editor: { state: { selection: { head: number } } } }
+    const caret = () => focusedField(page).evaluate((element) => (element as WithEditor).editor.state.selection.head)
+    await expect.poll(caret).toBe(2)
+
+    // Skriveflaten følger teksten til sonen den havnet i, med markøren på samme sted.
+    await page.keyboard.press('Control+Alt+v')
+    await expect(page.getByTestId('editor')).toHaveAttribute('data-focus', 'zone')
+    await expect(focusedField(page)).toBeFocused()
+    await page.keyboard.insertText('X')
+    await expect(focusedField(page)).toHaveText('AXB')
+
+    await exitFocus(page)
+    expect(await zoneRects(page)).toHaveLength(2)
+  })
+
   test('langtrykk fyller stagen med sonen og gjør den skrivbar i samme gest', async ({
     page,
   }) => {

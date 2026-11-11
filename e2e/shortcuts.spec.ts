@@ -214,7 +214,7 @@ test.describe('keyboard shortcuts', () => {
     await expect(page.getByTestId('reference-modal')).toBeVisible()
     await page.getByTestId('reference-title').fill('Kilden')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk', exact: true }).click()
     await expect(title.locator('.rd-citation')).toHaveText('1')
   })
 
@@ -248,6 +248,45 @@ test.describe('keyboard shortcuts', () => {
     await expect(page.getByRole('dialog', { name: 'Slette sonen?' })).toBeVisible()
     await page.getByTestId('confirm-accept').click()
     expect(await zoneRects(page)).toHaveLength(1)
+  })
+
+  test('deler sonen det skrives i med hurtigtaster i innholdsredigering', { tag: '@pr' }, async ({ page }) => {
+    await createPresentation(page, 'Del mens du skriver')
+    const [original] = await zoneRects(page)
+    await addContentToZone(page, original.id, 'untitled-card')
+    await expect(page.getByTestId('zone-overlay')).toBeHidden()
+
+    const body = () => stage(page).locator('.subfield .tiptap').first()
+    await body().click()
+    await page.keyboard.type('AB')
+    await page.keyboard.press('ArrowLeft')
+    // Redigeringsfeltet leser markøren fra nettleseren på neste runde, ikke i tastetrykket.
+    type WithEditor = HTMLElement & { editor: { state: { selection: { head: number } } } }
+    const caret = () => body().evaluate((element) => (element as WithEditor).editor.state.selection.head)
+    await expect.poll(caret).toBe(2)
+
+    // Delingen gjelder sonen markøren står i, og markøren blir stående i teksten.
+    await page.keyboard.press('Control+Alt+v')
+    const [left, right] = await zoneRects(page)
+    expect(left.x).toBeLessThan(right.x)
+    expect(left.y).toBeCloseTo(right.y)
+    await expect(page.getByTestId('zone-overlay')).toBeHidden()
+    await page.keyboard.type('X')
+    await expect(body()).toHaveText('AXB')
+
+    await page.keyboard.press('Control+Alt+h')
+    const [top, bottom] = (await zoneRects(page)).filter((zone) => zone.x < right.x)
+    expect(top.x).toBeCloseTo(bottom.x)
+    expect(top.y).toBeLessThan(bottom.y)
+    await page.keyboard.type('Y')
+    await expect(body()).toHaveText('AXYB')
+    expect(await zoneRects(page)).toHaveLength(3)
+
+    // Slidetittelen er ingen sone, så der deler tastene ingenting.
+    await stage(page).locator('[data-testid="slide-title"] .tiptap').click()
+    await page.keyboard.press('Control+Alt+v')
+    await page.keyboard.press('Control+Alt+h')
+    expect(await zoneRects(page)).toHaveLength(3)
   })
 
   test('shows the shortcut reference', async ({ page }) => {

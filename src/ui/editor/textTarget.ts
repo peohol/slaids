@@ -174,3 +174,24 @@ export function sameField(a: ActiveField | null, b: ActiveField | null): boolean
   if (!a || !b) return false
   return a.nodeId === b.nodeId && a.subfieldId === b.subfieldId && a.kind === b.kind
 }
+
+/** Feltene som ligger i en sone: korttittel, brødtekst og bildetekst. */
+export function isZoneTextField(field: ActiveField): boolean {
+  return field.kind === 'body' || field.kind === 'card-title' || field.kind === 'caption'
+}
+
+/**
+ * Et felt som skal ta markøren, og eventuelt hvor i teksten.
+ *
+ * `at` er en posisjon i feltets dokument. Den brukes når teksten har flyttet
+ * til et nytt felt med samme innhold – som når sonen det skrives i deles – slik
+ * at markøren havner der den var. Uten `at` havner den sist i teksten.
+ */
+export interface CaretRequest extends ActiveField {
+  at?: number
+}
+
+/** Hvor `field` skal sette markøren: en posisjon, `true` for sist i teksten, eller `false`. */
+export function caretFor(caret: CaretRequest | null, field: ActiveField): number | boolean {
+  return sameField(caret, field) ? (caret?.at ?? true) : false
+}
