@@ -1,14 +1,15 @@
 /**
- * Presentation-wide fonts, air and type size.
+ * Temaeditoren: fonter, luft, skriftstørrelse, skygger og kortutseende for hele
+ * presentasjonen, og forsidens to farger.
  *
- * The background colour used to be here and deliberately is not any more: it is
- * a section's, so a deck can change ground colour partway through, and it is
- * picked on the section slide that governs it. What is left is what genuinely
- * applies to every page at once.
+ * Fargene er forsidens, ikke globale: de er de samme to forsidens
+ * egenskapspanel endrer, og senere inndelinger beholder sine egne (§ 8.5).
+ * Dialogen er den samme om den åpnes fra menyen eller rett etter at et dekk er
+ * opprettet (§ 15.1), og hver endring i den er en vanlig, angrebar endring.
  */
 
 import { useState } from 'react'
-import { setTheme } from '../../domain/commands'
+import { setSectionAccentColor, setSectionBackgroundColor, setTheme } from '../../domain/commands'
 import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { TITLED_CARD_STYLES, type TitledCardStyle } from '../../domain/constants'
 import { FONT_OPTIONS, findFontByStack } from '../../domain/fonts'
@@ -20,6 +21,8 @@ import { useEditorStore } from '../../state/store'
 import { writeDefaultTheme } from '../../state/defaultTheme'
 import { ensureWebFonts } from '../fonts'
 import { Modal } from '../components/Modal'
+import { ColorPickerButton } from '../components/ColorPicker'
+import { ThemePreview } from './ThemePreview'
 
 /**
  * Which of the named settings is in force.
@@ -97,10 +100,11 @@ export function ThemeModal({
   const [loading, setLoading] = useState<'heading' | 'body' | null>(null)
   if (!presentation) return null
   const theme = presentation.theme
-  // The deck no longer has one background, so a preview of its typography sits
-  // on the ground the reader meets first: the front page's.
-  const previewBackground = presentation.slides[0].backgroundColor
-  const previewAccent = presentation.slides[0].accentColor
+  // Dekket har ikke én bakgrunn, så forhåndsvisningene står på den leseren møter
+  // først: forsidens.
+  const front = presentation.slides[0]
+  const previewBackground = front.backgroundColor
+  const previewAccent = front.accentColor
 
   /**
    * Alt i temadialogen er en persons valg: tekst som ikke lenger får plass i
@@ -140,9 +144,9 @@ export function ThemeModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Tema"
-      description="Fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Farger velges per inndeling."
+      description="Fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Fargene her er forsidens, og arves fram til neste inndeling."
       testId="theme-modal"
-      width={560}
+      width={600}
       footer={
         <>
           <button
@@ -156,13 +160,52 @@ export function ThemeModal({
           >
             Bruk som standard for nye presentasjoner
           </button>
-          <button type="button" className="btn btn--primary" onClick={() => onOpenChange(false)}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            data-testid="theme-done"
+            onClick={() => onOpenChange(false)}
+          >
             Ferdig
           </button>
         </>
       }
     >
-      <div className="new-presentation__fonts" data-font-loading={loading ?? 'none'}>
+      <div className="theme-modal__preview">
+        <ThemePreview theme={theme} background={previewBackground} accent={previewAccent} />
+      </div>
+
+      <div className="field">
+        <label id="theme-front-colors-label">Forsidens farger</label>
+        <div className="theme-modal__colors" role="group" aria-labelledby="theme-front-colors-label">
+          <ColorPickerButton
+            value={front.backgroundColor}
+            label="Bakgrunnsfarge"
+            testId="theme-front-background"
+            onChange={(color) =>
+              run('section-background', (current) =>
+                setSectionBackgroundColor(current, current.slides[0].id, color),
+              )
+            }
+          />
+          <ColorPickerButton
+            value={front.accentColor}
+            label="Aksentfarge"
+            testId="theme-front-accent"
+            onChange={(color) =>
+              run('section-accent', (current) =>
+                setSectionAccentColor(current, current.slides[0].id, color),
+              )
+            }
+          />
+        </div>
+        <p className="hint">
+          Gjelder forsiden og slidene fram til neste inndeling. Senere inndelinger beholder sine
+          egne farger.
+        </p>
+      </div>
+
+      <div className="theme-modal__fonts" data-font-loading={loading ?? 'none'}>
         <div className="field">
           <label htmlFor="theme-heading-font">Font for titler</label>
           <select
@@ -324,17 +367,6 @@ export function ThemeModal({
         </p>
       </div>
 
-      <div
-        className="new-presentation__preview"
-        style={{ background: previewBackground, color: bestTextColor(previewBackground) }}
-      >
-        <span style={{ fontFamily: theme.headingFontFamily, fontSize: 24, fontWeight: 600 }}>
-          {presentation.title}
-        </span>
-        <span style={{ fontFamily: theme.bodyFontFamily, fontSize: 15 }}>
-          Brødtekst vises slik i presentasjonen.
-        </span>
-      </div>
     </Modal>
   )
 }

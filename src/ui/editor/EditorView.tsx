@@ -220,9 +220,12 @@ type ImageStep = null | 'intro' | 'brief' | 'deposit'
 export function EditorView({
   presentationId,
   onClose,
+  openThemeOnLoad = false,
 }: {
   presentationId: string
   onClose: () => void
+  /** Åpne temaeditoren straks dekket er lastet: et nettopp opprettet dekk (§ 15.1). */
+  openThemeOnLoad?: boolean
 }) {
   const presentation = useEditorStore((state) => state.presentation)
   const loading = useEditorStore((state) => state.loading)
@@ -254,7 +257,7 @@ export function EditorView({
   /** Reference to scroll to and highlight when the list is opened from a pill. */
   const [focusedReference, setFocusedReference] = useState<string | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
-  const [themeOpen, setThemeOpen] = useState(false)
+  const [themeOpen, setThemeOpen] = useState(openThemeOnLoad)
   /**
    * Where the deck's picture errand is on screen, as one value.
    *
