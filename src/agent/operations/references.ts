@@ -3,8 +3,8 @@
  *
  * A reference is stored once and cited by id. The number a reader sees is
  * derived from first-occurrence order across the whole deck, so an agent never
- * writes a number — which is also why adding or editing a reference cannot
- * change any layout: nothing renumbers until something is *cited*.
+ * writes a number. Med forfatter og år kan en rettelse gjøre henvisningene
+ * lengre, så agentens rettelser måles mot brukerens valgte henvisningsformat.
  *
  * Deleting is the exception. It strips every citation that pointed at the
  * reference, so it is the one reference operation that changes documents, and
@@ -29,7 +29,8 @@ import { allContent } from '../../domain/docs'
 import { err, ok } from '../../domain/result'
 import type { Presentation, Reference } from '../../domain/types'
 import { defineOperation, expectedRevisionSchema, presentationIdSchema } from '../operation'
-import { mutatePresentation } from '../presentation'
+import { mutatePresentation, storageFailure, structuralOptions } from '../presentation'
+import type { CitationStyle } from '../../domain/references'
 import type { AgentResult } from '../types'
 
 /**
@@ -115,7 +116,15 @@ export const updateReferenceOperation = defineOperation({
     referenceId: referenceIdSchema,
     ...referenceFields,
   }),
-  run(context, input): Promise<AgentResult<{ reference: Reference }>> {
+  async run(context, input): Promise<AgentResult<{ reference: Reference }>> {
+    let citationStyle: CitationStyle
+    try {
+      citationStyle = (await context.repository.getUserSettings(null)).citationStyle
+    } catch (error) {
+      return storageFailure(error, 'Kunne ikke hente henvisningsformatet.', {
+        presentationId: input.presentationId,
+      })
+    }
     return mutatePresentation(context, input, (presentation) => {
       // Every field is replaced, not merged: a partial update would make an
       // omitted field mean two different things depending on the caller.
@@ -124,7 +133,7 @@ export const updateReferenceOperation = defineOperation({
         authors: input.authors,
         url: input.url,
         year: input.year,
-      })
+      }, { ...structuralOptions(context), citationStyle })
       if (!updated.ok) return updated
       const reference = updated.value.references.find((entry) => entry.id === input.referenceId)
       if (!reference) return err('REFERENCE_NOT_FOUND', 'Fant ikke referansen.')

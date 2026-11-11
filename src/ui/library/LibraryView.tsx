@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createDeck } from '../../domain/commands'
 import { describeError } from '../../domain/result'
-import { domFitCheckers } from '../../state/measure'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { repository, storageMode } from '../../persistence/activeRepository'
 import { exportSlaidsArchive, importSlaidsArchive, suggestedFileName } from '../../persistence/backup'
 import { estimateStorage, requestPersistentStorage, type StorageEstimateInfo } from '../../persistence/db'
@@ -35,6 +35,7 @@ import {
   renamePresentation,
 } from '../../state/libraryActions'
 import { useAppearance } from '../../state/appearance'
+import { readDefaultTheme } from '../../state/defaultTheme'
 import type { Folder, PresentationSummary } from '../../domain/types'
 import { copyToClipboard } from '../components/clipboard'
 import { Icon } from '../components/Icon'
@@ -70,7 +71,13 @@ function formatDate(value: string | Date, style: 'minute' | 'day' = 'minute'): s
   }).format(date)
 }
 
-export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
+/** Hvordan et dekk åpnes fra biblioteket. */
+export interface OpenOptions {
+  /** Åpne temaeditoren straks dekket er lastet – det et nytt dekk gjør (§ 15.1). */
+  openTheme?: boolean
+}
+
+export function LibraryView({ onOpen }: { onOpen: (id: string, options?: OpenOptions) => void }) {
   const [summaries, setSummaries] = useState<PresentationSummary[]>([])
   const [trashed, setTrashed] = useState<PresentationSummary[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
@@ -161,18 +168,18 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
     }
   }, [reloadToken, mode])
 
+  /**
+   * Et nytt dekk: bare tittelen er spurt om. Resten er gjeldende standardtema
+   * og standardfargene, og temaeditoren åpnes over dekket så snart det er
+   * lastet (§ 15.1). Dekket er lagret før editoren åpnes, så å lukke
+   * temaeditoren beholder det.
+   */
   const create = async (result: NewPresentationResult): Promise<void> => {
-    // The deck's name is also the first line of its front page, so it is
-    // measured like any other line on a page. A refusal leaves the dialog open
-    // with the name still in it, which is where the author fixes it.
+    // Navnet er også forsidens første linje. Et navn for langt for linjen tas
+    // imot og settes i mindre skrift der.
     const created = createDeck(
-      {
-        title: result.title,
-        theme: result.theme,
-        backgroundColor: result.backgroundColor,
-        folderId: activeFolder,
-      },
-      domFitCheckers,
+      { title: result.title, theme: readDefaultTheme(), folderId: activeFolder },
+      HUMAN_EDIT,
     )
     if (!created.ok) {
       notify.error(describeError(created.error))
@@ -186,7 +193,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string) => void }) {
       return
     }
     setCreating(false)
-    onOpen(presentation.id)
+    onOpen(presentation.id, { openTheme: true })
   }
 
   const handleDuplicate = async (id: string): Promise<void> => {

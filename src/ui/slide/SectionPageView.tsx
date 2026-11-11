@@ -13,8 +13,8 @@
  * What geometry *does* decide is the part CSS cannot answer: how much room each
  * line actually has. That is `computeSectionGeometry`, and the fit gate measures
  * against the same rects — so the pill's `max-width` here and the width a line
- * is judged against there are the same number, and a line that would be clipped
- * is refused before it is committed rather than quietly cut off.
+ * is judged against there are the same number. A line too long for it is set
+ * smaller until it fits (`titleFit.ts`); the pill itself keeps its size.
  *
  * The two colours are the section's own, and they are the colours every page
  * after it inherits. The text colour is never picked: it follows from contrast,
@@ -38,6 +38,8 @@ import { isDocEmpty } from '../../domain/richdoc'
 import type { PresentationTheme, SectionSlide } from '../../domain/types'
 import { PageColorsProvider, useSlideRender } from './SlideRenderContext'
 import { RichDocView } from './RichDocView'
+import { TitleFitLine } from './TitleFitLine'
+import type { TitleFitBox } from './titleFit'
 import { slideTokenStyle } from './SlideView'
 
 export type SectionLine = 'title' | 'subtitle'
@@ -67,6 +69,7 @@ export function SectionFrame({
   lines,
   renderLine,
   pillRef,
+  marker,
   testId = 'section-page',
   children,
 }: {
@@ -77,6 +80,8 @@ export function SectionFrame({
   renderLine: (line: SectionLine) => ReactNode
   /** The pill's own element — the box the editor measures its overflow against. */
   pillRef?: (line: SectionLine, element: HTMLElement | null) => void
+  /** Tegnes rundt en pille mens linjen i den er satt mindre; bare editoren gir en. */
+  marker?: (box: TitleFitBox) => ReactNode
   testId?: string
   children?: ReactNode
 }) {
@@ -105,20 +110,23 @@ export function SectionFrame({
         }}
       >
         {lines.map((line) => (
-          <div
+          <TitleFitLine
             key={line}
-            ref={(element) => pillRef?.(line, element)}
+            boxRef={(element) => pillRef?.(line, element)}
             className={`section-pill section-pill--${line}`}
             data-section-line={line}
             data-fit-scroll=""
             data-fit-axis="x"
+            fontSize={fontSizes[line]}
+            marker={marker}
             style={{
               background: accentColor,
               color: bestTextColor(accentColor),
               fontFamily: theme.headingFontFamily,
-              fontSize: fontSizes[line],
-              lineHeight: TITLE_LINE_HEIGHT,
-              padding: `${SECTION_PILL_PADDING_Y_EM}em ${SECTION_PILL_PADDING_X_EM}em`,
+              // I piksler, ikke em: en linje som settes mindre (`titleFit.ts`),
+              // skal ikke gjøre pillen lavere eller polstringen smalere.
+              lineHeight: `${fontSizes[line] * TITLE_LINE_HEIGHT}px`,
+              padding: `${fontSizes[line] * SECTION_PILL_PADDING_Y_EM}px ${fontSizes[line] * SECTION_PILL_PADDING_X_EM}px`,
               boxShadow: cardShadow(theme),
               // Border-box, so this less the pill's own padding is exactly the
               // width `computeSectionGeometry` hands the fit checker.
@@ -126,7 +134,7 @@ export function SectionFrame({
             }}
           >
             {renderLine(line)}
-          </div>
+          </TitleFitLine>
         ))}
         {children}
       </div>

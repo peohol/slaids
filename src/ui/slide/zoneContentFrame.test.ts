@@ -60,10 +60,10 @@ describe('titledCardStyles', () => {
     expect(tab.body.zIndex).toBe(1)
   })
 
-  it('holder en svevende header ett globalt gap over innholdet ved enhver soneskala, og lar den bli like bred', () => {
+  it('holder en svevende header ett globalt gap over innholdet, og lar den bli like bred', () => {
     const tokens = themeMetrics({ titledCardStyle: 'floating' })
     const floating = look('floating')
-    expect(floating.header.marginBottom).toBe(`calc(${tokens.gap}px / var(--slaids-zone-fit, 1))`)
+    expect(floating.header.marginBottom).toBe(tokens.gap)
     expect(floating.header.maxWidth).toBe('calc(100% - 0px)')
   })
 

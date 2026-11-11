@@ -45,10 +45,10 @@ import type {
   ZoneContentKind,
 } from '../../domain/types'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
-import { SlideView } from '../slide/SlideView'
+import { SlideView, absoluteStyle } from '../slide/SlideView'
 import { useSectionColorsFor, useSlideRender } from '../slide/SlideRenderContext'
-import { domFitCheckers, measureElementOverflow } from '../../state/measure'
-import { docEditRenumberProblem } from '../../state/citationFit'
+import { domFitCheckers } from '../../state/measure'
+import { TitleFitLine } from '../slide/TitleFitLine'
 import { ZoneContentView } from '../slide/ZoneContentView'
 import { RichDocView } from '../slide/RichDocView'
 import { EditableZoneContent } from './EditableZoneContent'
@@ -240,23 +240,6 @@ export interface EditorStageProps {
   chrome?: boolean
 }
 
-/**
- * How far the slide title reaches past the zone it was given, live.
- *
- * A title is one line, so overflow is sideways. Both the zone and the title's
- * own box clip it, and which of them the text spills out of is an accident of
- * how the box happens to be sized — so the worst of the two is the answer. The
- * offscreen `measureTitleFit` is the one that judges a committed change; this
- * is the guard that runs while the author is still typing.
- */
-function titleOverflow(host: HTMLElement | null): number {
-  // The title zone is the one box that clips, and it carries `data-fit-scroll`
-  // like every other clipping box — so the shared measurement is the whole
-  // answer. It was not always: `.rich-doc--title` used to clip too, which kept
-  // the overflow to itself and made the zone read zero. See `slide.css`.
-  return host ? measureElementOverflow(host) : 0
-}
-
 /** Whether a gesture asked for the ratios the split already has. */
 function sameWeights(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((weight, index) => weight === b[index])
@@ -280,7 +263,6 @@ export function EditorStage({
   chrome = true,
 }: EditorStageProps) {
   const slideRef = useRef<HTMLDivElement>(null)
-  const titleHostRef = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState<NodeId | null>(null)
   const [preview, setPreview] = useState<DragPreview | null>(null)
   const dragRef = useRef<DragState | null>(null)
@@ -745,21 +727,22 @@ export function EditorStage({
           <SlideView
             slide={displaySlide}
             className={mode === 'zone' ? 'slide--zone-mode' : undefined}
-            renderTitle={(position) => (
-              <div
+            renderTitle={(rect) => (
+              /* En tittel for lang for linjen settes mindre og merkes, i begge moduser. */
+              <TitleFitLine
                 className="slide-title"
                 data-testid="slide-title"
-                ref={titleHostRef}
+                fontSize={tokens.titleFontSize}
                 style={{
-                  ...position,
+                  ...absoluteStyle(rect),
                   color: titleColor,
                   fontFamily: theme.headingFontFamily,
-                  fontSize: tokens.titleFontSize,
                   lineHeight: TITLE_LINE_HEIGHT,
                   textShadow: textShadowFor(colors.background),
                 }}
                 data-fit-scroll=""
                 data-fit-axis="x"
+                marker={(box) => <ShrunkZoneMarker stageScale={scale || 1} width={box.width} height={box.height} />}
               >
                 {slide.title && mode === 'content' && canTypeIn(textEditing, TITLE_NODE_ID) ? (
                   <RichTextEditor
@@ -767,8 +750,6 @@ export function EditorStage({
                     variant="title"
                     placeholder="Slidetittel"
                     takeCaret={caret?.nodeId === TITLE_NODE_ID}
-                    overflowMessage="Overskriften får ikke plass i tittelsonen."
-                    measureOverflow={() => titleOverflow(titleHostRef.current)}
                     onEditorReady={(editor) => {
                       titleEditorRef.current = editor
                       if (!editor && useActiveEditor.getState().editor === editor) {
@@ -781,15 +762,6 @@ export function EditorStage({
                       setActiveEditor(titleEditorRef.current)
                       setActiveField({ nodeId: TITLE_NODE_ID, subfieldId: null, kind: 'slide-title' })
                     }}
-                    validateDoc={(next, previous) =>
-                      docEditRenumberProblem({
-                        slideId: slide.id,
-                        nodeId: TITLE_NODE_ID,
-                        previousDoc: previous,
-                        nextDoc: next,
-                        commit: (presentation, doc) => setSlideTitle(presentation, slide.id, doc),
-                      })
-                    }
                     onChange={(doc) =>
                       run(`typing:${slide.id}:slide-title`, (presentation) =>
                         setSlideTitle(presentation, slide.id, doc),
@@ -799,7 +771,7 @@ export function EditorStage({
                 ) : (
                   slide.title && <RichDocView doc={slide.title} className="rich-doc--title" field="title" />
                 )}
-              </div>
+              </TitleFitLine>
             )}
             renderLeaf={(leaf, rect) => (
               <ZoneDropZone nodeId={leaf.id} acceptable={dropTargets.has(leaf.id)}>
@@ -822,7 +794,7 @@ export function EditorStage({
                     width={rect.width}
                     height={rect.height}
                     onScale={(fit) => reportScale(leaf.id, fit)}
-                    marker={<ShrunkZoneMarker stageScale={scale || 1} width={rect.width} height={rect.height} />}
+                    marker={(box) => <ShrunkZoneMarker stageScale={scale || 1} width={box.width} height={box.height} />}
                   >
                     {mode === 'zone' ? (
                       /* Zone mode draws content statically — there is no

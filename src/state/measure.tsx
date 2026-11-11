@@ -25,12 +25,11 @@ import {
   type FitResult,
   type TitleFitChecker,
 } from '../domain/fit'
-import { nodeIdOfKey } from '../domain/commands/fitGuard'
-import { fitContextFor, pageOverflow, type StructuralOptions } from '../domain/commands'
+import type { StructuralOptions } from '../domain/commands'
 import { useUserSettings } from './userSettings'
-import { FIT_TOLERANCE, TITLE_LINE_HEIGHT } from '../domain/constants'
+import { TITLE_LINE_HEIGHT } from '../domain/constants'
 import { themeMetrics } from '../domain/metrics'
-import type { Presentation, Rect, TitleDoc, ZoneContent } from '../domain/types'
+import type { Rect, TitleDoc, ZoneContent } from '../domain/types'
 import { AssetSourceProvider } from './assetSource'
 import { repositoryAssetSource } from './assetSources'
 import { SlideRenderProvider } from '../ui/slide/SlideRenderContext'
@@ -195,13 +194,16 @@ export function measureTitleFit(
 }
 
 /**
- * The checkers every editor command is given.
+ * De ekte målingene i nettleseren, som én bunt.
+ *
+ * Brukes der editoren trenger å vite hva som får plass i normal størrelse –
+ * den myke grensen et drag holdes ved (`softLimitDrag.ts`), og om et steg i et
+ * drag fortsatt får plass. En persons kommandoer kjøres derimot uten
+ * fit-sjekker (`HUMAN_EDIT` i `domain/commands/manualLayout.ts`): det som ikke
+ * får plass, tegnes mindre i stedet for å avvises.
  *
  * One bundle rather than two loose arguments, so no call site can validate zone
- * content but silently skip slide titles. The domain commands close over
- * nothing: they are handed the prospective render context at call time, which
- * is what lets a font change or a renumbering be validated before it is
- * committed.
+ * content but silently skip slide titles.
  */
 export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitle' | 'citationStyle'>> = {
   fits: measureContentFit satisfies ContentFitChecker,
@@ -209,31 +211,4 @@ export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitl
   get citationStyle() {
     return useUserSettings.getState().citationStyle
   },
-}
-
-/**
- * How many places in the whole deck currently clip their content, measured for
- * real: every zone, every slide title, and both lines of every section.
- *
- * This is the after-the-fact half of the fit rule: commands refuse changes that
- * would hide content, but some things — a web font swapping in, an image
- * finishing its download, a document written before the rule existed — are not
- * commands at all. Sections are in the count for exactly that reason: a font
- * that arrives wider than the one it replaced clips a section heading the same
- * way it clips a slide title. One offscreen render per place, so this is used
- * deliberately rather than on every keystroke.
- */
-export function overflowingCount(presentation: Presentation): number {
-  const context = fitContextFor(presentation, domFitCheckers.citationStyle)
-  const places = new Set<string>()
-  for (const slide of presentation.slides) {
-    // Which kind is measured how is `pageOverflow`'s decision, not this file's.
-    for (const [key, overflow] of pageOverflow(slide, context, domFitCheckers)) {
-      // Counted per *zone* rather than per region: what the status bar offers
-      // is somewhere to go and look, and a card whose header and body are both
-      // full is one place to look, not two.
-      if (overflow > FIT_TOLERANCE) places.add(`${slide.id}:${nodeIdOfKey(key)}`)
-    }
-  }
-  return places.size
 }

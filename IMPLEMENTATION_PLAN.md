@@ -300,23 +300,31 @@ En sone med innhold har to grenser, og de betyr forskjellige ting
   person som drar, er den en magnetisk grense som kan overvinnes (§11.5,
   «Den myke grensen under dra»).
 
-Bare en person kan lagre en sone under den myke grensen, på to måter: ved å
-gjøre sonen mindre, eller ved å skrive eller lime inn mer tekst i den enn det er
-plass til (§17, «Skriving i en sone»). Størrelsesendringen gjelder alle måter
-en person endrer forholdene i en deling på: dra, størrelsesknappene i
-inspektøren, forholdene og «Fordel likt» i sonemenyen, og forholdstallene i
-«Rediger deling» når retning og antall soner er uendret (ny retning eller nytt
-antall er en ny struktur og holdes til fit-regelen). Ellers kunne en sone som
-allerede er forminsket, få mer plass, men aldri gi den tilbake. Den har én
-inngang: `src/domain/commands/manualLayout.ts`
-(`setSplitWeightsByHand`, `rearrangeZonesByHand`). Den kaller de samme
-kommandoene som alle andre, men uten fit-målerne — slik at fit-regresjon ikke
-vurderes, mens hard minstegrense, kvantisering, strukturregler og luftregelen
-gjelder uendret. Modulen er ikke eksportert fra `commands/index.ts`, og
-`manualLayout.boundary.test.ts` feiler hvis noe utenfor `src/ui/editor/`
-importerer den. Det finnes ingen API-parameter som slår av fit-regelen:
-agentoperasjonene har strikte inndataskjemaer, sender alltid fit-målerne
-(`structuralOptions`), og en ukjent nøkkel som `allowOverflow` avvises.
+**En person nektes aldri en endring fordi innholdet ikke får plass.** Bare en
+person kan lagre innhold under den myke grensen, og en person kan gjøre det på
+alle måter: dra eller skrive en sone mindre, skrive eller lime inn mer tekst
+enn det er plass til (§17, «Skriving i en sone»), velge en annen font, mer
+luft, større skriftstørrelse eller et annet kortutseende i temadialogen,
+plassere innhold fra sandkassen eller flytte, kopiere og lime inn innhold i en
+for liten sone, dele en sone eller endre en deling (retning, antall,
+forholdstall), legge til delfelt, bytte innholdstype, legge til en bildetekst,
+slå på slidetittelen igjen, gi en slidetittel eller en inndelingsside en lengre
+tekst, og flytte slides eller sitere slik at citation-numre et annet sted blir
+bredere. Det som ikke lenger får plass i normal størrelse, tegnes mindre og
+merkes (§17, «Forminsket visning»); ingenting skjules og ingenting avvises.
+
+Alt dette har én inngang: `src/domain/commands/manualLayout.ts`. `HUMAN_EDIT`
+er valgene hver kommando i grensesnittet kjøres med, og
+`setSplitWeightsByHand`, `rearrangeZonesByHand` og `setBodyWeightsByHand` er
+geometrikommandoene for drag og størrelsesknapper. Kommandoene er de samme som
+alle andre bruker, men uten fit-målerne — slik at verken plassering eller
+fit-regresjon vurderes, mens hard minstegrense, kvantisering, strukturregler og
+luftregelen gjelder uendret. Modulen er ikke eksportert fra
+`commands/index.ts`, og `manualLayout.boundary.test.ts` feiler hvis noe utenfor
+`src/ui/` importerer den. Det finnes ingen API-parameter som slår av
+fit-regelen: agentoperasjonene har strikte inndataskjemaer, sender alltid
+fit-målerne (`structuralOptions`), og en ukjent nøkkel som `allowOverflow`
+avvises.
 
 En sone en person har gjort for liten, er fortsatt ugyldig sett fra agenten:
 `inspect_slide` melder `fits: false`, `validate_slide` melder
@@ -2448,8 +2456,8 @@ ta (`cardTitleInset`). Renderer, estimator og bildebrief leser de samme
 tallene. Minstemålet for et kort (`contentSize.ts`) avhenger bevisst *ikke*
 av utseendet, så et bytte kan aldri gjøre en sone ulovlig liten. Tekst et
 bytte gir for lite plass tegnes forminsket, akkurat som i en sone en person
-har dratt liten (§ «Forminsket visning»): en person som velger utseende i
-temadialogen får det alltid (`setCardLookByHand`), mens agentens `set_theme`
+har dratt liten (§ «Forminsket visning»): en person som endrer noe i
+temadialogen får det alltid (`HUMAN_EDIT`), mens agentens `set_theme`
 måler dekket og avviser.
 
 **Skygger** kan slås av for hele dekket (`boxShadows`). Det gjelder alle
@@ -2568,17 +2576,13 @@ beholder den.
 
 ## 15\. Presentasjonstema
 
-Når en ny presentasjon opprettes velges:
-
-1. tittel;
-2. bakgrunnsfargen dekket starter i;
-3. font for titler/overskrifter;
-4. font for brødtekst.
+Når en ny presentasjon opprettes, spørres det bare om **tittelen**. Dekket
+lages med gjeldende standardtema, og temaeditoren åpnes straks over det – se
+§ 15.1. Fonter, luft, skriftstørrelse, kortutseende og forsidens to farger
+velges der, i den samme editoren som **Presentasjon → Tema** åpner.
 
 Fontene gjelder globalt i presentasjonen. Bakgrunnsfargen gjør det ikke: den
-settes på forsiden og arves av slidene fram til neste seksjon – se §8.5. Å lage
-et dekk er nettopp øyeblikket der det bare finnes én seksjon, og derfor er ett
-fargevalg fortsatt riktig spørsmål å stille her.
+settes på forsiden og arves av slidene fram til neste seksjon – se §8.5.
 
 Det skal ikke være mulig å få tilfeldig fontmiks per slide.
 
@@ -2651,6 +2655,230 @@ agentkontraktens publiserte fontenum leses ut av den.
 Temaet kan lagres som standard for nye presentasjoner. Det er en lokal
 preferanse (localStorage, som vindusgeometri), ikke presentasjonsdata, og
 valideres på vei ut igjen.
+Denne lokale standarden erstattes av temamaler (§ 15.4, etappe 4): et menneske
+skal ikke møte to konkurrerende måter å si «slik starter mine dekk» på.
+
+---
+
+## 15.1\. Opprettelse og temaeditoren
+
+**Én editor.** Temaeditoren (`ThemeModal`) er den samme komponenten uansett hvor
+den åpnes fra: rett etter at et dekk er opprettet, og fra **Presentasjon → Tema**.
+Det finnes ingen egen «ny presentasjon»-variant av den.
+
+**Opprettelse er tittel og ingenting annet.** Dialogen for ny presentasjon har
+tittelfeltet, **Avbryt** og **Opprett**. **Opprett** gjør tre ting i rekkefølge:
+
+1. lager dekket med `createDeck` i gjeldende standardtema og standardfargene
+   (`DEFAULT_BACKGROUND_COLOR`, `DEFAULT_PILL_COLOR`) og lagrer det;
+2. åpner det i editoren;
+3. åpner temaeditoren over det.
+
+Dekket finnes fra trinn 1. Å lukke temaeditoren – med **Ferdig**, Escape eller
+krysset – er å beholde dekket slik det er, aldri å angre opprettelsen. Hver
+endring i temaeditoren er en vanlig, angrebar dokumentendring, akkurat som når
+den åpnes fra menyen.
+
+**Forsidens farger.** Temaeditoren har en liten del med forsidens
+bakgrunnsfarge og aksentfarge. De er *forsidens* (`slides[0]`), ikke nye globale
+farger: kontrollene kjører de samme kommandoene som forsidens egenskapspanel
+(`setSectionBackgroundColor`, `setSectionAccentColor`), og senere inndelinger
+beholder sine egne farger. Modellen i § 8.5 er uendret.
+
+**Forhåndsvisningen er den ekte rendreren.** Temaeditoren viser en
+miniatyrkomposisjon tegnet med de samme komponentene som stage, miniatyrbilder,
+presentasjonsmodus og headless rendering bruker (`SlideView` med
+`ZoneContentView` og `ZoneFitBox`), aldri en løs etterligning. Komposisjonen er
+en vanlig innholdsslide uten tittelsone og uten fremdriftsindikator, bygd av
+domenets egne fabrikker:
+
+- **venstre:** et kort med tittel, tittel «Tittel», innhold først en aksent
+  «Aksent» og så brødteksten «Slik ser brødtekst ut.»;
+- **høyre:** en sone delt i to – øverst en beholder med «Her er mer
+  brødtekst.», nederst et kort uten tittel med «Og her er atter mer
+  brødtekst.».
+
+All tekst er midtstilt både vannrett (`textAlign: 'center'`) og loddrett
+(`verticalAlign: 'middle'`). Komposisjonen tegnes i dekkets gjeldende tema og
+forsidens farger, så fonter, størrelser, luft, skygger, aksentformatering og
+kortutseende er nøyaktig det slidene får. Den ligger i en `BoundedPreview`, så
+den alltid er helt synlig i et avgrenset område – den krymper med dialogen og
+scroller eller klippes aldri. Tekst som ikke får plass i normal størrelse
+forminskes av `ZoneFitBox` slik den ville blitt på en slide; forhåndsvisningen
+viser ikke den oransje markeringen, som er redigeringshjelp og ikke resultat.
+
+Komposisjonen lagres aldri og er ikke en del av dokumentet.
+
+---
+
+## 15.2\. Logo
+
+En presentasjon kan ha **én logo**, og den er en del av temaet:
+
+```ts
+type LogoSectionVisibility = 'none' | 'front' | 'all'
+type LogoSectionPlacement = 'above' | 'below'
+type LogoSlidePosition =
+  | 'top-left' | 'top' | 'top-right'
+  | 'left' | 'right'
+  | 'bottom-left' | 'bottom' | 'bottom-right'
+
+type ThemeLogo = {
+  assetId: string
+  sections: { visibility: LogoSectionVisibility; placement: LogoSectionPlacement; height: number }
+  slides: { visible: boolean; position: LogoSlidePosition; height: number }
+}
+
+type PresentationTheme = {
+  // … som før
+  /** Fraværende betyr ingen logo. */
+  logo?: ThemeLogo
+}
+```
+
+`logo` er valgfri, slik at et dekk uten logo er byte-identisk med et dekk fra før
+feltet fantes, og gamle presentasjoner tegnes uten noen synlig endring.
+
+### Filen
+
+- Opplasting går gjennom `assetIngress` og SVG-rensingen, nøyaktig som et bilde i
+  en sone. De samme formatene er tillatt, også SVG. Det finnes ingen egen eller
+  svakere vei inn.
+- Filen er en vanlig `AssetRef` i `presentation.assets`. Proporsjonene er filens
+  `width`/`height` og endres aldri; bare **én** størrelse lagres per gruppe
+  (`height`, i logiske enheter), og bredden følger av forholdet.
+- Logoen er et asset-*bruk* på lik linje med en sone. Én funksjon
+  (`themeAssetIds`) sier hvilke filer temaet bruker, og de sentrale
+  traverseringene leser den: `usedAssetIds` (og dermed opprydding av ubrukte
+  filer), `slideAssetIds`-baserte utvalg for publiserte snapshots og
+  `pageAssetIds` for headless rendering, `remapAssetIds` ved import, duplisering
+  og innliming. Ingen av dem får en egen, parallell logovei.
+
+### To grupper innstillinger
+
+**Inndelinger** (forsiden og senere inndelinger): visning `none` / `front`
+(bare forsiden) / `all`, og plassering over eller under overskriften. Logoen er
+alltid vannrett midtstilt.
+
+- *Over:* logoens sentrum ligger midt mellom slidens øvre kant og overskriftens
+  øvre kant.
+- *Under:* sentrum ligger midt mellom slidens nedre kant (eller oversiden av
+  fremdriftsindikatoren der den vises) og underkanten av overskriften – eller av
+  underoverskriften når den er i bruk.
+- Overskrift og underoverskrift flyttes aldri av logoen.
+
+**Vanlige slides** (innholdsslides og miniapper): av/på og én av åtte
+plasseringer.
+
+- *Øverst* (venstre, midt, høyre): en vannrett stripe reserveres øverst. Tittel
+  og hovedsone flyttes ned, og hovedsonen blir lavere.
+- *Venstre/høyre, loddrett midtstilt:* tittelen står der den står; bare
+  hovedsonens bredde og plassering endres.
+- *Nederst* (venstre, midt, høyre): en stripe reserveres mellom hovedsonen og
+  fremdriftsindikatoren. Tittelen påvirkes ikke, og indikatoren flyttes eller
+  overlappes aldri.
+- Slides uten tittel følger de samme reglene; stripen øverst tar da plassen fra
+  hovedsonen alene.
+- Reservert plass følger ett-gap-regelen: én global luft mellom logoen og det
+  den står ved siden av, og slideinnrykket mot kanten.
+
+### Geometri
+
+All logogeometri beregnes i domenet, deterministisk og i 1600 × 900:
+`src/domain/logo.ts` beregner logoens rektangel og reservasjonen, og
+`computeSlideGeometry` / `computeSectionGeometry` tar reservasjonen inn via sine
+`GeometryOptions`. Det finnes ikke noe eget system for sonegeometri eller
+teksttilpasning ved siden av.
+
+Logoen skal aldri gå utenfor sliden, overlappe overskrift, underoverskrift eller
+fremdriftsindikator, eller gjøre hovedsonens geometri ugyldig.
+
+**Én størrelse per gruppe.** Alle inndelinger som omfattes deler én størrelse og
+plassering, og alle vanlige slides deler én. Største lovlige størrelse beregnes
+derfor på tvers av **alle** berørte slides (`maxLogoHeight(presentation, group)`),
+ikke bare den som vises: den er den minste av hver enkelt slides grense.
+Grensen for en vanlig slide er det som lar hovedsonens tre fortsatt oppfylle
+**hard** minimumsstørrelse (§ 7); tekst som da ikke får plass i normal størrelse
+forminskes med de eksisterende mekanismene (§ 7 og § 17: en person nektes aldri en endring fordi innholdet ikke får plass).
+En agent måles strengt som før.
+
+En lagret størrelse er et ønske; det som tegnes er `min(lagret, største lovlige)`.
+Når innholdet senere endres – en underoverskrift legges til, en tittelsone slås
+på – tegnes logoen derfor mindre i stedet for å overlappe, uten at dokumentet
+skrives om.
+
+Logoen tegnes overalt et dekk tegnes: editor, miniatyrbilder,
+presentasjonsmodus, delte presentasjoner og headless forhåndsvisning. Håndtak
+vises bare i editoren.
+
+---
+
+## 15.3\. Direkte manipulering av logoen
+
+- **Flytte:** logoen dras i stage, men slippes aldri fritt. Pekerens posisjon
+  velger den nærmeste lovlige plasseringen; med en liten hysterese, så den ikke
+  hopper fram og tilbake nær grensen mellom to. Logoen, tittelen og hovedsonen
+  animerer kort og samtidig til ny plassering.
+- **Størrelse:** håndtak i kanter og hjørner. Bort fra sentrum forstørrer, mot
+  sentrum forminsker, forholdet bevares, og forstørring stopper ved største
+  lovlige størrelse.
+- Under dra vises en forhåndsvisning uten lagrede dokumentendringer. Slipp er
+  **én** angrebar operasjon; avbrutt dra (Escape, tap av peker) tilbakestiller.
+- Draget bruker `@dnd-kit/core`-oppsettet editoren allerede har, og tar hensyn til
+  stageskalering og eksisterende dra-operasjoner.
+- En endring på én inndeling gjelder alle inndelinger som omfattes; en endring
+  på en vanlig slide gjelder alle vanlige slides.
+- Temaeditoren tilbyr de samme plasserings- og størrelsesvalgene, så alt kan
+  gjøres uten å dra.
+
+---
+
+## 15.4\. Temamaler
+
+En **temamal** er en egen maltype, adskilt fra layoutmalene (§ 29,
+`slaids_templates`). Den er et uavhengig øyeblikksbilde av:
+
+1. alle innstillingene i temaeditoren;
+2. forsidens bakgrunnsfarge og aksentfarge;
+3. logofilen med alle innstillinger for visning, plassering og størrelse.
+
+Den inneholder aldri tekst, slides eller sonetrær.
+
+**Mine maler og Delte maler.** En mal er enten privat (bare eieren ser, bruker og
+sletter den) eller delt (alle aktive Slaids-brukere ser og bruker den; alle aktive
+brukere kan opprette delte maler; bare den som opprettet en mal kan endre eller
+slette den).
+
+**Lagring.** Egne tabeller med `slaids_`-prefiks (`slaids_theme_templates`) og et
+eget, privat Storage-område for logoer i maler. RLS bygger på Supabase Auth og
+`slaids_is_active_user()` (§ 43.1). Ingen bildefil lagres som base64 i malens
+JSON. I lokal modus (Dexie) finnes den samme modellen i egne tabeller. Ingen
+andre appers objekter i det delte Supabase-prosjektet berøres.
+
+**Bruk av mal.** Temaeditoren viser Mine maler og Delte maler med en enkel
+forhåndsvisning, lar brukeren bruke en mal, lagre gjeldende tema som ny mal (navn
+og synlighet) og slette egne maler – uten et stort kontrollpanel.
+
+- Å bruke en mal er én angrebar operasjon som setter temaet, forsidens to farger
+  og logoen.
+- Logoen **kopieres inn i presentasjonens eget fillager** og får sin egen
+  `AssetRef`. Kopien går gjennom `assetIngress` og eksisterende deduplisering, og
+  presentasjonen virker videre selv om malen eller presentasjonen malen ble laget
+  fra, slettes. En operasjon som feiler halvveis rulles tilbake.
+- En senere endring i en mal endrer aldri eksisterende presentasjoner.
+
+**Standard for nye presentasjoner.** «Bruk som standard for nye presentasjoner»
+blir et valg på en mal, ikke en egen mekanisme ved siden av: brukeren peker ut én
+mal som standard (lagret per bruker, ikke i nettleseren), og et nytt dekk starter
+i den. Et tema som allerede er lagret som lokal standard, fortsetter å virke til
+brukeren velger en mal – bakoverkompatibelt, og uten at to standarder kan gjelde
+samtidig.
+
+**Agent-API.** Temaets felt eksponeres for agentene gjennom de samme kontraktene
+som i dag (`set_theme`, `get_presentation`); nye felt og operasjoner (logo, maler)
+legges til i Agent Core først og speiles i REST og MCP, med de samme reglene som
+editoren. Hver PR sier eksplisitt om ChatGPTs Slaids Dev MCP-tilkobling må
+oppdateres.
 
 ---
 
@@ -2856,8 +3084,8 @@ i gapet. Sliden klipper: en skygge kan havne i gapet, aldri utenfor sliden.
 
 ### Forminsket visning: når en person har gjort sonen for liten
 
-En sone en person har dratt under innholdets myke minstegrense (§7), eller
-skrevet mer i enn det er plass til, tegnes med
+En sone en person har gjort for liten eller for full for innholdet sitt (§7,
+«Hard og myk minstegrense»), tegnes med
 innholdet forminsket, slik at alt fortsatt er synlig innenfor sonen
 (`src/ui/slide/ZoneFitBox.tsx`). Innholdet legges ut i en boks `1/s` ganger
 sonen og tegnes skalert ned med `s`, der `s` er den største skalaen der alt får
@@ -2866,15 +3094,19 @@ sammen — skrift, avstander, lister, tabeller, referanser, padding, bildetekst 
 fordi det er tegningen som skaleres, ikke en liste over størrelser.
 Det finnes ingen nedre skriftgrense ut over den harde minstegrensen for sonen.
 
-- Unntaket er tittelen på et kort med tittel. Den er én linje i en header med
-  fast høyde, så den kan få plass alene: en for lang tittel settes i mindre
-  skrift for seg (`fitCardTitles`), innenfor headerens polstring så luften er
-  lik på begge sider, og resten av sonen beholder sin størrelse. Skalaen for
-  resten av sonen regnes uten tittelen; tittelen tilpasses etterpå i boksen
-  sonen faktisk tegnes i.
-- Gapet under en svevende korttittel er et layoutgap, ikke innhold, og er like
-  stort på skjermen uansett hvor mye sonen er forminsket
-  (`--slaids-zone-fit`).
+- Et kort med tittel har to felt som forminskes helt hver for seg. Tittelen er
+  én linje i en header med fast høyde: en for lang tittel settes i mindre
+  skrift for seg (`fitTitleLines`), innenfor headerens polstring så luften er
+  lik på begge sider. Innholdet under er sitt eget område (`data-fit-region`,
+  `fitTarget`): tekst som ikke får plass, tegnes mindre der, mens headeren,
+  tittelen, kortets polstring og gapet under en svevende tittel beholder sin
+  størrelse. Det ene feltet påvirker aldri det andre.
+- Tittellinjer utenfor sonene — slidetittelen og de to linjene på en
+  inndelingsside, også forsiden — følger samme regel som en korttittel: en
+  linje for lang for boksen sin settes i mindre skrift (`fitTitleLines` i
+  `src/ui/slide/titleFit.ts`, via `TitleFitLine`). Boksen beholder høyde,
+  polstring og plass; bare skriften krymper. Variabelen er den samme,
+  `--slaids-title-fit`.
 
 - Lagret skriftstørrelse og tema endres ikke. Skalaen er ikke lagret; den
   avledes av innhold og geometri hver gang, og forsvinner av seg selv når sonen
@@ -2888,19 +3120,19 @@ Det finnes ingen nedre skriftgrense ut over den harde minstegrensen for sonen.
   som får plass. Agentens PNG-forhåndsvisning (`src/render/`) er statisk markup
   uten effekter; rasteriseringen kjører derfor det samme søket i siden før
   skjermbildet (`fitShrunkZones`, med appens egen `measureOverflowParts`,
-  `drawZoneFit` og `fitCardTitles`), så agenten ser sonen slik personen ser den. Forhåndsvisningen
+  `drawZoneFit`, `fitTarget` og `fitTitleLines`), så agenten ser sonen og
+  tittellinjene slik personen ser dem. Forhåndsvisningen
   er bare et bilde: `inspect_slide`/`validate_slide` svarer fortsatt fra
   normal størrelse og melder at innholdet ikke får plass.
-- I redigeringsmodusene (sone og innhold) markeres sonen med en diskret oransje
-  stiplet kant og et lite varselmerke der det er plass
-  (`ShrunkZoneMarker`). Markeringen tar ingen peker, ligner ikke valgmarkeringen
+- I redigeringsmodusene (sone og innhold) markeres det som er forminsket med en
+  diskret oransje stiplet kant og et lite varselmerke der det er plass
+  (`ShrunkZoneMarker`): hele sonen, i et kort med tittel bare tittelen
+  eller bare innholdet, og en slidetittel eller pille på en inndelingsside som
+  er satt mindre. Markeringen tar ingen peker, ligner ikke valgmarkeringen
   og vises aldri i presentasjon eller eksport. Inspektøren forklarer den for valgt
   sone: «Innholdet er automatisk forminsket. Gjør sonen større for å gjenopprette
   normal skriftstørrelse.», og tilbyr å vise bare den sonen forstørret for
   redigering — den samme fokuserte visningen en kompakt arbeidsflate skriver i.
-- Skriving i en forminsket sone holdes til normal størrelse som ellers: et
-  tegn for et tegn, sletting og omformulering går; mer tekst avvises med en
-  melding om å gjøre sonen større.
 
 ### Semantisk fit
 
@@ -2964,17 +3196,12 @@ korttittel, bildetekst) avviser aldri tekst fordi den ikke får plass. Skriver
 eller limer en person inn mer enn sonen rommer i normal skriftstørrelse, tas
 alt imot, og sonen tegner innholdet forminsket til alt får plass (se
 «Forminsket visning» over). Lagret skriftstørrelse og tema endres ikke; angres
-eller kortes teksten ned, er normal størrelse tilbake av seg selv. Feltene måler
-derfor ingen overflyt (`EditableZoneContent` gir ingen `measureOverflow`). Det
-eneste som fortsatt kan avvise en endring der, er konsekvenser for *andre*
-soner: en citation som omnummererer et dekk så innhold et annet sted ikke får
-plass (`docEditRenumberProblem`). Agenter er uendret: `set_zone_text` og de
-andre operasjonene holdes til fit-regelen.
-
-Felter utenfor en sone — slidetittelen og en inndelingsside — tegnes ikke
-forminsket, og der bruker typing-valideringen samme regel som kommandoene
-(`isOverflowRegression`): en endring som gjør en overflyt verre, rulles
-tilbake; en som lar den være som den var eller gjør den mindre, godtas.
+eller kortes teksten ned, er normal størrelse tilbake av seg selv. Det samme
+gjelder felter utenfor en sone — slidetittelen og linjene på en inndelingsside
+— som settes i mindre skrift (se «Forminsket visning»), og andre soner som får
+bredere citation-numre fordi en citation endret nummereringen: de tegnes mindre.
+Ingen tekstfelt måler derfor overflyt eller ruller tilbake. Agenter er uendret:
+`set_zone_text` og de andre operasjonene holdes til fit-regelen.
 
 ---
 
@@ -3508,6 +3735,14 @@ Hvis referanselisten ikke får plass ved definert minimumsfont:
 
 - generer flere referenceslides;
 - ikke krymp teksten vilkårlig.
+
+### Oppslag med DOI eller PubMed-ID
+
+Innliming av en DOI eller PubMed-ID i oppslagsfeltet i referansedialogen henter
+tittel, forfattere, år og lenke som et redigerbart utkast. Oppslaget bruker
+Crossref og DataCite for DOI, og Europe PMC for PubMed-ID. Oppslagstjenesten får
+identifikatoren uten resten av referanseutkastet. Feltene kan også fylles ut manuelt.
+Referansen opprettes først når brukeren lagrer utkastet.
 
 ---
 
@@ -7248,8 +7483,7 @@ det logiske 1600 × 900-rommet, med dekkets typografi og citation-nummerering,
 gjennom den samme offscreen-måleren kommandoene bruker. At det fokuserte feltet
 er tegnet større endrer ingenting: visningen er en transform, og målingen skjer
 i layout, ikke på skjermen. Mer tekst enn sonen rommer tas imot og tegnes
-forminsket, som på stagen (§17, «Skriving i en sone»); i en slidetittel rulles
-den tilbake med samme melding som på stagen.
+forminsket, som på stagen (§17, «Skriving i en sone»), også i en slidetittel.
 
 **Konsekvens som må kjennes:** en sone som er bred i det logiske rommet tegnes
 ikke stor på en smal skjerm, fordi fokuseringen er en uniform skalering av den

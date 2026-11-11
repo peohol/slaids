@@ -1,52 +1,51 @@
 /**
- * The one way a zone may become smaller than its content needs: by hand.
+ * Det en person gjør i editoren: aldri avvist fordi innholdet ikke får plass.
  *
- * Every layout command refuses a change that leaves content showing less of
- * itself than it did (`guardFit`). That is the rule an agent works under, and
- * it stays the rule: an agent asked to shrink a zone past the size its text
- * fits in at normal type is refused, whatever it calls. A person dragging a
- * zone is doing something else — arranging a slide by eye — and for that the
- * same rule is a wall in the middle of the gesture. So a person's resize may
- * go below the content's **soft** minimum, where the text fits at normal size,
- * down to its **hard** minimum, where the kind of content can still be drawn
- * at all (see `domain/softSize.ts`). In between, the renderer draws the
- * content smaller rather than hiding any of it, and the editor marks the zone.
+ * Hver kommando kan måle om innholdet fortsatt får plass i normal størrelse
+ * (`guardFit` og plasseringskontrollene), og gjør det når den får fit-sjekkene
+ * (`StructuralOptions.fits` / `fitsTitle`). En agent får dem alltid
+ * (`agent/presentation.ts`, `structuralOptions`), og det er regelen agenten
+ * jobber under: en endring som gjør at tekst ikke lenger får plass i normal
+ * størrelse, avvises. Slik kan ikke en agent fylle soner med tekst uten å se
+ * hvordan det blir seende ut.
  *
- * What this module is, exactly:
+ * En person som redigerer, ser resultatet mens det skjer, og skal aldri
+ * nektes en endring fordi teksten blir for stor for plassen – enten det er et
+ * sonedrag, et nytt tema (font, luft, skriftstørrelse), innhold plassert fra
+ * sandkassen, en ny deling, en lengre tittel eller noe annet. Innhold som ikke
+ * får plass i normal størrelse, tegnes mindre i stedet (`ui/slide/ZoneFitBox.tsx`
+ * for soner, `ui/slide/titleFit.ts` for tittellinjer), og editoren merker hvert
+ * felt som er forminsket. Ingenting skjules.
  *
- *  - The **same** commands an agent's call runs — `setSplitWeights` and
- *    `rearrangeZones` — with the same quantisation, the same tree validation,
- *    the same hard minimum per zone (`ZONE_TOO_SMALL`), the same air rule
- *    (`NEGATIVE_SPACE_CANNOT_MERGE`). The one thing left out is the content
- *    checker, which is how a command is told not to run the fit regression
- *    (`StructuralOptions`). Nothing in those commands was loosened to make this
- *    possible.
- *  - Narrow by construction. The inputs are built field by field rather than
- *    spread, so no checker, flag or option can ride along, and only geometry
- *    commands are here: nothing that places, converts or edits content.
- *  - Én temakommando, av samme grunn: hvordan et kort med tittel tegnes og
- *    om bokser kaster skygge (`setCardLookByHand`). En skygge er bare maling
- *    og skjuler ingenting; et tittelutseende kan gi innholdet mindre plass, og
- *    en person som bytter utseende velger et uttrykk, så det som ikke lenger
- *    får plass i normal størrelse tegnes mindre i stedet for at byttet
- *    avvises. Agentens `set_theme` måler fortsatt dekket og avviser.
- *  - Delingen inni et kort eller en beholder (`setBodyWeightsByHand`): en
- *    delestrek en person drar, er det samme som en sonegrense en person drar,
- *    bare ett nivå lenger inn.
- *  - **Never reachable from an agent.** It is not re-exported from the command
- *    index, and `manualLayout.boundary.test.ts` fails if anything outside the
- *    editor UI imports it. There is no API parameter that does what this does,
- *    and there must never be one.
+ * Hva denne modulen er, nøyaktig:
+ *
+ *  - `HUMAN_EDIT`: valgene hver kommando en person utløser kjøres med – uten
+ *    fit-sjekker. Alt annet gjelder fortsatt: den harde minstestørrelsen for
+ *    hver innholdstype (`ZONE_TOO_SMALL` – der innholdet ikke kan tegnes i det
+ *    hele tatt), kvantisering, trestruktur og luftregelen.
+ *  - Tre geometrikommandoer for drag og størrelsesknapper, bygd felt for felt
+ *    så ingen sjekk kan følge med: `setSplitWeightsByHand`,
+ *    `rearrangeZonesByHand` og `setBodyWeightsByHand`.
+ *  - **Aldri tilgjengelig for en agent.** Modulen eksporteres ikke fra
+ *    kommandoindeksen, og `manualLayout.boundary.test.ts` feiler hvis noe
+ *    utenfor appens grensesnitt importerer den. Det finnes ingen API-parameter
+ *    som gjør det samme, og det skal aldri finnes en.
  */
 
 import type { GeometryOptions } from '../geometry'
 import type { Result } from '../result'
-import type { LayoutNode, NodeId, Presentation, PresentationTheme } from '../types'
+import type { LayoutNode, NodeId, Presentation } from '../types'
 import { rearrangeZones } from './arrangement'
 import { setBodyWeights } from './content'
 import { setSplitWeights } from './layout'
-import { setTheme } from './slides'
-import type { StructuralOutcome } from './types'
+import type { StructuralOptions, StructuralOutcome } from './types'
+
+/**
+ * Det en persons kommando i editoren kjøres med: ingen fit-sjekker, så tekst
+ * som ikke lenger får plass i normal størrelse tegnes mindre i stedet for at
+ * endringen avvises. Frosset, så ingen kan legge en sjekk inn i den ved et uhell.
+ */
+export const HUMAN_EDIT: Readonly<StructuralOptions> = Object.freeze({})
 
 /** What a hand-made geometry change may say about how it is measured: only the geometry. */
 export interface ManualLayoutOptions {
@@ -106,22 +105,5 @@ export function setBodyWeightsByHand(
     slideId: input.slideId,
     nodeId: input.nodeId,
     weights: input.weights,
-  })
-}
-
-/**
- * `setTheme` for de to utseendevalgene en person tar i temadialogen. Bare de
- * to feltene sendes videre, og ingen fit-sjekk: geometrien kontrolleres
- * fortsatt (`findGeometryRegression`), og den kan ingen av valgene feile,
- * fordi hvor lite et kort kan være ikke avhenger av dem
- * (`ThemeMetrics.cardBodyOffset`).
- */
-export function setCardLookByHand(
-  presentation: Presentation,
-  input: Partial<Pick<PresentationTheme, 'boxShadows' | 'titledCardStyle'>>,
-): Result<Presentation> {
-  return setTheme(presentation, {
-    ...(input.boxShadows === undefined ? {} : { boxShadows: input.boxShadows }),
-    ...(input.titledCardStyle === undefined ? {} : { titledCardStyle: input.titledCardStyle }),
   })
 }

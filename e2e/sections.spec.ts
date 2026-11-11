@@ -4,7 +4,6 @@ import {
   addContentToZone,
   createPresentation,
   stage,
-  toast,
   waitForSaved,
   watchForErrors,
   worstOverflow,
@@ -125,26 +124,77 @@ test.describe('forsiden', () => {
     expect(guard.errors).toEqual([])
   })
 
-  test('klipper aldri en linje – for lang tekst rulles tilbake', async ({ page }) => {
+  test('klipper aldri en linje – for lang tekst settes i mindre skrift og merkes', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'Lang forside')
 
     await selectPage(page, 0)
-    const title = stage(page).locator('[data-section-line="title"] .tiptap')
+    const pill = stage(page).locator('[data-section-line="title"]')
+    const title = pill.locator('.tiptap')
     await title.click()
     await page.keyboard.press('Control+a')
     await page.keyboard.press('Backspace')
 
-    // Én linje, som en tittelsone: teksten som ikke får plass skal aldri
-    // committes, og pillen skal aldri ende opp med noe skjult i seg.
+    // Én linje, som en tittelsone: alt som skrives tas imot, og linjen settes
+    // mindre til den får plass – pillen ender aldri opp med noe skjult i seg.
+    const line = 'En veldig lang forsidetittel '
     for (let i = 0; i < 12; i += 1) {
-      await page.keyboard.insertText('En veldig lang forsidetittel ')
+      await page.keyboard.insertText(line)
       await page.waitForTimeout(60)
     }
-    await page.waitForTimeout(400)
-
-    await expect(toast(page, 'Overskriften får ikke plass på inndelingssliden.')).toHaveCount(1)
+    await expect(title).toHaveText(line.repeat(12).trim())
+    await expect(pill).toHaveAttribute('data-title-fit', /^0\.\d+$/)
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(1)
     expect(await worstOverflow(page)).toBeLessThan(1)
+
+    // Kortet ned igjen er linjen tilbake i normal størrelse, uten merke.
+    await page.keyboard.press('Control+a')
+    await page.keyboard.insertText('Kort')
+    await expect(pill).not.toHaveAttribute('data-title-fit')
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(0)
+
+    expect(guard.errors).toEqual([])
+  })
+
+  test('merker bare en linje som faktisk er satt mindre, og merket står på pillen', { tag: '@pr' }, async ({ page }) => {
+    const guard = watchForErrors(page)
+    await createPresentation(page, 'Merke')
+    await addPage(page, 'section')
+    await page.getByTestId('section-title-input').fill('En overskrift som er altfor lang til å få plass på én linje i pillen sin')
+    await page.getByTestId('create-section').click()
+    await expect(sectionStage(page)).toBeVisible()
+
+    // Overskriften får ikke plass og er merket; den tomme underoverskriften,
+    // som bare viser plassholderen sin, er ikke det.
+    const title = stage(page).locator('[data-section-line="title"]')
+    const subtitle = stage(page).locator('[data-section-line="subtitle"]')
+    await expect(title).toHaveAttribute('data-title-fit', /^0\.\d+$/)
+    await expect(subtitle).not.toHaveAttribute('data-title-fit')
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(1)
+
+    // Merket står der pillen står – også før noen har klikket i den, når
+    // linjen under kom på plass etter at overskriften ble målt.
+    const offset = await title.evaluate((pill: HTMLElement) => {
+      const mark = pill.nextElementSibling as HTMLElement
+      return Math.abs(mark.offsetTop - pill.offsetTop) + Math.abs(mark.offsetLeft - pill.offsetLeft)
+    })
+    expect(offset).toBeLessThan(1)
+
+    // En kort linje settes aldri mindre, uansett hvor mange bokstaver den
+    // har underveis: en pille er like bred som teksten sin.
+    const field = subtitle.locator('.tiptap')
+    await field.click()
+    for (const letter of 'Underoverskrift') {
+      await page.keyboard.type(letter)
+      await page.waitForTimeout(40)
+      await expect(subtitle).not.toHaveAttribute('data-title-fit')
+    }
+    for (let i = 0; i < 'Underoverskrift'.length; i += 1) {
+      await page.keyboard.press('Backspace')
+      await page.waitForTimeout(40)
+      await expect(subtitle).not.toHaveAttribute('data-title-fit')
+    }
+    await expect(stage(page).getByTestId('zone-shrunk-marker')).toHaveCount(1)
 
     expect(guard.errors).toEqual([])
   })

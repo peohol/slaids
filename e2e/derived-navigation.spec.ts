@@ -1,5 +1,16 @@
 import { expect, test } from './fixtures'
-import { addContentToZone, backToLibrary, chooseFromToolbarMenu, createPresentation, stage, zoneRects } from './helpers'
+import {
+  addContentToZone,
+  backToLibrary,
+  chooseFromToolbarMenu,
+  createPresentation,
+  drawnSmaller,
+  fillZoneToCapacity,
+  stage,
+  waitForSaved,
+  worstOverflow,
+  zoneRects,
+} from './helpers'
 
 test('scrolling reaches generated reference pages from the editor', async ({ page }) => {
   await createPresentation(page, 'Referanser med scroll')
@@ -59,12 +70,66 @@ test('bruker forfatter og år i eksisterende titler, referanseslides og visning'
   await page.reload()
 
   await expect(title.locator('.rd-citation')).toHaveText(label)
-  await expect(stage(page).locator('.zone-fit[data-fit-scale] .slide-title')).toHaveCount(1)
+  await expect(title).toHaveAttribute('data-title-fit')
   await expect.poll(() => title.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThan(2)
   await page.getByTestId('present').click()
   const player = page.getByTestId('present-view')
   await expect(player.locator('.rd-citation')).toHaveText(label)
-  await expect(player.locator('.zone-fit[data-fit-scale] .slide-title')).toHaveCount(1)
+  await expect(player.locator('.slide-title[data-title-fit]')).toHaveCount(1)
   await page.keyboard.press('ArrowRight')
   await expect(player).toContainText(`${label} — En viktig kilde`)
+})
+
+test('tillater lengre referansefelter i en full sone og viser hele innholdet forminsket', { tag: '@pr' }, async ({ page }) => {
+  await createPresentation(page, 'Rette henvisningen')
+  const [zone] = await zoneRects(page)
+  await addContentToZone(page, zone.id, 'untitled-card')
+  const field = stage(page).locator(`.slide-zone[data-node-id="${zone.id}"] .subfield .tiptap`).first()
+  await field.click()
+  await page.keyboard.insertText('Påstand med kilde ')
+  await chooseFromToolbarMenu(page, 'presentation', 'open-references')
+  const references = page.getByTestId('reference-modal')
+  await references.getByTestId('reference-title').fill('Kilden bak påstanden')
+  await references.getByLabel('Forfatter(e)').fill('Hansen')
+  await references.getByLabel('År').fill('2024')
+  await references.getByTestId('save-reference').click()
+  await references.getByRole('button', { name: 'Lukk' }).click()
+
+  await backToLibrary(page)
+  await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
+  const settings = page.getByTestId('user-settings-modal')
+  await settings.getByRole('combobox', { name: 'Henvisninger på slides' }).selectOption('author-year')
+  await settings.getByRole('button', { name: 'Lukk' }).click()
+  await page.getByTestId('open-presentation').filter({ hasText: 'Rette henvisningen' }).click()
+  await expect(field.locator('.rd-citation')).toHaveText('Hansen, 2024')
+  await fillZoneToCapacity(page, zone.id)
+  expect(await drawnSmaller(field)).toBe(false)
+  const docBefore = await field.evaluate((element) =>
+    (element as HTMLElement & { editor: { getJSON(): unknown } }).editor.getJSON(),
+  )
+
+  await field.locator('.rd-citation').click()
+  await references.getByRole('button', { name: 'Rediger referanse' }).click()
+  const author = Array.from({ length: 12 }, () => 'Forfatter med et mye lengre navn').join(' ')
+  const label = `${author}, 2025`
+  await references.getByLabel('Forfatter(e)').fill(author)
+  await references.getByLabel('År').fill('2025')
+  await references.getByTestId('save-reference').click()
+  await expect(references.getByLabel('Forfatter(e)')).toHaveValue('')
+  await references.getByRole('button', { name: 'Lukk' }).click()
+
+  await expect(field.locator('.rd-citation')).toHaveText(label)
+  await expect.poll(() => drawnSmaller(field)).toBe(true)
+  expect(await field.evaluate((element) =>
+    (element as HTMLElement & { editor: { getJSON(): unknown } }).editor.getJSON(),
+  )).toEqual(docBefore)
+  expect(await worstOverflow(page)).toBeLessThanOrEqual(1)
+  await waitForSaved(page)
+  await page.reload()
+  await expect(field.locator('.rd-citation')).toHaveText(label)
+  await expect.poll(() => drawnSmaller(field)).toBe(true)
+  await page.getByTestId('present').click()
+  const player = page.getByTestId('present-view')
+  await expect(player.locator('.rd-citation')).toHaveText(label)
+  await expect(player.locator('.slide-zone .zone-fit[data-fit-scale]')).toHaveCount(1)
 })

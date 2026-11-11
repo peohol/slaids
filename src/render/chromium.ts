@@ -42,7 +42,8 @@ import { FIT_TOLERANCE } from '../domain/constants'
 import { CARD_TITLE_PART } from '../domain/fit'
 import { fitScaleAsync } from '../domain/softSize'
 import { measureOverflowParts } from '../ui/slide/overflowParts'
-import { drawZoneFit, fitCardTitles, isZoneFitScaled } from '../ui/slide/ZoneFitBox'
+import { CARD_HEADER_SELECTOR, drawZoneFit, fitTarget, isZoneFitScaled } from '../ui/slide/ZoneFitBox'
+import { fitTitleLines, TITLE_LINE_SELECTOR } from '../ui/slide/titleFit'
 import type { RasterImage, RasterRequest, SlideRasterizer } from './rasterize'
 import { pngPixelSize } from './rasterize'
 
@@ -269,7 +270,8 @@ async function settleImages(page: Page): Promise<void> {
 interface ZoneFitHelpers {
   measure: typeof measureOverflowParts
   draw: typeof drawZoneFit
-  titles: typeof fitCardTitles
+  target: typeof fitTarget
+  titles: typeof fitTitleLines
 }
 
 /**
@@ -280,9 +282,10 @@ interface ZoneFitHelpers {
  * which a static preview document has none of. So the rasteriser does it, in
  * the page, before the picture is taken: the same search (`fitScaleAsync` is
  * `fitScale` with its measurements awaited), the same reading of the clipping
- * boxes (`measureOverflowParts`) and the same drawing (`drawZoneFit`, then
- * `fitCardTitles` for a card title too long for its header), all handed to
- * the page as the functions themselves rather than copies.
+ * boxes (`measureOverflowParts`) and the same drawing (`drawZoneFit` på det
+ * `fitTarget` sier skal forminskes, og `fitTitleLines` for en tittellinje for
+ * lang for boksen sin), all handed to the page as the functions themselves
+ * rather than copies.
  * A zone at normal size costs one measurement and is left as it is.
  *
  * Only the picture changes. Whether a zone's content fits is still answered at
@@ -298,32 +301,43 @@ export async function fitShrunkZones(page: Page): Promise<void> {
       height: parseFloat((inner as HTMLElement).style.height),
     })),
   )
-  if (zones.length === 0) return
   await page.addScriptTag({
-    content: `window.__slaidsZoneFit = { measure: ${measureOverflowParts.toString()}, draw: ${drawZoneFit.toString()}, titles: ${fitCardTitles.toString()} }`,
+    content: `window.__slaidsZoneFit = { measure: ${measureOverflowParts.toString()}, draw: ${drawZoneFit.toString()}, target: ${fitTarget.toString()}, titles: ${fitTitleLines.toString()} }`,
   })
+  // Slidetittelen og linjene på en inndelingsside: hver linje for seg, som i appen.
+  await page.evaluate((selector: string) => {
+    const helpers = (window as unknown as { __slaidsZoneFit: ZoneFitHelpers }).__slaidsZoneFit
+    helpers.titles(document.querySelectorAll<HTMLElement>(selector))
+  }, TITLE_LINE_SELECTOR)
   for (const [index, zone] of zones.entries()) {
-    const at = (scale: number, scaled: boolean, tolerance: number | null) =>
+    /*
+     * Tegn det som forminskes i sonen – hele sonen, eller innholdet i et kort
+     * med tittel – i `scale`, og svar om alt utenom korttitlene da får plass.
+     * `scale` null slipper det løs i normal størrelse. Svaret er plassen det
+     * har i normal størrelse.
+     */
+    const at = (scale: number | null, scaled: boolean, tolerance: number | null) =>
       page.evaluate(
         (
           i: number,
           width: number,
           height: number,
-          s: number,
+          s: number | null,
           isScaled: boolean,
           limit: number | null,
           titlePart: string,
         ) => {
           const helpers = (window as unknown as { __slaidsZoneFit: ZoneFitHelpers }).__slaidsZoneFit
           const inner = document.querySelectorAll<HTMLElement>('.zone-fit__inner')[i]
-          helpers.draw(inner, width, height, s, isScaled)
-          // En korttittel tilpasser seg selv etterpå, som i appen.
-          return (
+          helpers.draw(inner, width, height, 1, false)
+          const target = helpers.target(inner, width, height)
+          if (s !== null) helpers.draw(target.element, target.width, target.height, s, isScaled)
+          const fits =
             limit === null ||
             Object.entries(helpers.measure(inner)).every(
               ([part, overflow]) => part === titlePart || overflow <= limit,
             )
-          )
+          return { fits, width: target.width, height: target.height }
         },
         index,
         zone.width,
@@ -333,17 +347,23 @@ export async function fitShrunkZones(page: Page): Promise<void> {
         tolerance,
         CARD_TITLE_PART,
       )
+    const room = await at(null, false, null)
     const scale = await fitScaleAsync(
-      // A box `width` wide is the zone laid out for a scale of `zone.width / width`.
-      (width) => at(zone.width / width, false, FIT_TOLERANCE),
-      zone.width,
-      zone.height,
+      // A box `width` wide is the room laid out for a scale of `room.width / width`.
+      async (width) => (await at(room.width / width, false, FIT_TOLERANCE)).fits,
+      room.width,
+      room.height,
     )
-    if (isZoneFitScaled(scale)) await at(scale, true, null)
-    await page.evaluate((i: number) => {
-      const helpers = (window as unknown as { __slaidsZoneFit: ZoneFitHelpers }).__slaidsZoneFit
-      helpers.titles(document.querySelectorAll<HTMLElement>('.zone-fit__inner')[i])
-    }, index)
+    await at(isZoneFitScaled(scale) ? scale : null, isZoneFitScaled(scale), null)
+    // En korttittel tilpasser seg selv etterpå, som i appen.
+    await page.evaluate(
+      (i: number, selector: string) => {
+        const helpers = (window as unknown as { __slaidsZoneFit: ZoneFitHelpers }).__slaidsZoneFit
+        helpers.titles(document.querySelectorAll<HTMLElement>('.zone-fit__inner')[i].querySelectorAll<HTMLElement>(selector))
+      },
+      index,
+      CARD_HEADER_SELECTOR,
+    )
   }
 }
 
