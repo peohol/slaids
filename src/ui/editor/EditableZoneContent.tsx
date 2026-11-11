@@ -18,7 +18,7 @@ import { setCardTitle, setImageCaption, setSubfieldDoc } from '../../domain/comm
 import { isDocEmpty } from '../../domain/richdoc'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useEditorStore, type ActiveField } from '../../state/store'
-import { sameField } from './textTarget'
+import { caretFor, type CaretRequest } from './textTarget'
 import type { ImageCaption, Rect, RichDoc, ZoneContent } from '../../domain/types'
 import { ZoneContentFrame } from '../slide/ZoneContentFrame'
 import { CaptionBox } from '../slide/ImagePanelView'
@@ -57,9 +57,10 @@ export function EditableZoneContent({
    *
    * A zone is several fields — a card's title, each body field, a caption — so
    * "open this zone" is not enough to say where the caret goes. Set only where
-   * somebody named a field rather than pressed one; see `StageFocus`.
+   * somebody named a field rather than pressed one; see `StageFocus` — or
+   * where the text moved to a new zone while it was being typed in.
    */
-  caret?: ActiveField | null
+  caret?: CaretRequest | null
   /** Opens the upload dialog for a picture panel with no file in it yet. */
   onPickImage: (nodeId: string) => void
 }) {
@@ -75,7 +76,7 @@ export function EditableZoneContent({
         nodeId={nodeId}
         slideId={slideId}
         editable={editable}
-        takeCaret={editable && sameField(caret, { nodeId, subfieldId: null, kind: 'caption' })}
+        takeCaret={editable && caretFor(caret, { nodeId, subfieldId: null, kind: 'caption' })}
       />
     </CaptionBox>
   )
@@ -151,7 +152,7 @@ function CaptionEditor({
   nodeId: string
   slideId: string
   editable: boolean
-  takeCaret: boolean
+  takeCaret: boolean | number
 }) {
   const run = useEditorStore((state) => state.run)
   const setActiveField = useEditorStore((state) => state.setActiveField)
@@ -226,7 +227,7 @@ function FieldEditor({
   field: ActiveField
   editable: boolean
   /** The field that was asked for, which may or may not be this one. */
-  caret: ActiveField | null
+  caret: CaretRequest | null
   onChange: (doc: RichDoc) => void
 }) {
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
@@ -263,7 +264,7 @@ function FieldEditor({
       variant={variant}
       placeholder={placeholder}
       editable={editable}
-      takeCaret={editable && sameField(caret, field)}
+      takeCaret={editable && caretFor(caret, field)}
       onChange={onChange}
       onFocus={handleFocus}
       onEditorReady={handleReady}
