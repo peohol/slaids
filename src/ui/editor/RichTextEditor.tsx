@@ -67,8 +67,10 @@ export interface RichTextEditorProps {
    * time somebody asks for it, creating it with the caret is no longer on
    * offer. This is the same request made of an editor that already exists,
    * which is what lets the text list open one particular field.
+   *
+   * Et tall setter markøren på den posisjonen i teksten i stedet for sist.
    */
-  takeCaret?: boolean
+  takeCaret?: boolean | number
   onFocus?: () => void
   /** Used by the caption, which deletes itself when it is left empty. */
   onBlur?: () => void
@@ -160,8 +162,8 @@ export function RichTextEditor({
    * while somebody is typing somewhere else cannot pull the caret back.
    */
   useEffect(() => {
-    if (!editor || !takeCaret) return
-    editor.commands.focus('end')
+    if (!editor || takeCaret === false) return
+    editor.commands.focus(takeCaret === true ? 'end' : takeCaret)
   }, [editor, takeCaret])
 
   // Adopt external changes (undo/redo, structural commands) without clobbering
@@ -171,7 +173,18 @@ export function RichTextEditor({
     const incoming = JSON.stringify(doc)
     if (incoming === lastEmitted.current) return
     lastEmitted.current = incoming
+    const { from, to } = editor.state.selection
+    const size = editor.state.doc.content.size
     editor.commands.setContent(doc, { emitUpdate: false })
+    /*
+     * En endring som ikke flytter noe – en citation som får en annen referanse
+     * når to referanser slås sammen i bakgrunnen – skal ikke ta markøren fra
+     * den som skriver. Erstatning av hele dokumentet setter den ellers til
+     * slutten av feltet.
+     */
+    if (editor.isFocused && editor.state.doc.content.size === size) {
+      editor.commands.setTextSelection({ from, to })
+    }
   }, [doc, editor])
 
   return <EditorContent editor={editor} className={className} />

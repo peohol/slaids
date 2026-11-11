@@ -25,7 +25,7 @@ import { sectionGoverning } from '../../domain/presentation'
 import type { VerticalAlign } from '../../domain/types'
 import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { useActiveEditor } from '../../state/activeEditor'
-import { useEditorStore, type ActiveField } from '../../state/store'
+import { useEditorStore } from '../../state/store'
 import { useWorkspace } from '../workspace/WorkspaceContext'
 import { Icon } from '../components/Icon'
 import { MenuButton } from '../components/MenuButton'
@@ -37,6 +37,7 @@ import { keepFocus } from '../components/focusKeeping'
 import { pressedButton } from '../components/pressed'
 import { useScrollEdges } from '../components/scrollEdges'
 import { inheritedPill, standardLabel } from './colorInheritance'
+import { isZoneTextField } from './textTarget'
 import { inlineImageEntries, tableEntries, textEntry } from './contextMenu/textMenu'
 import { SymbolPickerButton } from './SymbolPicker'
 import {
@@ -114,11 +115,6 @@ function walkToolbar(event: KeyboardEvent<HTMLElement>): void {
   event.preventDefault()
 }
 
-/** Fields that live in a zone, and stop being the toolbar's target when another zone is selected. */
-function inZone(field: ActiveField): boolean {
-  return field.kind === 'body' || field.kind === 'card-title' || field.kind === 'caption'
-}
-
 interface TextToolbarProps {
   onInsertReference: () => void
   /** Shrink the file behind the selected inline picture; see `ImageOptimizeModal`. */
@@ -156,7 +152,7 @@ function TextToolbarBar({ onInsertReference, onOptimizeImage }: TextToolbarProps
    * zone the author is no longer looking at.
    */
   const activeField = useEditorStore((state) =>
-    state.activeField && (!inZone(state.activeField) || state.activeField.nodeId === state.selectedNodeId)
+    state.activeField && (!isZoneTextField(state.activeField) || state.activeField.nodeId === state.selectedNodeId)
       ? state.activeField
       : null,
   )

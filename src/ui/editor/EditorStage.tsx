@@ -31,7 +31,8 @@ import {
 import { rearrangeZonesByHand, setSplitWeightsByHand } from '../../domain/commands/manualLayout'
 import type { Result } from '../../domain/result'
 import { isNegativeSpace } from '../../domain/negativeSpace'
-import { useEditorStore, type ActiveField } from '../../state/store'
+import { useEditorStore } from '../../state/store'
+import type { CaretRequest } from './textTarget'
 import { useActiveEditor } from '../../state/activeEditor'
 import { useZoneScales } from '../../state/zoneScales'
 import type { MenuAnchor } from '../components/contextMenu'
@@ -208,7 +209,7 @@ export interface EditorStageProps {
    * See `StageFocus`: a press already says where in the text to write, but a
    * name chosen from a list does not, so only the second asks for this.
    */
-  caret?: ActiveField | null
+  caret?: CaretRequest | null
   /**
    * One finger that rested on the page, answered with the field under it.
    *

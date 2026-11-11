@@ -137,6 +137,17 @@ interface EditorStore {
    * is cleared, and the dialog that asked for it says so beforehand.
    */
   replaceDocument: (presentation: Presentation) => void
+  /**
+   * Fullfør noe i dokumentet uten at det blir et angresteg.
+   *
+   * For utfylling som skjer av seg selv etter at brukeren har handlet – som en
+   * referanse som hentes i bakgrunnen mens brukeren skriver videre. Endringen
+   * skrives også inn i hvert steg i angrehistorikken der den passer, så Ctrl+Z
+   * aldri viser den uferdige utgaven og aldri hopper over brukerens egen
+   * skriving for å angre noe brukeren ikke gjorde. `amend` returnerer samme
+   * objekt når endringen ikke passer på et steg.
+   */
+  amendEverywhere: (amend: (presentation: Presentation) => Presentation) => void
 
   /**
    * Step back or forwards through the history.
@@ -155,6 +166,15 @@ interface EditorStore {
    * it started from would pass for a deck that is about to move.
    */
   settleHistory: () => void
+  /**
+   * La neste endring bli en del av angresteget som nettopp ble lagt til.
+   *
+   * For én brukerhandling som når lageret i to omganger – en innlimt
+   * referanselenke legger først til referansen, og så kommer citation-nummeret
+   * fra editoren. Gjelder bare endringer i samme synkrone kjøring; det som
+   * kommer senere, blir et eget steg som vanlig.
+   */
+  joinNextChange: () => void
   canUndo: () => boolean
   canRedo: () => boolean
 
@@ -310,9 +330,41 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     })
   },
 
+  amendEverywhere: (amend) => {
+    settleSteps(set, get)
+    const state = get()
+    if (!state.presentation) return
+    const amendEntries = <T extends { presentation: Presentation }>(entries: T[]): T[] => {
+      let changed = false
+      const next = entries.map((entry) => {
+        const presentation = amend(entry.presentation)
+        if (presentation === entry.presentation) return entry
+        changed = true
+        return { ...entry, presentation }
+      })
+      return changed ? next : entries
+    }
+    const presentation = amend(state.presentation)
+    const [held] = state.pendingDepositBreak ? amendEntries([state.pendingDepositBreak]) : [null]
+    set({
+      presentation,
+      past: amendEntries(state.past),
+      future: amendEntries(state.future),
+      pendingDepositBreak: held,
+      ...(presentation === state.presentation ? {} : { saveStatus: 'dirty' as const }),
+    })
+  },
+
   undo: () => requestStep(set, get, 'undo'),
   redo: () => requestStep(set, get, 'redo'),
   settleHistory: () => settleSteps(set, get),
+  joinNextChange: () => {
+    if (joinNext) return
+    joinNext = true
+    queueMicrotask(() => {
+      joinNext = false
+    })
+  },
 
   canUndo: () => get().past.length > 0,
   canRedo: () => get().future.length > 0,
@@ -505,6 +557,9 @@ function applyStep(set: SetState, state: EditorStore, direction: HistoryDirectio
   })
 }
 
+/** Se `joinNextChange`. */
+let joinNext = false
+
 function commit(
   set: SetState,
   state: EditorStore,
@@ -518,12 +573,15 @@ function commit(
    * would wipe out a whole paragraph, or edits to two different fields would
    * collapse into each other.
    */
+  const joined = joinNext && state.past.length > 0
+  joinNext = false
   const coalesce =
-    state.lastLabel === label &&
-    label.startsWith('typing:') &&
-    now - state.lastChangeAt < COALESCE_IDLE_MS &&
-    now - state.coalesceStartedAt < COALESCE_RUN_MS &&
-    state.past.length > 0
+    joined ||
+    (state.lastLabel === label &&
+      label.startsWith('typing:') &&
+      now - state.lastChangeAt < COALESCE_IDLE_MS &&
+      now - state.coalesceStartedAt < COALESCE_RUN_MS &&
+      state.past.length > 0)
 
   set({
     presentation: next,

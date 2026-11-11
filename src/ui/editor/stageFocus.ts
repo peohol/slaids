@@ -32,7 +32,8 @@ import {
 } from '../../domain/geometry'
 import { sectionGeometryForTheme } from '../../domain/metrics'
 import { geometryForDeck, type LogoDeck } from '../../domain/logo'
-import type { ActiveField, EditorMode } from '../../state/store'
+import type { EditorMode } from '../../state/store'
+import type { CaretRequest } from './textTarget'
 import type { Rect, Slide } from '../../domain/types'
 
 export interface StageFocus {
@@ -54,7 +55,7 @@ export interface StageFocus {
    * another is not a way in. A tap inside the text moves the caret from there,
    * exactly as it does anywhere else.
    */
-  caret: ActiveField | null
+  caret: CaretRequest | null
 }
 
 /** What the editor is looking at right now, as the focus was asked about it. */

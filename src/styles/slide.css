@@ -759,6 +759,41 @@
   white-space: inherit;
 }
 
+/*
+ * En referanse fra en innlimt lenke hentes i bakgrunnen. Ringen tegnes utenpå
+ * nummeret, så den aldri tar plass i teksten eller endrer hvordan sonen måles.
+ */
+.rich-doc .rd-citation--importing {
+  position: relative;
+  animation: rd-citation-importing 1.2s ease-in-out infinite alternate;
+}
+
+.rich-doc .rd-citation--importing::after {
+  content: '';
+  position: absolute;
+  top: -0.6em;
+  right: -0.65em;
+  width: 1.15em;
+  height: 1.15em;
+  border: 0.2em solid rgba(128, 128, 128, 0.35);
+  border-top-color: var(--chrome-accent);
+  border-radius: 50%;
+  animation: rd-citation-spin 0.8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes rd-citation-importing {
+  to {
+    background: rgba(128, 128, 128, 0.18);
+  }
+}
+
+@keyframes rd-citation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .rich-doc :is(table, .rd-table) {
   border-collapse: collapse;
   width: 100%;

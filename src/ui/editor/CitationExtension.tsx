@@ -12,6 +12,7 @@ import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tip
 import { citationLabel } from '../../domain/references'
 import { mergeAdjacentCitations } from '../../domain/richdoc'
 import type { RichDoc } from '../../domain/types'
+import { useReferenceImports } from '../../state/referenceImport'
 import { useSlideRender } from '../slide/SlideRenderContext'
 
 declare module '@tiptap/core' {
@@ -30,17 +31,22 @@ function CitationNodeView({ node }: NodeViewProps) {
     ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
     : []
   const label = citationLabel(ids, numbering, authorYearLabels)
+  // Opplysningene om en referanse fra en innlimt lenke hentes fortsatt.
+  const importing = useReferenceImports((state) => ids.some((id) => state.pending.has(id)))
   const classes = ['rd-citation']
   if (authorYearLabels) classes.push('rd-citation--author-year')
   if (onCitationClick) classes.push('rd-citation--clickable')
+  if (importing) classes.push('rd-citation--importing')
   return (
     <NodeViewWrapper
       as="sup"
       className={classes.join(' ')}
       style={authorYearLabels ? { whiteSpace: 'inherit' } : undefined}
       data-citation=""
+      data-importing={importing ? '' : undefined}
+      aria-busy={importing || undefined}
       contentEditable={false}
-      title={onCitationClick ? 'Åpne referansen' : undefined}
+      title={importing ? 'Henter referanseopplysninger …' : onCitationClick ? 'Åpne referansen' : undefined}
       onClick={onCitationClick ? () => onCitationClick(ids) : undefined}
     >
       {label || '?'}

@@ -1,12 +1,19 @@
 /** Keyboard shortcut reference. */
 
 import { Modal } from '../components/Modal'
-import { EDITOR_SHORTCUTS, type EditorShortcut } from './editorShortcuts'
+import { EDITOR_SHORTCUTS, SPLIT_SHORTCUTS, type EditorShortcut } from './editorShortcuts'
 
-function shortcut(action: EditorShortcut): [string, string] {
-  const [key, label] = EDITOR_SHORTCUTS[action]
-  return [`Ctrl + Alt + ${key}`, label]
+function shortcut(action: EditorShortcut, label: string = EDITOR_SHORTCUTS[action][1]): [string, string] {
+  return [`Ctrl + Alt + ${EDITOR_SHORTCUTS[action][0]}`, label]
 }
+
+/** Delingene virker også mens det skrives, på sonen markøren står i. */
+const SPLITS_WHILE_TYPING = Object.entries(SPLIT_SHORTCUTS).map(([action, axis]) =>
+  shortcut(
+    action as EditorShortcut,
+    `Del sonen du skriver i med en ${axis === 'x' ? 'vertikal' : 'horisontal'} strek`,
+  ),
+)
 
 const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
   {
@@ -47,6 +54,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl + Shift + V', 'Lim inn som ren tekst'],
       ['Shift + F10', 'Hurtigmeny for markeringen'],
       shortcut('reference'),
+      ...SPLITS_WHILE_TYPING,
     ],
   },
   {

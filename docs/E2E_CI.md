@@ -32,9 +32,11 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `subfield-drag.spec.ts` | En delestrek mellom to delfelt dras i vanlig innholdsredigering til et helt trinn, og det som ble vist, er det som lagres, overlever omlasting og presenteres med nøyaktig samme inndeling |
 | `split-preview.spec.ts` | Delingsdialogens forhåndsvisning av den nøstede 2 + 3-inndelingen: to heltrukne soner, tre stiplede underinndelinger, hele sonen synlig uten rulling |
 | `split-flow.spec.ts` | Delingsdialogen fjerner soner med nøstet innhold: sier hvilke soner og hvor mye innhold, redder det til sandkassen, og angre/gjør om tar hele endringen i ett steg |
+| `shortcuts.spec.ts` | Ctrl + Alt + V / H deler sonen det skrives i, også i innholdsredigering, og markøren blir stående på samme sted i teksten; i slidetittelen deler de ingenting |
 | `zone-consistency.spec.ts` | Hver vei inn i delingsdialogen (inspektør, ikonrad, sonemeny, forholdstallmeny) viser samme sone, sti og handling, og fokus går tilbake til det som åpnet den, men tar ikke fokus fra noe som allerede har fått det |
 | `present.spec.ts` | Presentasjonsmodus med tastatur og Escape; samme innhold som i editoren |
 | `derived-navigation.spec.ts` | Forfatter og år i eksisterende slideoverskrifter, referanseslides og visning; retting av referansefelter i en full sone bevarer teksten og viser den forminsket |
+| `reference-lookup.spec.ts` | En DOI-lenke limt inn i teksten blir straks et citation-nummer med indikator, skrivingen fortsetter mens referansen hentes, og referansen er fylt ut etterpå |
 | `sections.spec.ts` | En inndelingslinje merkes som forminsket bare når den faktisk er satt mindre, og merket står på pillen |
 | `auth.spec.ts` | Innlogging med engangskode (sifrene sender inn selv), feil kode med nytt forsøk, «Hold meg innlogget» overlever at nettleseren lukkes og ellers ikke, ut og inn uten at en lagret presentasjon går tapt, deaktivering stenger en åpen økt |
 | `theme-editor.spec.ts` | Et nytt dekk åpner temaeditoren, og forhåndsvisningen er en ekte slide med kort med tittel, beholder og kort uten tittel, all tekst midtstilt og hele bildet synlig uten rulling |
