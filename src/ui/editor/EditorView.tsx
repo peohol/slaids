@@ -31,10 +31,12 @@ import {
   deleteSlide,
   duplicateLayoutNode,
   moveSlide,
+  moveSlideToSandbox,
   moveZoneContent,
   moveZoneContentToSandbox,
   placeSandboxItem,
   reorderLayoutNode,
+  restoreSandboxSlide,
   setContentKind,
   setPresentationTitle,
   setSlideHasTitle,
@@ -1985,7 +1987,7 @@ export function EditorView({
       selectionHasContent: Boolean(selectedLeaf?.content),
       selectedKind: viewedDerivedPage === null ? (selectedLeaf?.content?.kind ?? null) : null,
       canEditZones: viewedDerivedPage === null && contentSlide !== null,
-      sandboxCount: presentation.sandbox.length,
+      sandboxCount: presentation.sandbox.length + (presentation.sandboxSlides?.length ?? 0),
       onBack: () => void handleBack(),
       backPending: leaving,
       onRename: () => {
@@ -2039,6 +2041,14 @@ export function EditorView({
         presentation={presentation}
         derived={derived}
         viewingDerivedId={viewedDerivedPage?.id ?? null}
+        onMoveToSandbox={(slideId) => {
+          const moved = run('move-slide-to-sandbox', (current) =>
+            moveSlideToSandbox(current, slideId, HUMAN_EDIT),
+          )
+          if (moved || useEditorStore.getState().pendingDepositBreak?.label === 'move-slide-to-sandbox') {
+            setSandboxOpen(true)
+          }
+        }}
         onSelectDerived={(pageId) =>
           setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
         }
@@ -2061,6 +2071,12 @@ export function EditorView({
       <SandboxWindow
         open={sandboxOpen}
         onClose={() => setSandboxOpen(false)}
+        onRestoreSlide={(slideId) => {
+          const restored = insertPage('restore-sandbox-slide', {}, (current, index) =>
+            restoreSandboxSlide(current, { slideId, index, ...HUMAN_EDIT }),
+          )
+          if (restored) setSandboxOpen(false)
+        }}
         onPlace={(item) => {
           // The sheet is the whole screen on a phone; the zone to press is
           // underneath it.

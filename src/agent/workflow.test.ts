@@ -13,12 +13,12 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { setZoneContent } from '../domain/commands'
+import { moveSlideToSandbox, setZoneContent } from '../domain/commands'
 import { createNegativeSpace, createTitledCard } from '../domain/content'
 import { estimateFitChecker } from '../domain/fit'
 import { findLeaf } from '../domain/layout'
 import { createPresentation } from '../domain/presentation'
-import { docToPlainText } from '../domain/richdoc'
+import { collectCitationIds, docToPlainText } from '../domain/richdoc'
 import { computeReferenceNumbering } from '../domain/references'
 import { presentationRevision } from '../domain/revision'
 import { SlaidsDatabase } from '../persistence/db'
@@ -1438,6 +1438,40 @@ describe('citations kan ikke omgå fit-guarden', () => {
       slideId,
     })
     expect(after.zones[0].referenceIds).toEqual([])
+  })
+
+  it.each([1, 3])('teller korrekt når en parkert slidetittel har %i henvisninger', async (count) => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const slideId = deck.slides[1].slideId
+    const { reference } = await ok<{ reference: { id: string } }>(context, 'add_reference', {
+      presentationId: deck.presentationId,
+      title: 'Kilde i parkert tittel',
+    })
+    await ok(context, 'set_slide_title', {
+      presentationId: deck.presentationId,
+      slideId,
+      spans: Array.from({ length: count }, () => [
+        { text: 'Påstand ' },
+        { citation: [reference.id] },
+      ]).flat(),
+    })
+    const before = await stored(context, deck.presentationId)
+    const parked = moveSlideToSandbox(before, slideId)
+    if (!parked.ok) throw new Error(parked.error.message)
+    await context.repository.savePresentation(parked.value)
+
+    const removal = await ok<{ removedCitations: number }>(context, 'delete_reference', {
+      presentationId: deck.presentationId,
+      referenceId: reference.id,
+    })
+    expect(removal.removedCitations).toBe(count)
+
+    const after = await stored(context, deck.presentationId)
+    expect(after.references).toEqual([])
+    expect(after.sandboxSlides).toHaveLength(1)
+    expect(collectCitationIds(after.sandboxSlides?.[0]?.title)).toEqual([])
+    expect(docToPlainText(after.sandboxSlides?.[0]?.title)).toBe(docToPlainText(contentAt(before, 1).title))
   })
 })
 

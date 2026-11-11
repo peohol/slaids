@@ -38,6 +38,7 @@ import {
   SLIDE_WIDTH,
 } from './constants'
 import { imagePanelOf } from './content'
+import { slideContent } from './docs'
 import { computeSlideGeometry, type Size } from './geometry'
 import { coverScale, visibleSourceRect } from './imageGeometry'
 import { collectLeaves, findLeaf } from './layout'
@@ -178,15 +179,19 @@ export function assetOccurrences(presentation: Presentation): Map<string, AssetO
     }
   }
 
-  for (const item of presentation.sandbox) {
-    const panel = imagePanelOf(item.content)
-    if (panel?.assetId) add(panel.assetId, { kind: 'sandbox', itemId: item.id })
-    for (const doc of docsWithImages(item.content)) {
+  const addParked = (content: ZoneContent, itemId: string): void => {
+    const panel = imagePanelOf(content)
+    if (panel?.assetId) add(panel.assetId, { kind: 'sandbox', itemId })
+    for (const doc of docsWithImages(content)) {
       walkRichNodes(doc, (node) => {
         const image = inlineImageOf(node)
-        if (image) add(image.assetId, { kind: 'sandbox', itemId: item.id })
+        if (image) add(image.assetId, { kind: 'sandbox', itemId })
       })
     }
+  }
+  for (const item of presentation.sandbox) addParked(item.content, item.id)
+  for (const slide of presentation.sandboxSlides ?? []) {
+    for (const content of slideContent([slide])) addParked(content, slide.id)
   }
 
   return occurrences
