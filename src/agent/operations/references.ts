@@ -60,7 +60,7 @@ function citationCount(presentation: Presentation, referenceId: string): number 
   const docs = [
     // Only a content slide's title zone can cite: a section's heading cannot
     // by schema, and an interactive slide has no document of its own at all.
-    ...presentation.slides.flatMap((slide) =>
+    ...[...presentation.slides, ...(presentation.sandboxSlides ?? [])].flatMap((slide) =>
       slide.kind === 'content' && slide.title ? [slide.title] : [],
     ),
     ...allContent(presentation).flatMap(contentDocs),

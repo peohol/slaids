@@ -11,7 +11,7 @@ export function UserSettingsModal({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { citationStyle, includeReferencesInProgress, ownerId, status } = useUserSettings()
+  const { citationStyle, includeReferencesInProgress, fewerDialogs, ownerId, status } = useUserSettings()
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(false)
 
@@ -75,6 +75,19 @@ export function UserSettingsModal({
               <option value="author-year">Forfatter, år</option>
             </select>
           </label>
+          <label className="user-settings-option">
+            <input
+              type="checkbox"
+              checked={fewerDialogs}
+              disabled={status !== 'ready' || saving}
+              onChange={(event) => void changeSettings({ fewerDialogs: event.currentTarget.checked })}
+            />
+            Færre popuper
+          </label>
+          <p className="hint">
+            Hopp over bekreftelser for angrebare handlinger. Nye slides får overskrift, og «Del sone»
+            deler sonen i to like deler. Avansert deling er tilgjengelig i sonemenyen.
+          </p>
         </>
       )}
       {saveError && <p role="alert">Kunne ikke lagre innstillingen. Prøv igjen.</p>}

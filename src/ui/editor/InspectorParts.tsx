@@ -10,6 +10,7 @@
 import { create } from 'zustand'
 import { useState, type ReactNode } from 'react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useUserSettings } from '../../state/userSettings'
 import type { MenuAction } from '../components/contextMenu'
 import { Icon, type IconName, type IconTone } from '../components/Icon'
 import { pressedButton } from '../components/pressed'
@@ -180,7 +181,8 @@ export function InspectorButton({
  */
 export function InspectorEntryButton({ entry, testId }: { entry: MenuAction; testId?: string }) {
   const [asking, setAsking] = useState(false)
-  const { confirm } = entry
+  const fewerDialogs = useUserSettings((state) => state.fewerDialogs)
+  const confirm = fewerDialogs ? undefined : entry.confirm
   return (
     <>
       <InspectorButton

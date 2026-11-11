@@ -517,6 +517,8 @@ export interface Presentation extends DeckSource {
    */
   imageDeposit?: ImageDeposit
   sandbox: SandboxItem[]
+  /** Innholdsslider parkert utenfor den aktive presentasjonen. */
+  sandboxSlides?: ContentSlide[]
   ideas: IdeaRow[]
   assets: AssetRef[]
   createdAt: string
