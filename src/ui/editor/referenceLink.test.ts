@@ -122,6 +122,19 @@ describe('innlimt DOI- eller PubMed-lenke', () => {
     expect(lines(instance)).toEqual([`Søvn bedrer læring[${reference.id}] og hukommelse`])
   })
 
+  it('setter tegnsetting som ble limt inn sammen med lenken, etter nummeret', () => {
+    const lookup = deferredFetch()
+    const instance = editor()
+    type(instance, 'Søvn bedrer læring ')
+    paste(instance, `${DOI}.`)
+    const [reference] = references()
+    expect(reference.url).toBe(DOI)
+    expect(lookup.calls[0]).toBe('https://api.crossref.org/works/10.1234%2Fstudie')
+    expect(lines(instance)).toEqual([`Søvn bedrer læring[${reference.id}].`])
+    type(instance, ' Neste')
+    expect(lines(instance)).toEqual([`Søvn bedrer læring[${reference.id}]. Neste`])
+  })
+
   it('setter mellomrom på den andre siden når den limes inn mellom to ord', () => {
     deferredFetch()
     const instance = editor()

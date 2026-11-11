@@ -47,10 +47,17 @@ export function trailingReferenceLink(
  * Bytt ut `from`–`to` med et citation-nummer for `ids`.
  *
  * Et mellomrom rett etter et ord flyttes ikke med: nummeret festes til ordet.
+ * `textAfter` – tegnsetting som hørte til setningen – settes rett etter nummeret.
  * Når `spaceAfter` er satt og nummeret ble festet midt mellom to ord, settes
  * mellomrommet inn på den andre siden, så ordet etter ikke klistres på.
  */
-function placeCitation(tr: Transaction, from: number, to: number, ids: string[], spaceAfter: boolean): void {
+function placeCitation(
+  tr: Transaction,
+  from: number,
+  to: number,
+  ids: string[],
+  { spaceAfter = false, textAfter = '' }: { spaceAfter?: boolean; textAfter?: string } = {},
+): void {
   const $from = tr.doc.resolve(from)
   const offset = $from.parentOffset
   const before = $from.parent.textBetween(Math.max(0, offset - 2), offset, undefined, LEAF)
@@ -70,6 +77,10 @@ function placeCitation(tr: Transaction, from: number, to: number, ids: string[],
     tr.insert(start, tr.doc.type.schema.nodes[CITATION].create({ referenceIds: ids }))
     end = start + 1
   }
+  if (textAfter) {
+    tr.insertText(textAfter, end)
+    end += textAfter.length
+  }
   if (spaceAfter && attach && /\S/.test(after)) {
     tr.insertText(' ', end)
     end += 1
@@ -82,13 +93,13 @@ function pastedText(event: ClipboardEvent, fallback: string): string {
 }
 
 function handlePaste(view: EditorView, event: ClipboardEvent, text: string): boolean {
-  const identifiers = parseReferenceLinks(pastedText(event, text))
-  if (!identifiers || !view.state.schema.nodes[CITATION]) return false
-  const ids = citeReferenceLinks(identifiers)
+  const links = parseReferenceLinks(pastedText(event, text))
+  if (!links || !view.state.schema.nodes[CITATION]) return false
+  const ids = citeReferenceLinks(links.identifiers)
   if (!ids) return false
   const { from, to } = view.state.selection
   const tr = view.state.tr
-  placeCitation(tr, from, to, ids, true)
+  placeCitation(tr, from, to, ids, { spaceAfter: true, textAfter: links.rest })
   view.dispatch(tr.scrollIntoView())
   return true
 }
@@ -105,7 +116,7 @@ function convertBeforeCursor(view: EditorView): void {
   if (!ids) return
   const tr = view.state.tr
   const from = $cursor.start() + found.start
-  placeCitation(tr, from, from + found.length, ids, false)
+  placeCitation(tr, from, from + found.length, ids)
   view.dispatch(tr)
 }
 
@@ -137,7 +148,7 @@ export const ReferenceLinkExtension = Extension.create({
           const { tr } = state
           // Det skrevne tegnet er ikke i dokumentet ennå; resten av tegnsettingen er.
           tr.insertText(data.rest.slice(-1), range.to)
-          placeCitation(tr, range.from, range.from + data.length, ids, false)
+          placeCitation(tr, range.from, range.from + data.length, ids)
           tr.setSelection(TextSelection.create(tr.doc, tr.mapping.map(range.to, 1)))
         },
       }),

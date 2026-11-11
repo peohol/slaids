@@ -66,22 +66,26 @@ export function parseReferenceLink(input: string): ReferenceIdentifier | null {
  * Alle lenkene i en innlimt tekst, eller `null` hvis teksten er noe annet.
  *
  * Teksten må bestå av lenker og skilletegn alene. Et avsnitt som tilfeldigvis
- * inneholder en lenke, limes inn som det er.
+ * inneholder en lenke, limes inn som det er. Tegnsetting etter den siste
+ * lenken – punktumet i «… https://doi.org/10.1234/x.» – hører til setningen og
+ * kommer tilbake som `rest`, så den kan stå etter citation-nummeret.
  */
-export function parseReferenceLinks(input: string): ReferenceIdentifier[] | null {
-  // Skilletegn tas bare mellom lenkene: en eldre DOI kan selv inneholde `;`.
-  const tokens = input
-    .split(/\s+/)
-    .map((token) => token.replace(/^[,;]+|[,;]+$/g, ''))
-    .filter(Boolean)
+export function parseReferenceLinks(input: string): { identifiers: ReferenceIdentifier[]; rest: string } | null {
+  const tokens = input.split(/\s+/).filter((token) => token && !/^[,;]+$/.test(token))
   if (tokens.length === 0) return null
   const identifiers: ReferenceIdentifier[] = []
-  for (const token of tokens) {
-    const identifier = parseReferenceLink(token)
-    if (!identifier) return null
+  let rest = ''
+  for (const [index, token] of tokens.entries()) {
+    // Skilletegnene står mellom lenkene. En eldre DOI kan selv inneholde `;`,
+    // så de tas bare i kantene av hver lenke.
+    const split = splitTrailingPunctuation(token.replace(/^[,;]+/, ''))
+    const last = index === tokens.length - 1
+    const identifier = parseReferenceLink(split.link)
+    if (!identifier || (!last && !/^[,;]*$/.test(split.rest))) return null
     identifiers.push(identifier)
+    if (last) rest = split.rest
   }
-  return identifiers
+  return { identifiers, rest }
 }
 
 const TRAILING_PUNCTUATION = /[.,;:!?'"»”’\]}]$/

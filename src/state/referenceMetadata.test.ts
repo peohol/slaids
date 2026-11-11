@@ -47,17 +47,36 @@ describe('parseReferenceLinks', () => {
   it('tar imot flere lenker skilt med mellomrom, komma, semikolon eller linjeskift', () => {
     expect(
       parseReferenceLinks(' https://doi.org/10.1000/a,\nhttps://pubmed.ncbi.nlm.nih.gov/7/ ; doi.org/10.2000/b '),
-    ).toEqual([
-      { kind: 'doi', value: '10.1000/a' },
-      { kind: 'pmid', value: '7' },
-      { kind: 'doi', value: '10.2000/b' },
-    ])
+    ).toEqual({
+      identifiers: [
+        { kind: 'doi', value: '10.1000/a' },
+        { kind: 'pmid', value: '7' },
+        { kind: 'doi', value: '10.2000/b' },
+      ],
+      rest: '',
+    })
   })
 
   it('beholder semikolon inne i en eldre DOI', () => {
-    expect(parseReferenceLinks('https://doi.org/10.1002/(SICI)1097-4636(199709)36:3<347::AID-JBM10>3.0.CO;2-B')).toEqual([
-      { kind: 'doi', value: '10.1002/(SICI)1097-4636(199709)36:3<347::AID-JBM10>3.0.CO;2-B' },
-    ])
+    expect(parseReferenceLinks('https://doi.org/10.1002/(SICI)1097-4636(199709)36:3<347::AID-JBM10>3.0.CO;2-B')).toEqual({
+      identifiers: [{ kind: 'doi', value: '10.1002/(SICI)1097-4636(199709)36:3<347::AID-JBM10>3.0.CO;2-B' }],
+      rest: '',
+    })
+  })
+
+  it('skiller ut tegnsetting etter den siste lenken, så den ikke blir en del av DOI-en', () => {
+    expect(parseReferenceLinks('https://doi.org/10.1234/studie.')).toEqual({
+      identifiers: [{ kind: 'doi', value: '10.1234/studie' }],
+      rest: '.',
+    })
+    expect(parseReferenceLinks('https://doi.org/10.1234/a, https://doi.org/10.1234/b).')).toEqual({
+      identifiers: [
+        { kind: 'doi', value: '10.1234/a' },
+        { kind: 'doi', value: '10.1234/b' },
+      ],
+      rest: ').',
+    })
+    expect(parseReferenceLinks('https://doi.org/10.1234/a. https://doi.org/10.1234/b')).toBeNull()
   })
 
   it('lar tekst med noe annet enn lenker være', () => {
