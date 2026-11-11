@@ -24,6 +24,7 @@ import {
   geometryForDeck,
   logoGroupPatch,
   logoGrowth,
+  logoHandlesFor,
   logoLimits,
   logoMoveTargets,
   logoRectOnPage,
@@ -406,6 +407,56 @@ describe('logoen dras på stagen (§ 15.3)', () => {
     }
     expect(resizedLogoHeight({ ...base, handle: 's', delta: { x: 0, y: -5000 } })).toBe(LOGO_MIN_HEIGHT)
     expect(resizedLogoHeight({ ...base, handle: 's', delta: { x: 0, y: 5000 } })).toBe(100)
+  })
+
+  it('tilbyr bare håndtak på kanter som flytter seg når logoen vokser', () => {
+    const at = (position: LogoSlidePosition) =>
+      logoHandlesFor(
+        deckLogoLayout(withLogo(deck(), logo({ slides: { visible: true, position, height: 72 } })))!,
+        slidePage,
+      ).sort()
+    // Fast mot høyre og nedre kant: bare venstre og øvre side kan flytte seg.
+    expect(at('bottom-right')).toEqual(['n', 'nw', 'w'])
+    expect(at('top-left')).toEqual(['e', 's', 'se'])
+    // Midt på nedre kant: vokser til begge sider, men ikke nedover.
+    expect(at('bottom')).toEqual(['e', 'n', 'ne', 'nw', 'w'])
+    // Midt på høyre kant: vokser opp og ned, men ikke mot høyre.
+    expect(at('right')).toEqual(['n', 'nw', 's', 'sw', 'w'])
+    const presentation = withLogo(deck(), logo())
+    expect(logoHandlesFor(deckLogoLayout(presentation)!, { kind: 'section', section: sectionAt(presentation, 0) })).toEqual([
+      ...LOGO_HANDLES,
+    ])
+  })
+
+  it('lar et tilbudt håndtak følge pekeren: kanten flytter seg like langt som pekeren', () => {
+    for (const position of LOGO_SLIDE_POSITIONS) {
+      const presentation = withLogo(deck(), logo({ slides: { visible: true, position, height: 72 } }))
+      const layout = deckLogoLayout(presentation)!
+      const before = logoRectOnPage(layout, slidePage, presentation.theme)!
+      for (const handle of logoHandlesFor(layout, slidePage)) {
+        const away = LOGO_HANDLE_DIRECTION[handle]
+        // Pekeren rett utover langs den aksen håndtaket står på (y for kanter og hjørner, ellers x).
+        const delta = away.y !== 0 ? { x: 0, y: 10 * away.y } : { x: 10 * away.x, y: 0 }
+        const height = resizedLogoHeight({
+          height: 72,
+          aspect: 2,
+          handle,
+          delta,
+          growth: logoGrowth(layout, slidePage),
+          limit: 400,
+        })
+        const grown = withLogo(deck(), logo({ slides: { visible: true, position, height } }))
+        const after = logoRectOnPage(deckLogoLayout(grown), slidePage, grown.theme)!
+        const edge = (rect: Rect) =>
+          away.y !== 0
+            ? away.y < 0 ? rect.y : rect.y + rect.height
+            : away.x < 0 ? rect.x : rect.x + rect.width
+        expect(edge(after) - edge(before), `${position} ${handle}`).toBeCloseTo(
+          away.y !== 0 ? delta.y : delta.x,
+          0,
+        )
+      }
+    }
   })
 
   it('sier hvilken akse logoen er midtstilt på, så håndtaket følger pekeren', () => {

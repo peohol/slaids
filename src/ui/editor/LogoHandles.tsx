@@ -27,12 +27,12 @@ import { LOGO_MOVE_HYSTERESIS } from '../../domain/constants'
 import { updateThemeLogo } from '../../domain/commands'
 import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import {
-  LOGO_HANDLES,
   deckLogoLayout,
   logoChoiceOf,
   logoGroupOf,
   logoGroupPatch,
   logoGrowth,
+  logoHandlesFor,
   logoLimits,
   logoMoveTargets,
   logoRectOnPage,
@@ -228,16 +228,17 @@ export function LogoHandles({ page, scale }: { page: LogoPage; scale: number }) 
     },
   })
 
-  if (!rect) return null
+  if (!rect || !logo) return null
+  // Er logoen liten på skjermen, ville håndtakene midt på kantene dekke den;
+  // da står bare hjørnene.
+  const roomless = Math.min(rect.width, rect.height) * (scale || 1) < HANDLE_SCREEN_PX * EDGE_HANDLES_FROM
   return (
     <LogoFrame
       rect={rect}
       overlayRef={overlayRef}
       dragging={dragging}
       handleSize={HANDLE_SCREEN_PX / (scale || 1)}
-      // Er logoen liten på skjermen, ville håndtakene midt på kantene dekke
-      // den; da står bare hjørnene.
-      roomless={Math.min(rect.width, rect.height) * (scale || 1) < HANDLE_SCREEN_PX * EDGE_HANDLES_FROM}
+      handles={logoHandlesFor(logo, page).filter((handle) => !roomless || handle.length === 2)}
     />
   )
 }
@@ -255,13 +256,14 @@ function LogoFrame({
   overlayRef,
   dragging,
   handleSize,
-  roomless,
+  handles,
 }: {
   rect: Rect
   overlayRef: React.MutableRefObject<HTMLDivElement | null>
   dragging: boolean
   handleSize: number
-  roomless: boolean
+  /** Håndtakene på kanter som flytter seg når logoen vokser – se `logoHandlesFor`. */
+  handles: readonly LogoHandle[]
 }) {
   const { setNodeRef, listeners } = useDraggable({
     id: MOVE_ID,
@@ -316,7 +318,7 @@ function LogoFrame({
       }}
       onDoubleClick={keepPress}
     >
-      {LOGO_HANDLES.filter((handle) => !roomless || handle.length === 2).map((handle) => (
+      {handles.map((handle) => (
         <ResizeHandle key={handle} handle={handle} />
       ))}
     </div>

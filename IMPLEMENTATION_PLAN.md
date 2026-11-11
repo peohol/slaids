@@ -2866,7 +2866,10 @@ håndtaket følger pekeren). Stagen legger forslaget over dekkets logo for
 stagen alene (`LogoDragScope` i `src/ui/editor/LogoHandles.tsx`), så tittel og
 soner flytter seg med mens miniatyrbildene står. Håndtakene vises når pekeren
 er over logoen, etter et trykk på den (berøring) og mens den dras; er logoen
-liten på skjermen, står bare hjørnene.
+liten på skjermen, står bare hjørnene. Et håndtak på en kant som står fast mot
+siden (for eksempel høyre og nedre kant når logoen står nederst til høyre),
+tilbys ikke (`logoHandlesFor`): det ville blitt stående mens logoen vokste
+vekk fra det.
 
 ---
 

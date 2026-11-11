@@ -549,19 +549,51 @@ export const LOGO_HANDLE_DIRECTION: Record<LogoHandle, { x: -1 | 0 | 1; y: -1 | 
   w: { x: -1, y: 0 },
 }
 
+/** Hva som står fast langs en akse: venstre/øvre kant, høyre/nedre kant, eller midten. */
+export type LogoAnchor = 'start' | 'end' | 'centre'
+
+/**
+ * Hvor logoen er festet når den vokser, langs hver akse. En logo i et hjørne
+ * står fast mot de to kantene av siden; en logo midt på en kant står fast mot
+ * den kanten og vokser like mye til begge sider langs den; på en inndeling
+ * står sentrum fast.
+ */
+export function logoAnchor(layout: DeckLogoLayout, page: LogoPage): { x: LogoAnchor; y: LogoAnchor } {
+  const placed = layout.slides
+  if (page.kind === 'section' || !placed) return { x: 'centre', y: 'centre' }
+  const edge = placed.reservation.edge
+  if (edge === 'left' || edge === 'right') return { x: edge === 'left' ? 'start' : 'end', y: 'centre' }
+  return { x: alongOf(placed.position), y: edge === 'top' ? 'start' : 'end' }
+}
+
 /**
  * Hvor mye en kant flytter seg når logoen blir én enhet større langs en akse:
- * 1 når den motsatte kanten står fast mot sidens kant, ½ når logoen er
- * midtstilt på den aksen og vokser like mye til begge sider. Med den følger
- * håndtaket pekeren i stedet for å løpe fra den eller henge etter.
+ * 1 når den motsatte kanten står fast, ½ når logoen er midtstilt på den aksen
+ * og vokser like mye til begge sider. Med den følger håndtaket pekeren i
+ * stedet for å løpe fra den eller henge etter.
  */
 export function logoGrowth(layout: DeckLogoLayout, page: LogoPage): Point {
-  if (page.kind === 'section') return { x: 0.5, y: 0.5 }
-  const placed = layout.slides
-  if (!placed) return { x: 1, y: 1 }
-  const edge = placed.reservation.edge
-  if (edge === 'left' || edge === 'right') return { x: 1, y: 0.5 }
-  return { x: alongOf(placed.position) === 'centre' ? 0.5 : 1, y: 1 }
+  const anchor = logoAnchor(layout, page)
+  return { x: anchor.x === 'centre' ? 0.5 : 1, y: anchor.y === 'centre' ? 0.5 : 1 }
+}
+
+/** Om en kant i denne retningen kan flytte seg, når aksen er festet slik. */
+function movable(direction: -1 | 0 | 1, anchor: LogoAnchor): boolean {
+  if (direction === 0 || anchor === 'centre') return true
+  return anchor === 'start' ? direction === 1 : direction === -1
+}
+
+/**
+ * Håndtakene som følger pekeren: de på kanter som faktisk flytter seg når
+ * logoen vokser. Et håndtak på en kant som står fast mot siden, ville bli
+ * stående mens logoen vokste vekk fra det, så det tilbys ikke.
+ */
+export function logoHandlesFor(layout: DeckLogoLayout, page: LogoPage): LogoHandle[] {
+  const anchor = logoAnchor(layout, page)
+  return LOGO_HANDLES.filter((handle) => {
+    const direction = LOGO_HANDLE_DIRECTION[handle]
+    return movable(direction.x, anchor.x) && movable(direction.y, anchor.y)
+  })
 }
 
 /**
