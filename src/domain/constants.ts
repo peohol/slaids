@@ -63,9 +63,10 @@ export const MAX_SPLIT_CHILDREN = 10
  *
  * What is left between the glyphs and the edge of the box is the font's own
  * half-leading — a few pixels, and a property of the typeface rather than a
- * spacing decision. The line height is set just above the tallest ascent plus
- * descent among the catalogue's fonts, so an accent or a descender is never
- * clipped.
+ * spacing decision. In several fonts a descender or an accent reaches past the
+ * line instead; no line height is tall enough for every font, so the box around
+ * a title line never clips vertically (`slide.css`) and that ink is drawn in
+ * the air around the title.
  */
 export const TITLE_FONT_SIZE = 40
 export const TITLE_LINE_HEIGHT = 1.15

@@ -17,8 +17,31 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
   white-space: nowrap;
+}
+
+/*
+ * En tittellinje klipper bare til sidene.
+ *
+ * Slidetittelen, tittelen i et kort og linjene på en inndelingsside er én linje
+ * i en boks som er nøyaktig så høy som linjen (eller litt mer). Hvor mye av en
+ * bokstav som stikker over og under linjen, er en egenskap ved skrifttypen, ikke
+ * ved Slaids: i flere av katalogens fonter når en g, en p eller en Å lenger enn
+ * linjehøyden, og en boks som klippet i høyden, kuttet dem. Ingen linjehøyde er
+ * stor nok for alle fonter, så boksen klipper aldri i høyden. Det som stikker
+ * ut, er blekk – som en skygge – og tegnes i luften rundt tittelen uten å endre
+ * noe mål.
+ *
+ * Til sidene klipper boksen fortsatt, for en linje som er for lang, skal aldri
+ * tegnes utenfor (den settes mindre, `titleFit.ts`). `clip` og ikke `hidden`:
+ * bare `clip` kan stå på én akse alene, og en boks som ikke kan rulles, kan
+ * heller ikke rulles av en markør i teksten. Boksens `scrollWidth` måler som før.
+ */
+.slide-title,
+.card-header,
+.section-pill {
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 /*
@@ -121,7 +144,6 @@
   display: flex;
   align-items: center;
   flex: 0 0 auto;
-  overflow: hidden;
   white-space: nowrap;
   /* En tittel for lang for headeren settes mindre for seg selv (`fitTitleLines` i `titleFit.ts`). */
   font-size: calc(var(--slaids-card-header-font-size) * var(--slaids-title-fit, 1));
@@ -956,7 +978,6 @@
   border-radius: 999px;
   font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
 }
 
 .section-pill :is(p, .rd-p) {
