@@ -19,8 +19,13 @@ function scaleOf(box: HTMLElement): number {
 /**
  * En boks med én linje. Linjen er `text` bred i normal størrelse; boksen er
  * `width` bred, eller – for en pille – like bred som linjen, høyst `width`.
+ * `rounded` er boksens bredde i hele piksler, når den skal avvike fra `width`.
  */
-function titleBox(text: number, width: number, { hugs = false, padding = 0 } = {}): HTMLElement & { text: number } {
+function titleBox(
+  text: number,
+  width: number,
+  { hugs = false, padding = 0, rounded = width } = {},
+): HTMLElement & { text: number } {
   const box = Object.assign(document.createElement('div'), { text })
   box.style.paddingLeft = `${padding}px`
   box.style.paddingRight = `${padding}px`
@@ -30,7 +35,7 @@ function titleBox(text: number, width: number, { hugs = false, padding = 0 } = {
   Object.defineProperty(line, 'offsetWidth', { get: lineWidth })
   Object.defineProperty(line, 'scrollWidth', { get: lineWidth })
   Object.defineProperty(box, 'clientWidth', {
-    get: () => (hugs ? Math.min(width, lineWidth() + padding * 2) : width),
+    get: () => (hugs ? Math.min(width, lineWidth() + padding * 2) : rounded),
   })
   document.body.append(box)
   return box
@@ -57,6 +62,15 @@ describe('fitTitleLines', () => {
     // Linjen får plass i pillens største bredde, uten polstringen.
     expect(2000 * scale).toBeLessThanOrEqual(800 - 60 + 0.5)
     expect(2000 * scale).toBeGreaterThan(800 - 60 - 2)
+  })
+
+  it('lar en pille som er like bred som teksten stå, selv når bredden ikke er et helt tall', () => {
+    // Pillen og linjen er begge 511,6 piksler. I hele piksler er linjen 512
+    // og pillen 511 – det er avrunding, ikke en linje som ikke får plass.
+    const box = titleBox(512, 800, { rounded: 511 })
+    box.style.width = '511.6px'
+    expect(fitTitleLines([box])).toBe(1)
+    expect(box.style.getPropertyValue(FIT)).toBe('')
   })
 
   it('finner skalaen på nytt fra normal størrelse, så kortere tekst vokser tilbake', () => {
