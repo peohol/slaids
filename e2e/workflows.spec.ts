@@ -16,6 +16,39 @@ import {
 } from './helpers'
 
 test.describe('sandbox drag and drop', () => {
+  test('viser tekst med seksjonsbakgrunn når et sandkasseelement får peker eller tastaturfokus', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' })
+    await createPresentation(page, 'Kontrast i sandkassen')
+    const [zone] = await zoneRects(page)
+    await addContentToZone(page, zone.id, 'container')
+    await stage(page).locator('.subfield .tiptap').click()
+    await page.keyboard.type('Tekst på mørk bakgrunn')
+    const slide = stage(page).locator('.slide')
+    const sectionBackground = await slide.evaluate((element) => getComputedStyle(element).backgroundColor)
+    const textColor = await slide.getByText('Tekst på mørk bakgrunn').evaluate((element) => getComputedStyle(element).color)
+
+    await enterZoneMode(page)
+    await clickZone(page, zone)
+    await page.getByTestId('inspector-action-sandbox').click()
+    const item = page.getByTestId('sandbox-item')
+    const preview = item.locator('.sandbox-item__preview')
+    await page.mouse.move(0, 0)
+    const restingBackground = await preview.evaluate((element) => getComputedStyle(element).backgroundColor)
+    expect(restingBackground).not.toBe(sectionBackground)
+
+    await item.hover()
+    await expect(preview).toHaveCSS('background-color', sectionBackground)
+    await expect(preview.getByText('Tekst på mørk bakgrunn')).toHaveCSS('color', textColor)
+    await page.mouse.move(0, 0)
+    await expect(preview).toHaveCSS('background-color', restingBackground)
+
+    await page.keyboard.press('Tab')
+    await item.getByTestId('sandbox-grip').focus()
+    await expect(preview).toHaveCSS('background-color', sectionBackground)
+    await page.getByTestId('present').focus()
+    await expect(preview).toHaveCSS('background-color', restingBackground)
+  })
+
   test('drags an item from the sandbox into an empty zone', async ({ page }) => {
     const guard = watchForErrors(page)
     await createPresentation(page, 'DnD')
