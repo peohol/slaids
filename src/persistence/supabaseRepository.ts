@@ -253,6 +253,9 @@ export class SupabaseSlaidsRepository
    */
   private readonly pendingObjectRemovals = new Set<string>()
 
+  /** Det samme for logoer i temamaler, som ligger i sin egen bucket. */
+  private readonly pendingTemplateLogoRemovals = new Set<string>()
+
   /** The full sweep costs two requests; once per sign-in is enough. */
   private sweptStorage = false
 
@@ -1244,7 +1247,11 @@ export class SupabaseSlaidsRepository
       created_at: template.createdAt,
       updated_at: template.updatedAt,
     })
-    if (!error) return
+    if (!error) {
+      // Stien er i bruk igjen; en eldre, mislykket opprydding skal ikke ta den.
+      if (logoPath) this.pendingTemplateLogoRemovals.delete(logoPath)
+      return
+    }
     if (logoPath) await this.removeThemeTemplateLogos([logoPath])
     if (error.code === UNIQUE_VIOLATION) {
       throw new RepositoryConflictError(`Malen «${template.name}» har en id som allerede er i bruk.`, error)
@@ -1287,14 +1294,14 @@ export class SupabaseSlaidsRepository
     await this.removeThemeTemplateLogos(paths)
   }
 
-  /** Beste forsøk: en fil ingen mal peker på, er bare litt brukt plass. */
+  /**
+   * Ta bort logoer ingen mal peker på lenger. Feiler det, huskes stiene og
+   * prøves igjen ved neste opprydding (`deleteOrphanAssets`), som for filene i
+   * presentasjonene: en fil ingen mal peker på, er bare brukt plass, og ikke
+   * noe å stoppe brukeren for.
+   */
   private async removeThemeTemplateLogos(paths: readonly string[]): Promise<void> {
-    if (paths.length === 0) return
-    try {
-      await this.client.storage.from(THEME_TEMPLATES_BUCKET).remove([...paths])
-    } catch {
-      // Se over.
-    }
+    await this.reclaimObjects(paths, THEME_TEMPLATES_BUCKET, this.pendingTemplateLogoRemovals)
   }
 
   /* ---------------------------------------------------------------- *
@@ -1514,6 +1521,7 @@ export class SupabaseSlaidsRepository
   async deleteOrphanAssets(): Promise<number> {
     try {
       let removed = await this.retryPendingRemovals()
+      removed += await this.retryPendingRemovals(THEME_TEMPLATES_BUCKET, this.pendingTemplateLogoRemovals)
       if (!this.sweptStorage) {
         this.sweptStorage = true
         removed += await this.sweepOrphanedFolders()
@@ -1524,12 +1532,15 @@ export class SupabaseSlaidsRepository
     }
   }
 
-  private async retryPendingRemovals(): Promise<number> {
-    if (this.pendingObjectRemovals.size === 0) return 0
-    const paths = [...this.pendingObjectRemovals]
-    const { error } = await this.client.storage.from(ASSETS_BUCKET).remove(paths)
+  private async retryPendingRemovals(
+    bucket = ASSETS_BUCKET,
+    pending = this.pendingObjectRemovals,
+  ): Promise<number> {
+    if (pending.size === 0) return 0
+    const paths = [...pending]
+    const { error } = await this.client.storage.from(bucket).remove(paths)
     if (error) return 0
-    for (const path of paths) this.pendingObjectRemovals.delete(path)
+    for (const path of paths) pending.delete(path)
     return paths.length
   }
 
@@ -1607,15 +1618,19 @@ export class SupabaseSlaidsRepository
    * presentation is gone. Saying `true` here would therefore be claiming the
    * bytes were removed on the strength of nobody having checked.
    */
-  private async reclaimObjects(paths: readonly string[]): Promise<boolean> {
+  private async reclaimObjects(
+    paths: readonly string[],
+    bucket = ASSETS_BUCKET,
+    pending = this.pendingObjectRemovals,
+  ): Promise<boolean> {
     if (paths.length === 0) return true
     try {
-      const { error } = await this.client.storage.from(ASSETS_BUCKET).remove([...paths])
+      const { error } = await this.client.storage.from(bucket).remove([...paths])
       if (!error) return true
     } catch {
       // Same outcome as an error response: remember them and move on.
     }
-    for (const path of paths) this.pendingObjectRemovals.add(path)
+    for (const path of paths) pending.add(path)
     return false
   }
 }

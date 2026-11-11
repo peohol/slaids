@@ -712,6 +712,27 @@ describe('SupabaseSlaidsRepository – temamaler', () => {
     expect(fake.storageCalls.map((call) => call.op)).toEqual(['upload', 'remove'])
   })
 
+  it('husker en logo Storage ikke ville fjerne, og prøver igjen ved neste opprydding', async () => {
+    let storageDown = true
+    const { repository, fake } = repositoryFor({
+      resolve: (record) =>
+        record.table === THEME_TEMPLATES_TABLE
+          ? { error: { message: 'rad avvist', code: '' } }
+          : { data: [] },
+      remove: () => (storageDown ? { error: { message: 'storage nede' } } : { data: [] }),
+      list: () => ({ data: [] }),
+    })
+    await expect(repository.createThemeTemplate(newTemplate(true), new Blob(['png!']))).rejects.toThrow(/rad avvist/)
+
+    storageDown = false
+    await repository.deleteOrphanAssets()
+    const removals = fake.storageCalls.filter(
+      (call) => call.op === 'remove' && call.bucket === THEME_TEMPLATES_BUCKET,
+    )
+    expect(removals).toHaveLength(2)
+    expect(removals[1].paths).toEqual([`${TEST_OWNER_ID}/tt_new/logo`])
+  })
+
   it('avviser en mal uten den logoen innholdet sier den har', async () => {
     const { repository, fake } = repositoryFor({ resolve: () => ({ data: null }) })
     await expect(repository.createThemeTemplate(newTemplate(true), null)).rejects.toThrow(/ugyldig/)
