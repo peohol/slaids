@@ -23,6 +23,7 @@ import { describeIncompleteConfig, readSupabaseConfigState } from '../supabase/c
 import { resetRepositoryCaches } from '../persistence/activeRepository'
 import { readUserAccess, type SlaidsRole } from '../persistence/slaidsUsers'
 import { resetAutocorrect } from './autocorrect'
+import { resetUserSettings } from './userSettings'
 import { clearAssetCache } from './assets'
 import { lastOpenPresentationKey, writePref } from './prefs'
 import { useEditorStore } from './store'
@@ -91,6 +92,7 @@ function clearUserScopedState(userId: string): void {
   resetRepositoryCaches()
   clearAssetCache()
   resetAutocorrect()
+  resetUserSettings()
   const editor = useEditorStore.getState()
   editor.setPresentation(null)
   editor.setLoadError(null)

@@ -200,6 +200,9 @@ export const repository: SlaidsRepository = {
     on((repo) => repo.saveTemplate(template)),
   deleteTemplate: (id: string): Promise<void> => on((repo) => repo.deleteTemplate(id)),
 
+  getUserSettings: (ownerId) => on((repo) => repo.getUserSettings(ownerId)),
+  updateUserSettings: (ownerId, patch) => on((repo) => repo.updateUserSettings(ownerId, patch)),
+
   loadAutocorrectRules: (): Promise<AutocorrectRule[]> => on((repo) => repo.loadAutocorrectRules()),
   saveAutocorrectRules: (rules: readonly AutocorrectRule[]): Promise<void> =>
     on((repo) => repo.saveAutocorrectRules(rules)),

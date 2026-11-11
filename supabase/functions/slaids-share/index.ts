@@ -57,6 +57,7 @@ declare const Deno: {
 const PRESENTATIONS_TABLE = 'slaids_presentations'
 const FOLDERS_TABLE = 'slaids_folders'
 const ASSETS_TABLE = 'slaids_assets'
+const USER_SETTINGS_TABLE = 'slaids_user_settings'
 const ASSETS_BUCKET = 'slaids-assets'
 
 function json(body: unknown, status = 200): Response {
@@ -87,6 +88,7 @@ const client = createClient(supabaseUrl, serviceRoleKey, {
 interface PublishedDeck {
   /** Scopes the asset lookup to this presentation; it never leaves the function. */
   id: string
+  ownerId: string
   document: unknown
 }
 
@@ -130,8 +132,8 @@ async function folderByToken(folderToken: string): Promise<SharedFolderRow | nul
  * The published deck an address names, or `null` for every reason it might not.
  *
  * `document` and `object_path` are not selected at all — what is not fetched
- * cannot be leaked. `owner_id` is, for one question only: is the owner still an
- * active Slaids user? It never leaves this function. A presentation in the trash is deleted as far
+ * cannot be leaked. `owner_id` identifies the account whose access and public
+ * display choices apply. It never leaves this function. A presentation in the trash is deleted as far
  * as the public is concerned: its share columns are still on the row, so that
  * a restore brings the link back, but while it is trashed the link is dead.
  * Filtered here *and* checked again by the rules in `access.ts`.
@@ -148,8 +150,10 @@ async function publishedDeck(address: DeckAddress): Promise<PublishedDeck | null
     if (error) return null
     const row = data as SharedRow | null
     const document = publishedDocument(row)
-    if (!row || !document || !(await ownerIsActive(row.owner_id))) return null
-    return { id: row.id, document }
+    if (!row || !document || typeof row.owner_id !== 'string' || !(await ownerIsActive(row.owner_id))) {
+      return null
+    }
+    return { id: row.id, ownerId: row.owner_id, document }
   }
 
   const folder = await folderByToken(address.folderToken)
@@ -166,7 +170,20 @@ async function publishedDeck(address: DeckAddress): Promise<PublishedDeck | null
   if (error) return null
   const row = data as FolderDeckRow | null
   const document = publishedFolderDocument(folder, row)
-  return row && document ? { id: row.id, document } : null
+  return row && document ? { id: row.id, ownerId: folder.owner_id, document } : null
+}
+
+async function snapshotForAudience(deck: PublishedDeck): Promise<unknown> {
+  const { data, error } = await client.from(USER_SETTINGS_TABLE)
+    .select('include_references_in_progress')
+    .eq('owner_id', deck.ownerId)
+    .maybeSingle()
+  if (error) return deck.document
+  // Send bare kopien og de eksplisitte visningsvalgene som gjelder publikum.
+  return {
+    ...(deck.document as Record<string, unknown>),
+    includeReferencesInProgress: data?.include_references_in_progress === true,
+  }
 }
 
 Deno.serve(async (request: Request): Promise<Response> => {
@@ -196,7 +213,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
   const deck = await publishedDeck(intent.deck)
   if (!deck) return notFound()
 
-  if (intent.kind === 'snapshot') return json(deck.document)
+  if (intent.kind === 'snapshot') return json(await snapshotForAudience(deck))
 
   // The snapshot decides, not the presentation: a file that belongs to this
   // deck but is not part of what was published stays private.

@@ -7,6 +7,7 @@
  * one place that decides which of them is live.
  */
 
+import type { UserSettings } from '../domain/userSettings'
 import type { AutocorrectRule } from '../domain/autocorrect'
 import type { SharedPresentationSnapshot } from '../domain/sharing'
 import type {
@@ -204,6 +205,9 @@ export interface SlaidsRepository {
   listTemplates(): Promise<LayoutTemplate[]>
   saveTemplate(template: LayoutTemplate): Promise<void>
   deleteTemplate(id: string): Promise<void>
+
+  getUserSettings(ownerId: string | null): Promise<UserSettings>
+  updateUserSettings(ownerId: string | null, patch: Partial<UserSettings>): Promise<void>
 
   /**
    * This user's autoerstatt rules (`domain/autocorrect.ts`), repaired. A user

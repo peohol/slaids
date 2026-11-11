@@ -151,6 +151,7 @@ import { ImageBriefModal } from './ImageBriefModal'
 import { ImageDepositIntroModal } from './ImageDepositIntroModal'
 import { ImageDepositModal } from './ImageDepositModal'
 import { ThemeModal } from './ThemeModal'
+import { useUserSettings } from '../../state/userSettings'
 import { PresentView } from '../present/PresentView'
 import { useSurfacePointerSensor } from './dragActivation'
 import type { ZoneAction } from './ZoneOverlay'
@@ -565,7 +566,7 @@ export function EditorView({
    * stage and on every thumbnail — a deck being edited is a deck, and the strip
    * it takes is reserved on every slide whether or not anyone is watching.
    */
-  const includeReferencesInProgress = presentation?.includeReferencesInProgress
+  const includeReferencesInProgress = useUserSettings((state) => state.includeReferencesInProgress)
   const progress = useMemo(
     () => deckProgress(pages, includeReferencesInProgress),
     [pages, includeReferencesInProgress],

@@ -38,6 +38,8 @@ export interface PreviewAssetReader {
 export interface SlidePreviewRequest {
   /** The deck as it is stored. The renderer never writes and never reloads it. */
   presentation: Presentation
+  /** Eierens gjeldende visningsvalg, adskilt fra det lagrede dokumentet. */
+  includeReferencesInProgress?: boolean
   /** The page to draw, already resolved out of `deckPages`. */
   page: DeckPage
   /**
