@@ -69,7 +69,14 @@ function editor(initial: Presentation | null) {
 
 function dependencies(
   state: ReturnType<typeof editor>,
-  options: { reused?: boolean; during?: () => void; logo?: Blob | null; refuse?: boolean; saveFails?: boolean } = {},
+  options: {
+    reused?: boolean
+    during?: () => void
+    logo?: Blob | null
+    refuse?: boolean
+    saveFails?: boolean
+    defaultFails?: boolean
+  } = {},
 ) {
   const created: { template: unknown; logo: Blob | null }[] = []
   const deps = {
@@ -96,6 +103,9 @@ function dependencies(
       }),
       getUserSettings: vi.fn(),
     },
+    chooseDefault: vi.fn(async (_id: string | null) => {
+      if (options.defaultFails) throw new Error('innstillingen ble avvist')
+    }),
   } satisfies ThemeTemplateDependencies
   return { deps, created }
 }
@@ -103,11 +113,40 @@ function dependencies(
 describe('saveThemeAsTemplate', () => {
   it('lagrer temaet med en egen kopi av logofilen', async () => {
     const { deps, created } = dependencies(editor(null))
-    const saved = await saveThemeAsTemplate(sourceDeck(), { name: '  Firma  ', visibility: 'shared' }, deps)
+    const { template: saved, defaultChosen } = await saveThemeAsTemplate(
+      sourceDeck(),
+      { name: '  Firma  ', visibility: 'shared' },
+      deps,
+    )
     expect(saved).toMatchObject({ name: 'Firma', visibility: 'shared', own: true })
+    expect(defaultChosen).toBe(false)
+    expect(deps.chooseDefault).not.toHaveBeenCalled()
     expect(created).toHaveLength(1)
     expect(created[0].logo).toBeInstanceOf(Blob)
     expect(deps.library.getAsset).toHaveBeenCalledWith(SOURCE_LOGO.id)
+  })
+
+  it('gjør malen til standard når det er bedt om', async () => {
+    const { deps } = dependencies(editor(null))
+    const { template, defaultChosen } = await saveThemeAsTemplate(
+      sourceDeck(),
+      { name: 'Firma', visibility: 'private', asDefault: true },
+      deps,
+    )
+    expect(defaultChosen).toBe(true)
+    expect(deps.chooseDefault).toHaveBeenCalledWith(template.id)
+  })
+
+  it('svarer med den lagrede malen også når standardvalget feiler, så den ikke lages to ganger', async () => {
+    const { deps, created } = dependencies(editor(null), { defaultFails: true })
+    const { template, defaultChosen } = await saveThemeAsTemplate(
+      sourceDeck(),
+      { name: 'Firma', visibility: 'private', asDefault: true },
+      deps,
+    )
+    expect(defaultChosen).toBe(false)
+    expect(template.name).toBe('Firma')
+    expect(created).toHaveLength(1)
   })
 
   it('lagrer ingenting uten navn, eller når logofilen ikke kan leses', async () => {

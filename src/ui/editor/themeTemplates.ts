@@ -39,6 +39,7 @@ export interface ThemeTemplateDependencies extends PlacementDependencies {
   templates: ThemeTemplateRepository
   library: Pick<SlaidsRepository, 'getAsset' | 'savePresentation' | 'getUserSettings'>
   storeFile: typeof storeUploadedFile
+  chooseDefault: typeof chooseDefaultThemeTemplate
 }
 
 const DEFAULTS: ThemeTemplateDependencies = {
@@ -47,20 +48,33 @@ const DEFAULTS: ThemeTemplateDependencies = {
   templates: themeTemplates,
   library: repository,
   storeFile: storeUploadedFile,
+  chooseDefault: chooseDefaultThemeTemplate,
 }
 
 /** Navnet på angresteget. Ett steg, så én angring tar tema, farger og logo. */
 const APPLY_LABEL = 'theme-template'
 
+/** En lagret mal, og om den også ble standard når det ble bedt om. */
+export interface SavedThemeTemplate {
+  template: ThemeTemplate
+  /** `false` når malen ble lagret, men standardvalget ikke kunne lagres. */
+  defaultChosen: boolean
+}
+
 /**
- * Lagre temaet, forsidens farger og logoen i `presentation` som en ny mal.
- * Logofilen kopieres fra presentasjonen; malen får sin egen kopi.
+ * Lagre temaet, forsidens farger og logoen i `presentation` som en ny mal,
+ * og eventuelt gjøre den til standard for nye presentasjoner. Logofilen
+ * kopieres fra presentasjonen; malen får sin egen kopi.
+ *
+ * Kaster bare når malen ikke ble lagret. Feiler standardvalget etterpå, er
+ * malen like fullt lagret – svaret sier det, så et nytt forsøk ikke lager en
+ * mal til.
  */
 export async function saveThemeAsTemplate(
   presentation: Presentation,
-  input: { name: string; visibility: ThemeTemplateVisibility },
+  input: { name: string; visibility: ThemeTemplateVisibility; asDefault?: boolean },
   dependencies: ThemeTemplateDependencies = DEFAULTS,
-): Promise<ThemeTemplate> {
+): Promise<SavedThemeTemplate> {
   const name = normalizeThemeTemplateName(input.name)
   if (!name) throw new RepositoryError('Malen må ha et navn.')
   const { content, logoAssetId } = themeTemplateContent(presentation)
@@ -69,7 +83,14 @@ export async function saveThemeAsTemplate(
   const now = new Date().toISOString()
   const template = { id: newThemeTemplateId(), name, visibility: input.visibility, content, createdAt: now, updatedAt: now }
   await dependencies.templates.createThemeTemplate(template, logo?.blob ?? null)
-  return { ...template, own: true }
+  const saved: ThemeTemplate = { ...template, own: true }
+  if (!input.asDefault) return { template: saved, defaultChosen: false }
+  try {
+    await dependencies.chooseDefault(saved.id)
+    return { template: saved, defaultChosen: true }
+  } catch {
+    return { template: saved, defaultChosen: false }
+  }
 }
 
 /** Hvordan det gikk: brukt, eller hvorfor ikke. */

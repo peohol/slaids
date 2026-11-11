@@ -25,6 +25,7 @@ import {
   applyThemeTemplateToOpenDeck,
   chooseDefaultThemeTemplate,
   saveThemeAsTemplate,
+  type SavedThemeTemplate,
 } from './themeTemplates'
 
 const VISIBILITY_LABELS: Record<ThemeTemplateVisibility, string> = {
@@ -352,20 +353,24 @@ function SaveTemplateForm({
     event.preventDefault()
     if (!name.trim() || pending) return
     setPending(true)
+    let saved: SavedThemeTemplate
     try {
-      const template = await saveThemeAsTemplate(presentation, { name, visibility })
-      if (asDefault) await chooseDefaultThemeTemplate(template.id)
-      notify.success(
-        asDefault
-          ? `Malen «${template.name}» er lagret, og nye presentasjoner starter i den.`
-          : `Malen «${template.name}» er lagret.`,
-      )
-      onSaved(template)
+      saved = await saveThemeAsTemplate(presentation, { name, visibility, asDefault })
     } catch (error) {
       notify.error(errorText(error, 'Malen kunne ikke lagres.'))
-    } finally {
       setPending(false)
+      return
     }
+    const { template, defaultChosen } = saved
+    if (!asDefault) notify.success(`Malen «${template.name}» er lagret.`)
+    else if (defaultChosen) notify.success(`Malen «${template.name}» er lagret, og nye presentasjoner starter i den.`)
+    else {
+      notify.warning(
+        `Malen «${template.name}» er lagret, men den kunne ikke gjøres til standard. Trykk på stjernen for å prøve igjen.`,
+      )
+    }
+    setPending(false)
+    onSaved(template)
   }
 
   return (
