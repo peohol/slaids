@@ -166,6 +166,15 @@ interface EditorStore {
    * it started from would pass for a deck that is about to move.
    */
   settleHistory: () => void
+  /**
+   * La neste endring bli en del av angresteget som nettopp ble lagt til.
+   *
+   * For én brukerhandling som når lageret i to omganger – en innlimt
+   * referanselenke legger først til referansen, og så kommer citation-nummeret
+   * fra editoren. Gjelder bare endringer i samme synkrone kjøring; det som
+   * kommer senere, blir et eget steg som vanlig.
+   */
+  joinNextChange: () => void
   canUndo: () => boolean
   canRedo: () => boolean
 
@@ -349,6 +358,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   undo: () => requestStep(set, get, 'undo'),
   redo: () => requestStep(set, get, 'redo'),
   settleHistory: () => settleSteps(set, get),
+  joinNextChange: () => {
+    if (joinNext) return
+    joinNext = true
+    queueMicrotask(() => {
+      joinNext = false
+    })
+  },
 
   canUndo: () => get().past.length > 0,
   canRedo: () => get().future.length > 0,
@@ -541,6 +557,9 @@ function applyStep(set: SetState, state: EditorStore, direction: HistoryDirectio
   })
 }
 
+/** Se `joinNextChange`. */
+let joinNext = false
+
 function commit(
   set: SetState,
   state: EditorStore,
@@ -554,12 +573,15 @@ function commit(
    * would wipe out a whole paragraph, or edits to two different fields would
    * collapse into each other.
    */
+  const joined = joinNext && state.past.length > 0
+  joinNext = false
   const coalesce =
-    state.lastLabel === label &&
-    label.startsWith('typing:') &&
-    now - state.lastChangeAt < COALESCE_IDLE_MS &&
-    now - state.coalesceStartedAt < COALESCE_RUN_MS &&
-    state.past.length > 0
+    joined ||
+    (state.lastLabel === label &&
+      label.startsWith('typing:') &&
+      now - state.lastChangeAt < COALESCE_IDLE_MS &&
+      now - state.coalesceStartedAt < COALESCE_RUN_MS &&
+      state.past.length > 0)
 
   set({
     presentation: next,

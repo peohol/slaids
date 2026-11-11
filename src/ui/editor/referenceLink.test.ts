@@ -250,12 +250,64 @@ describe('skrevet DOI- eller PubMed-lenke', () => {
 })
 
 describe('angrehistorikken', () => {
+  /** Editoren sender hver endring til lageret, slik feltene på sliden gjør. */
+  function connectedEditor(): Editor {
+    const instance = editor()
+    instance.on('update', ({ editor: changed }) => {
+      const text = JSON.stringify(changed.getJSON())
+      useEditorStore.getState().run('typing:felt', (presentation) => ok({ ...presentation, title: text }))
+    })
+    return instance
+  }
+
+  const undo = (): void => {
+    useEditorStore.getState().undo()
+    useEditorStore.getState().settleHistory()
+  }
+
+  it('angrer innlimingen i ett steg: både nummeret og den nye referansen', async () => {
+    deferredFetch()
+    const instance = connectedEditor()
+    type(instance, 'Tekst ')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const before = useEditorStore.getState().presentation
+    const past = useEditorStore.getState().past.length
+    paste(instance, DOI)
+    expect(references()).toHaveLength(1)
+    expect(useEditorStore.getState().past).toHaveLength(past + 1)
+    undo()
+    expect(useEditorStore.getState().presentation).toBe(before)
+    expect(references()).toHaveLength(0)
+  })
+
+  it('angrer en skrevet lenke i ett steg, tilbake til lenketeksten', async () => {
+    deferredFetch()
+    const instance = connectedEditor()
+    type(instance, `Tekst ${DOI}`)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const typed = useEditorStore.getState().presentation
+    type(instance, ' ')
+    expect(references()).toHaveLength(1)
+    undo()
+    expect(useEditorStore.getState().presentation).toBe(typed)
+  })
+
+  it('lar neste, senere endring bli et eget steg', async () => {
+    deferredFetch()
+    paste(editor(), DOI)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const past = useEditorStore.getState().past.length
+    useEditorStore.getState().run('annet', (presentation) => ok({ ...presentation, title: 'Senere' }))
+    expect(useEditorStore.getState().past).toHaveLength(past + 1)
+  })
+
   it('får ikke et eget steg for opplysningene, og et angret steg viser dem også', async () => {
     const lookup = deferredFetch()
     const instance = editor()
     type(instance, 'Tekst ')
     paste(instance, DOI)
-    // Skrivingen etterpå er et eget steg (editoren er ikke koblet til lageret her).
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // Skrivingen etterpå er et eget steg.
     useEditorStore.getState().run('typing:test', (presentation) => ok({ ...presentation, title: 'Skrevet videre' }))
     const past = useEditorStore.getState().past.length
     lookup.release(crossref)
@@ -263,8 +315,7 @@ describe('angrehistorikken', () => {
     expect(useEditorStore.getState().past).toHaveLength(past)
 
     // Tilbake til før skrivingen: referansen er fortsatt der, ferdig utfylt.
-    useEditorStore.getState().undo()
-    useEditorStore.getState().settleHistory()
+    undo()
     expect(references()).toMatchObject([{ title: 'Studie av søvn' }])
   })
 })

@@ -63,8 +63,8 @@ function existingReference(presentation: Presentation, identifier: ReferenceIden
  * opplysningene deres hentes i bakgrunnen.
  *
  * En lenke som allerede er en referanse i presentasjonen, gjenbruker den. Alle
- * nye referanser legges til i ett angresteg. `null` når det ikke finnes noen
- * presentasjon å legge dem i.
+ * nye referanser legges til i samme angresteg som citation-nummeret som settes
+ * inn rett etterpå. `null` når det ikke finnes noen presentasjon å legge dem i.
  */
 export function citeReferenceLinks(identifiers: readonly ReferenceIdentifier[]): string[] | null {
   const store = useEditorStore.getState()
@@ -88,7 +88,12 @@ export function citeReferenceLinks(identifiers: readonly ReferenceIdentifier[]):
     ids.push(result.value.reference.id)
   }
 
-  if (next !== current && !store.run('reference-add', () => ok(next))) return null
+  if (next !== current) {
+    if (!store.run('reference-add', () => ok(next))) return null
+    // Citation-nummeret editoren setter inn rett etterpå, hører til samme
+    // handling: ett Ctrl+Z tar både nummeret og referansen.
+    store.joinNextChange()
+  }
   for (const { reference, identifier } of created) void completeReference(reference, identifier)
   return ids
 }
