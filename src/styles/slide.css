@@ -747,6 +747,18 @@
   user-select: none;
 }
 
+.rich-doc .rd-citation.rd-citation--author-year {
+  display: inline;
+  white-space: inherit;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* Tiptap gir omslaget rundt atomnoden sin egen linjebryting. Tittelen har én linje. */
+.rich-doc--title .node-citation[contenteditable="false"] {
+  white-space: inherit;
+}
+
 /*
  * En referanse fra en innlimt lenke hentes i bakgrunnen. Ringen tegnes utenpå
  * nummeret, så den aldri tar plass i teksten eller endrer hvordan sonen måles.

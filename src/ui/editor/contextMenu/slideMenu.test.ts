@@ -21,7 +21,7 @@ function deck(): Presentation {
 }
 
 function handlers(): SlideMenuHandlers {
-  return { move: vi.fn(), duplicate: vi.fn(), remove: vi.fn(), insertAfter: vi.fn() }
+  return { move: vi.fn(), duplicate: vi.fn(), remove: vi.fn(), toSandbox: vi.fn(), insertAfter: vi.fn() }
 }
 
 function action(entries: MenuEntry[], testId: string): MenuAction {

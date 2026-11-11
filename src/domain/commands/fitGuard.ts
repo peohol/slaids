@@ -134,7 +134,7 @@ import { contentDocs } from '../content'
 import { FIT_TOLERANCE, GEOMETRY_EPSILON } from '../constants'
 import { sectionGeometryForTheme, geometryForTheme, themeMetrics } from '../metrics'
 import { sameFitRelevantTheme, type FitContext } from '../fit'
-import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
+import { citationLabel, citationLabelsFor, type CitationLabelContext, type CitationStyle } from '../references'
 import { walkRichNodes } from '../richdoc'
 import { err, ERROR_MESSAGES_NB, ok, type Result } from '../result'
 import { airMeetings } from '../negativeSpace'
@@ -159,8 +159,8 @@ import type { StructuralOptions } from './types'
  * build this from the presentation they are about to commit, so what is
  * measured is what will be rendered.
  */
-export function fitContextFor(presentation: Presentation): FitContext {
-  return { theme: presentation.theme, numbering: computeReferenceNumbering(presentation) }
+export function fitContextFor(presentation: Presentation, citationStyle?: CitationStyle): FitContext {
+  return { theme: presentation.theme, ...citationLabelsFor(presentation, citationStyle) }
 }
 
 /** Every document rendered on a slide, including its title zone. */
@@ -193,8 +193,8 @@ function slideDocs(slide: Slide): RichDoc[] {
  */
 function sameCitationLabels(
   slide: Slide,
-  before: ReferenceNumbering,
-  after: ReferenceNumbering,
+  before: CitationLabelContext,
+  after: CitationLabelContext,
 ): boolean {
   let same = true
   for (const doc of slideDocs(slide)) {
@@ -203,7 +203,10 @@ function sameCitationLabels(
       const ids = Array.isArray(node.attrs?.referenceIds)
         ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
         : []
-      if (citationLabel(ids, before) !== citationLabel(ids, after)) same = false
+      if (
+        citationLabel(ids, before.numbering, before.authorYearLabels) !==
+        citationLabel(ids, after.numbering, after.authorYearLabels)
+      ) same = false
     })
   }
   return same
@@ -430,8 +433,8 @@ export function findFitRegressions(
   options: StructuralOptions = {},
 ): FitRegression[] {
   if (!options.fits && !options.fitsTitle) return []
-  const beforeContext = fitContextFor(before)
-  const afterContext = fitContextFor(after)
+  const beforeContext = fitContextFor(before, options.citationStyle)
+  const afterContext = fitContextFor(after, options.citationStyle)
   const typographyUnchanged = sameFitRelevantTheme(before.theme, after.theme)
   const previousSlides = new Map(before.slides.map((slide) => [slide.id, slide]))
   const regressions: FitRegression[] = []
@@ -448,7 +451,7 @@ export function findFitRegressions(
     if (
       previous === slide &&
       typographyUnchanged &&
-      sameCitationLabels(slide, beforeContext.numbering, afterContext.numbering)
+      sameCitationLabels(slide, beforeContext, afterContext)
     ) {
       continue
     }
@@ -529,9 +532,10 @@ export function findGeometryRegression(
 ): GeometryRegression | null {
   const afterGeometry = { ...geometryForTheme(after.theme), ...options.geometry }
   const beforeGeometry = { ...geometryForTheme(before.theme), ...options.geometry }
-  const previous = new Map(before.slides.map((slide) => [slide.id, slide]))
+  const previous = new Map([...before.slides, ...(before.sandboxSlides ?? [])].map((slide) => [slide.id, slide]))
 
-  for (const slide of after.slides) {
+  // Et temabytte må også la parkerte slides passe når de settes tilbake.
+  for (const slide of [...after.slides, ...(after.sandboxSlides ?? [])]) {
     // A section has no zone tree, so there is no zone in it to fall below a
     // minimum. Its own failure mode is a line that no longer fits, which is the
     // content check above.

@@ -21,7 +21,16 @@ import { computeMainRect } from '../geometry'
 import { geometryForTheme } from '../metrics'
 import type { Presentation, Rect, Reference, RichDoc, ZoneContent } from '../types'
 import { findLeaf } from '../layout'
-import { addSlide, moveSlide, setSubfieldDoc, setZoneContent } from './index'
+import {
+  addSlide,
+  duplicateSlide,
+  moveSlide,
+  moveSlideToSandbox,
+  restoreSandboxSlide,
+  setSubfieldDoc,
+  setZoneContent,
+} from './index'
+import { HUMAN_EDIT } from './manualLayout'
 import { contentAt } from '../testDecks'
 
 const checkers = { fits: estimateFitChecker, fitsTitle: estimateTitleFitChecker }
@@ -99,6 +108,18 @@ describe('measuring a citation', () => {
     const single = estimateFit(content, TIGHT, { theme, numbering: new Map([['r1', 9]]) })
     const double = estimateFit(content, TIGHT, { theme, numbering: new Map([['r1', 10]]) })
     expect(double.overflow).toBeGreaterThan(single.overflow)
+  })
+
+  it('måler forfatter og år når formatet er valgt', () => {
+    const content = cardWith(citingDoc('Tekst med kilde', 'r1', 30))
+    const numbering = new Map([['r1', 1]])
+    const numbered = estimateFit(content, TIGHT, { theme, numbering })
+    const authorYear = estimateFit(content, TIGHT, {
+      theme,
+      numbering,
+      authorYearLabels: new Map([['r1', 'Eksempelforfatter, 2024']]),
+    })
+    expect(authorYear.overflow).toBeGreaterThan(numbered.overflow)
   })
 
   it('sees a decompressed range as wider than a compressed one', () => {
@@ -362,5 +383,45 @@ describe('commands that renumber citations', () => {
       ...checkers,
     })
     expect(same.ok).toBe(true)
+  })
+})
+
+describe('menneskelig parkering av slides med brede henvisninger', () => {
+  it('tillater parkering når henvisningen på en annen full slide går fra 1 til 10', () => {
+    const full = fillFirstSlide(40)
+    const original = contentAt(full, 1)
+    const duplicated = unwrap(duplicateSlide(full, original.id))
+    const copy = contentAt(duplicated, 2)
+    const presentation = unwrap(moveSlide(duplicated, copy.id, 3))
+    expect(computeReferenceNumbering(presentation).get('r0')).toBe(1)
+
+    const strict = moveSlideToSandbox(presentation, original.id, checkers)
+    expect(strict.ok).toBe(false)
+    if (!strict.ok) expect(strict.error.code).toBe('CONTENT_DOES_NOT_FIT')
+
+    const parked = unwrap(moveSlideToSandbox(presentation, original.id, HUMAN_EDIT))
+    expect(computeReferenceNumbering(parked).get('r0')).toBe(10)
+    expect(contentAt(parked, 2)).toEqual(copy)
+    expect(parked.sandboxSlides).toEqual([original])
+    const restored = unwrap(restoreSandboxSlide(parked, { slideId: original.id, index: 1, ...HUMAN_EDIT }))
+    expect(restored.slides).toEqual(presentation.slides)
+    expect(restored.sandboxSlides).toEqual([])
+  })
+
+  it('tillater gjenoppretting foran en full slide når henvisningen går fra 1 til 10', () => {
+    const presentation = fillFirstSlide(40)
+    const full = contentAt(presentation, 1)
+    const source = contentAt(presentation, 2)
+    const parked = unwrap(moveSlideToSandbox(presentation, source.id, HUMAN_EDIT))
+    expect(computeReferenceNumbering(parked).get('r0')).toBe(1)
+
+    const strict = restoreSandboxSlide(parked, { slideId: source.id, index: 1, ...checkers })
+    expect(strict.ok).toBe(false)
+    if (!strict.ok) expect(strict.error.code).toBe('CONTENT_DOES_NOT_FIT')
+
+    const restored = unwrap(restoreSandboxSlide(parked, { slideId: source.id, index: 1, ...HUMAN_EDIT }))
+    expect(computeReferenceNumbering(restored).get('r0')).toBe(10)
+    expect(restored.slides).toEqual([presentation.slides[0], source, full])
+    expect(restored.sandboxSlides).toEqual([])
   })
 })

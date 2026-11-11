@@ -26,22 +26,22 @@ declare module '@tiptap/core' {
 }
 
 function CitationNodeView({ node }: NodeViewProps) {
-  const { numbering, onCitationClick } = useSlideRender()
+  const { numbering, authorYearLabels, onCitationClick } = useSlideRender()
   const ids = Array.isArray(node.attrs.referenceIds)
     ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
     : []
-  const label = citationLabel(ids, numbering)
+  const label = citationLabel(ids, numbering, authorYearLabels)
   // Opplysningene om en referanse fra en innlimt lenke hentes fortsatt.
   const importing = useReferenceImports((state) => ids.some((id) => state.pending.has(id)))
-  const className = [
-    'rd-citation',
-    onCitationClick && 'rd-citation--clickable',
-    importing && 'rd-citation--importing',
-  ].filter(Boolean).join(' ')
+  const classes = ['rd-citation']
+  if (authorYearLabels) classes.push('rd-citation--author-year')
+  if (onCitationClick) classes.push('rd-citation--clickable')
+  if (importing) classes.push('rd-citation--importing')
   return (
     <NodeViewWrapper
       as="sup"
-      className={className}
+      className={classes.join(' ')}
+      style={authorYearLabels ? { whiteSpace: 'inherit' } : undefined}
       data-citation=""
       data-importing={importing ? '' : undefined}
       aria-busy={importing || undefined}

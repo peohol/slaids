@@ -171,7 +171,7 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('reference-modal')).toBeVisible()
     await page.getByTestId('reference-title').fill('En viktig kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
 
     await expect(stage(page).locator('.rd-citation')).toHaveCount(1)
 
@@ -193,12 +193,15 @@ test.describe('presentation mode', () => {
     await expect.poll(async () => (await progressBar(page))?.fillWidth).toBeCloseTo(SLIDE_WIDTH, 0)
 
     await page.keyboard.press('Escape')
-    await chooseFromToolbarMenu(page, 'presentation', 'open-references')
-    const includeReferences = page.getByRole('checkbox', { name: 'Tell med referanseslides i fremdriftslinjen' })
+    await page.getByTestId('back-to-library').click()
+    await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
+    const settings = page.getByTestId('user-settings-modal')
+    const includeReferences = settings.getByRole('checkbox', { name: 'Tell med referanseslides i fremdriftslinjen' })
     await expect(includeReferences).not.toBeChecked()
-    await includeReferences.check()
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
-    await waitForSaved(page)
+    await includeReferences.click()
+    await expect(includeReferences).toBeChecked()
+    await settings.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('open-presentation').filter({ hasText: 'Referanser' }).click()
     await page.reload()
     await expect(page.getByTestId('editor')).toBeVisible()
 
@@ -222,7 +225,7 @@ test.describe('presentation mode', () => {
     await page.getByTestId('insert-reference').click()
     await page.getByTestId('reference-title').fill('Kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
 
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-with-title').click()
@@ -335,7 +338,7 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('reference-row')).toHaveCount(1)
     await page.getByTestId('delete-reference').click()
     await page.getByTestId('confirm-accept').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
 
     await expect(stage(page).locator('.rd-citation')).toHaveCount(0)
     await expect(page.getByTestId('filmstrip-derived')).toHaveCount(0)

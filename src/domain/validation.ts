@@ -206,7 +206,7 @@ export function findSlideIssues(
     // the worse of them is how the other one gets fixed and the slide still
     // does not come out right. `part` names which region, in the same
     // vocabulary the commands refuse with.
-    for (const [key, overflow] of slideOverflow(slide, fitContextFor(presentation), options)) {
+    for (const [key, overflow] of slideOverflow(slide, fitContextFor(presentation, options.citationStyle), options)) {
       if (overflow <= FIT_TOLERANCE) continue
       const nodeId = nodeIdOfKey(key)
       const part = partOfKey(key)
@@ -223,6 +223,13 @@ export function findSlideIssues(
     }
   }
 
+  issues.push(...findSlideLinkIssues(presentation, slide))
+  return issues
+}
+
+function findSlideLinkIssues(presentation: Presentation, slide: ContentSlide): InvariantIssue[] {
+  const issues: InvariantIssue[] = []
+  const slideId = slide.id
   const knownAssets = new Set(presentation.assets.map((asset) => asset.id))
   for (const leaf of collectLeaves(slide.root)) {
     if (!leaf.content) continue
@@ -253,7 +260,7 @@ function findSectionIssues(
   const issues: InvariantIssue[] = []
   for (const [key, overflow] of sectionOverflow(
     section,
-    fitContextFor(presentation),
+    fitContextFor(presentation, options.citationStyle),
     options,
   )) {
     if (overflow <= FIT_TOLERANCE) continue
@@ -325,6 +332,9 @@ export function findPresentationIssues(
 
   for (const slide of presentation.slides) {
     issues.push(...findSlideIssues(presentation, slide, options))
+  }
+  for (const slide of presentation.sandboxSlides ?? []) {
+    issues.push(...findSlideLinkIssues(presentation, slide))
   }
 
   // Deck-wide by nature: every slide can be within its own limit while the deck

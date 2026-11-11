@@ -7,11 +7,14 @@
 
 import { newSandboxId } from '../ids'
 import { cloneContentWithNewIds, findLeaf, replaceNode } from '../layout'
+import { mapTreeContent } from '../docs'
+import { imagePanelOf, withDepositIndex, withImagePanel } from '../content'
 import { touch, withSlide } from '../presentation'
 import { err, ok, type Result } from '../result'
 import { fitContextFor, guardFit } from './fitGuard'
-import { contentSlide,
-  contentTooBigForZone, geometryFor, rectForNode } from './internal'
+import {
+  contentSlide, contentTooBigForZone, geometryFor, insertionIndex, rectForNode, withSlides,
+} from './internal'
 import { outcome, type StructuralOptions, type StructuralOutcome } from './types'
 import type { Presentation, SandboxItem, ZoneContent } from '../types'
 
@@ -82,7 +85,7 @@ export function placeSandboxItem(
 
   // Sandbox content keeps its citations, so putting it back on a slide gives
   // those references a number again — measured against the document it lands in.
-  const fit = input.fits?.(item.content, area, fitContextFor(next))
+  const fit = input.fits?.(item.content, area, fitContextFor(next, input.citationStyle))
   if (fit && !fit.fits) {
     return err('CONTENT_DOES_NOT_FIT', 'Innholdet får ikke plass i denne sonen.', {
       overflow: fit.overflow,
@@ -139,4 +142,42 @@ export function addContentToSandbox(
   note = '',
 ): Result<Presentation> {
   return ok(touch(appendToSandbox(presentation, [content], note)))
+}
+
+export function moveSlideToSandbox(
+  presentation: Presentation,
+  slideId: string,
+  options: StructuralOptions = {},
+): Result<Presentation> {
+  const found = contentSlide(presentation, slideId)
+  if (!found.ok) return found
+  const slide = found.value
+  // En parkert bildeplass deltar ikke i en aktiv bildedeponering.
+  const root = mapTreeContent(slide.root, (content) => {
+    const panel = imagePanelOf(content)
+    return panel?.depositIndex ? withImagePanel(content, withDepositIndex(panel, null)) : content
+  })
+  const parked = root === slide.root ? slide : { ...slide, root }
+  const next = withSlides(
+    { ...presentation, sandboxSlides: [...(presentation.sandboxSlides ?? []), parked] },
+    presentation.slides.filter((entry) => entry.id !== slideId),
+  )
+  if (!next.ok) return next
+  return guardFit(presentation, next.value, options, 'Parkering endrer henvisningene slik at innhold på en annen slide ikke får plass.')
+}
+
+export function restoreSandboxSlide(
+  presentation: Presentation,
+  input: { slideId: string; index?: number } & StructuralOptions,
+): Result<Presentation> {
+  const parked = presentation.sandboxSlides ?? []
+  const slide = parked.find((entry) => entry.id === input.slideId)
+  if (!slide) return err('SLIDE_NOT_FOUND', 'Fant ikke sliden i sandkassen.')
+  const at = insertionIndex(presentation, input.index, 'Ugyldig posisjon for sliden fra sandkassen.')
+  if (!at.ok) return at
+  const slides = [...presentation.slides]
+  slides.splice(at.value, 0, slide)
+  const next = withSlides({ ...presentation, sandboxSlides: parked.filter((entry) => entry !== slide) }, slides)
+  if (!next.ok) return next
+  return guardFit(presentation, next.value, input, 'Innsettingen endrer henvisningene slik at innhold på en annen slide ikke får plass.')
 }

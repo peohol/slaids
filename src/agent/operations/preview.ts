@@ -120,7 +120,8 @@ export const renderSlidePreviewOperation = defineOperation({
     // the derived reference slides are addressable without a
     // second idea of what a deck contains. The QR page is not in it: it exists
     // only while sharing is on, and `get_sharing` is what answers that.
-    const pages = deckPages(presentation)
+    const citationStyle = context.userSettings?.citationStyle
+    const pages = deckPages(presentation, { citationStyle })
     const page = pages.find((candidate) => candidate.id === input.slideId)
     if (!page) {
       return agentErr('SLIDE_NOT_FOUND', 'Fant ingen side med den id-en i dekket.', {
@@ -132,6 +133,8 @@ export const renderSlidePreviewOperation = defineOperation({
 
     const rendered = await renderer({
       presentation,
+      includeReferencesInProgress: context.userSettings?.includeReferencesInProgress,
+      citationStyle,
       page,
       scale: input.scale,
       // The store the deck was just read from, so a preview can never show a

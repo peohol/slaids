@@ -120,7 +120,7 @@ function sameFit(a: TitleFit, b: TitleFit): boolean {
  * endring; det som flytter boksen, er temaet.
  */
 export function useTitleFit(ref: RefObject<HTMLElement | null>): TitleFit {
-  const { theme, numbering } = useSlideRender()
+  const { theme, numbering, authorYearLabels } = useSlideRender()
   const [fit, setFit] = useState<TitleFit>(NORMAL)
 
   const refit = useCallback(() => {
@@ -139,7 +139,7 @@ export function useTitleFit(ref: RefObject<HTMLElement | null>): TitleFit {
 
   useLayoutEffect(() => {
     refit()
-  }, [refit, theme, numbering])
+  }, [refit, theme, numbering, authorYearLabels])
 
   useLayoutEffect(() => {
     const box = ref.current

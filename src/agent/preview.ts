@@ -20,6 +20,7 @@
  */
 
 import type { DeckPage } from '../domain/pages'
+import type { CitationStyle } from '../domain/references'
 import type { Presentation } from '../domain/types'
 import type { StoredAsset } from '../persistence/repository'
 import type { AgentImage } from './image'
@@ -38,6 +39,9 @@ export interface PreviewAssetReader {
 export interface SlidePreviewRequest {
   /** The deck as it is stored. The renderer never writes and never reloads it. */
   presentation: Presentation
+  /** Eierens gjeldende visningsvalg, adskilt fra det lagrede dokumentet. */
+  includeReferencesInProgress?: boolean
+  citationStyle?: CitationStyle
   /** The page to draw, already resolved out of `deckPages`. */
   page: DeckPage
   /**

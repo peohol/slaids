@@ -372,6 +372,7 @@ export function Filmstrip({
   onRequestDelete,
   onRequestNewPage,
   overview = false,
+  onMoveToSandbox,
 }: {
   presentation: Presentation
   /**
@@ -396,6 +397,7 @@ export function Filmstrip({
    * a fixed width to work with; an overview has the screen.
    */
   overview?: boolean
+  onMoveToSandbox: (slideId: string) => void
 }) {
   const listRef = useRef<HTMLDivElement>(null)
   /*
@@ -478,6 +480,7 @@ export function Filmstrip({
       move: (delta) => move(slide.id, index, delta),
       duplicate: () => duplicate(slide.id, index),
       remove: () => onRequestDelete(slide),
+      toSandbox: () => onMoveToSandbox(slide.id),
       insertAfter: (kind) => onRequestNewPage({ kind, after: slide.id }),
     }
     const build = () => slideMenu(presentation, index, handlers)

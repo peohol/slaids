@@ -195,7 +195,7 @@ function ItemBody({ entry }: { entry: Exclude<MenuEntry, { kind: 'separator' | '
   )
 }
 
-export function ContextMenuHost() {
+export function ContextMenuHost({ skipConfirmations = false }: { skipConfirmations?: boolean }) {
   const menu = useContextMenu((state) => state.menu)
   const close = useContextMenu((state) => state.close)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -299,7 +299,13 @@ export function ContextMenuHost() {
             }}
           >
             {menu.title && <DropdownMenu.Label className="context-menu__title">{menu.title}</DropdownMenu.Label>}
-            <Entries entries={menu.entries} onConfirm={setAsking} />
+            <Entries
+              entries={menu.entries}
+              onConfirm={(entry) => {
+                if (skipConfirmations) entry.onSelect()
+                else setAsking(entry)
+              }}
+            />
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>

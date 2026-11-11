@@ -145,6 +145,8 @@ function withRemoteQuirks(inner: DexieSlaidsRepository, quirks: RemoteQuirks = {
       await inner.saveTemplate(template)
     },
     deleteTemplate: (id) => inner.deleteTemplate(id),
+    getUserSettings: (ownerId) => inner.getUserSettings(ownerId),
+    updateUserSettings: (ownerId, patch) => inner.updateUserSettings(ownerId, patch),
     loadAutocorrectRules: () => inner.loadAutocorrectRules(),
     saveAutocorrectRules: (rules) => inner.saveAutocorrectRules(rules),
     putAsset: async (presentationId, ref, blob) => {
@@ -480,6 +482,31 @@ describe('.slaids backup', () => {
     const restored = await target.loadPresentation(presentation.id)
     expect(restored.imageContext).toBe(presentation.imageContext)
     expect(restored.imagePlan).toEqual(presentation.imagePlan)
+  })
+
+  it('beholder en parkert slide og bildefilen som bare brukes der', async () => {
+    const source = freshRepository()
+    const base = samplePresentation()
+    const slide = { ...contentAt(base, 1), root: createLeaf(createImage(assetRef.id)) }
+    const presentation: Presentation = {
+      ...base,
+      slides: [sectionAt(base, 0)],
+      sandboxSlides: [slide],
+      assets: [assetRef],
+    }
+    await source.savePresentation(presentation)
+    await source.putAsset(presentation.id, assetRef, svgFixture('parkert-figur'))
+
+    const archive = await exportSlaidsArchive(source, { presentationIds: [presentation.id] })
+    const target = freshRepository()
+    const report = await importSlaidsArchive(target, archive)
+    expect(report.errors).toEqual([])
+    expect(report.importedAssets).toBe(1)
+
+    const imported = await target.loadPresentation(presentation.id)
+    expect(imported.slides).toEqual(presentation.slides)
+    expect(imported.sandboxSlides).toEqual([slide])
+    expect(await target.getAsset(assetRef.id)).not.toBeNull()
   })
 
   it('imports a clashing presentation as a copy instead of overwriting', async () => {

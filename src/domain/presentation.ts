@@ -242,6 +242,7 @@ export function duplicatePresentationDocument(
       id: newSandboxId(),
       content: cloneContentWithNewIds(item.content),
     })),
+    sandboxSlides: source.sandboxSlides?.map(cloneContentSlide),
   }
 
   // Last, and over the whole document: the remap has to reach the sandbox and

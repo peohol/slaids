@@ -202,7 +202,7 @@ interface DrawnFit {
 const NORMAL: DrawnFit = { zone: 1, content: 1, title: 1, shrunk: [] }
 
 export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFitBoxProps) {
-  const { theme, numbering } = useSlideRender()
+  const { theme, numbering, authorYearLabels } = useSlideRender()
   const rootRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   const scaleRef = useRef(1)
@@ -273,7 +273,7 @@ export function ZoneFitBox({ width, height, onScale, marker, children }: ZoneFit
   // painted, so a drag never shows a frame of the new size at the old scale.
   useLayoutEffect(() => {
     refit()
-  }, [refit, theme, numbering])
+  }, [refit, theme, numbering, authorYearLabels])
 
   // Whatever is drawn inside, a frame later — but still before anything is
   // painted. The content arrives, changes and is swapped (the editor's fields

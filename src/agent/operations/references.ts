@@ -1,10 +1,9 @@
 /**
  * References, and the citations that point at them.
  *
- * A reference is stored once and cited by id. The number a reader sees is
- * derived from first-occurrence order across the whole deck, so an agent never
- * writes a number — which is also why adding or editing a reference cannot
- * change any layout: nothing renumbers until something is *cited*.
+ * Referansen lagres én gang og siteres med ID. Nummeret følger den første
+ * forekomsten i dekket. Med forfatter og år kan en rettelse gjøre henvisningene
+ * lengre, så agentens rettelser måles mot brukerens valgte henvisningsformat.
  *
  * Deleting is the exception. It strips every citation that pointed at the
  * reference, so it is the one reference operation that changes documents, and
@@ -29,7 +28,7 @@ import { allContent } from '../../domain/docs'
 import { err, ok } from '../../domain/result'
 import type { Presentation, Reference } from '../../domain/types'
 import { defineOperation, expectedRevisionSchema, presentationIdSchema } from '../operation'
-import { mutatePresentation } from '../presentation'
+import { mutatePresentation, structuralOptions } from '../presentation'
 import type { AgentResult } from '../types'
 
 /**
@@ -61,7 +60,7 @@ function citationCount(presentation: Presentation, referenceId: string): number 
   const docs = [
     // Only a content slide's title zone can cite: a section's heading cannot
     // by schema, and an interactive slide has no document of its own at all.
-    ...presentation.slides.flatMap((slide) =>
+    ...[...presentation.slides, ...(presentation.sandboxSlides ?? [])].flatMap((slide) =>
       slide.kind === 'content' && slide.title ? [slide.title] : [],
     ),
     ...allContent(presentation).flatMap(contentDocs),
@@ -124,7 +123,7 @@ export const updateReferenceOperation = defineOperation({
         authors: input.authors,
         url: input.url,
         year: input.year,
-      })
+      }, structuralOptions(context))
       if (!updated.ok) return updated
       const reference = updated.value.references.find((entry) => entry.id === input.referenceId)
       if (!reference) return err('REFERENCE_NOT_FOUND', 'Fant ikke referansen.')
