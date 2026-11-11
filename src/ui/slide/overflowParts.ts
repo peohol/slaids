@@ -34,10 +34,11 @@ export function measureOverflowParts(element: HTMLElement): Record<string, numbe
      * A single line of heading type — a slide title, a card's header, a
      * section's pill — is as tall as the type it is set in, by construction:
      * the box's height comes from the same token the line does, so it can only
-     * fail sideways. What does stick out of it vertically is the decoration
-     * around a citation's number, which is drawn inside the line and clipped by
-     * design, and which the headless estimator does not measure either. Reading
-     * it as an overflow would roll back every citation ever put in a title.
+     * fail sideways. What does stick out of it vertically – a descender, an
+     * accent, the decoration around a citation's number – is ink, which the box
+     * lets through rather than clips (`slide.css`) and which the headless
+     * estimator does not measure either. Reading it as an overflow would roll
+     * back every citation ever put in a title.
      */
     const axis = target.dataset.fitAxis
     const overflow = Math.max(
