@@ -3742,8 +3742,12 @@ straks en citation. Løse identifikatorer i teksten blir stående som tekst.
 
 - Referansen opprettes med lenken alene, og citation-nummeret settes inn der
   lenken stod, festet til ordet foran. Tegnsetting etter lenken blir stående.
-  Flere lenker limt inn samtidig blir én citation.
-- En lenke til en referanse som finnes fra før, gjenbruker den.
+  Flere lenker limt inn samtidig, skilt med mellomrom, komma eller semikolon,
+  blir én citation.
+- En lenke til en referanse som finnes fra før, gjenbruker den. Viser oppslaget
+  at verket allerede er en referanse (en PubMed-lenke til en artikkel som ligger
+  inne med DOI-lenken), slås de to sammen, så samme kilde aldri får to numre.
+- Referansen og citation-nummeret er ett angresteg.
 - Tittel, forfattere og år hentes i bakgrunnen med samme oppslag som dialogen.
   Skrivingen venter aldri. Mens oppslaget pågår, viser citation-nummeret en
   indikator i editoren; indikatoren tar ikke plass i teksten.
