@@ -6,7 +6,9 @@
 
 import { expect, test, type Locator, type Page } from './fixtures'
 import {
+  backToLibrary,
   chooseFromToolbarMenu,
+  choosePresentationAction,
   stage,
   titleRect,
   toast,
@@ -152,6 +154,84 @@ test.describe('logo i temaet', () => {
       expect(guard.errors).toEqual([])
     },
   )
+
+  test('følger med når presentasjonen kopieres, eksporteres og importeres igjen', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await newDeckWithThemeOpen(page, 'Logoreise')
+    await uploadLogo(page)
+    await expect(page.getByTestId('theme-logo-thumb').locator('img')).toBeVisible()
+    await closeTheme(page)
+    await waitForSaved(page)
+    await backToLibrary(page)
+
+    await choosePresentationAction(page, 'duplicate-presentation')
+    await expect(page.getByTestId('presentation-card')).toHaveCount(2)
+    const download = page.waitForEvent('download')
+    await choosePresentationAction(page, 'export-presentation')
+    await page.getByTestId('import-input').setInputFiles(await (await download).path())
+    await expect(page.getByTestId('presentation-card')).toHaveCount(3)
+
+    // Hver av de tre har sin egen fil, og alle tegner logoen.
+    for (let index = 0; index < 3; index += 1) {
+      await page.getByTestId('open-presentation').nth(index).click()
+      await expect(page.getByTestId('editor')).toBeVisible()
+      await showSlide(page, 1)
+      await expect(stageLogo(page)).toBeVisible()
+      await expect
+        .poll(() => stageLogo(page).evaluate((image) => (image as HTMLImageElement).naturalWidth))
+        .toBeGreaterThan(0)
+      await backToLibrary(page)
+    }
+    expect(guard.errors).toEqual([])
+  })
+
+  test('skaleres ned, men beskjæres aldri, når bildene i dekket optimaliseres', async ({ page }) => {
+    const guard = watchForErrors(page)
+    await newDeckWithThemeOpen(page, 'Stor logo')
+    // En PNG langt større enn noen slide kan vise: 6000 × 1500, fire ganger så bred som høy.
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 6000
+      canvas.height = 1500
+      const context = canvas.getContext('2d')!
+      context.fillStyle = '#1f6feb'
+      context.fillRect(0, 0, 6000, 1500)
+      context.fillStyle = '#ffffff'
+      context.fillRect(300, 300, 900, 900)
+      return canvas.toDataURL('image/png').split(',')[1]
+    })
+    await page.getByTestId('theme-logo-file').setInputFiles({
+      name: 'stor-logo.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(png, 'base64'),
+    })
+    await expect(page.getByTestId('theme-logo-thumb').locator('img')).toBeVisible()
+    await closeTheme(page)
+    await waitForSaved(page)
+
+    await chooseFromToolbarMenu(page, 'presentation', 'optimize-images')
+    const dialog = page.getByTestId('optimize-modal')
+    await expect(dialog).toContainText('skaleres ned')
+    await expect(dialog).not.toContainText('beskjæres')
+    await page.getByTestId('optimize-confirm').click()
+    await expect(page.getByTestId('optimize-done')).toBeVisible()
+    await page.getByTestId('optimize-close').click()
+
+    // Logoen tegnes fra den nye filen, i den samme formen.
+    await showSlide(page, 1)
+    await expect
+      .poll(() => stageLogo(page).evaluate((image) => (image as HTMLImageElement).naturalWidth))
+      .toBeLessThan(6000)
+    const drawn = await stageLogo(page).evaluate((image) => {
+      const element = image as HTMLImageElement
+      return { width: element.naturalWidth, height: element.naturalHeight }
+    })
+    expect(drawn.width).toBeGreaterThanOrEqual(1600)
+    expect(drawn.width / drawn.height).toBeCloseTo(4, 1)
+    const logo = await logoRect(page)
+    expect(logo.w / logo.h).toBeCloseTo(4, 1)
+    expect(guard.errors).toEqual([])
+  })
 
   test('flyttes, slås av og fjernes fra temaeditoren, og hver endring kan angres', async ({ page }) => {
     await newDeckWithThemeOpen(page, 'Logoplass')

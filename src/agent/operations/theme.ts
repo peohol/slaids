@@ -65,7 +65,7 @@
  */
 
 import { z } from 'zod'
-import { setTheme } from '../../domain/commands'
+import { removeThemeLogo, setTheme, setThemeLogo, updateThemeLogo } from '../../domain/commands'
 import {
   GUARANTEED_FONT_IDS,
   findFontByStack,
@@ -82,6 +82,11 @@ import {
   type ThemeScalePreset,
 } from '../../domain/metrics'
 import {
+  LOGO_MIN_HEIGHT,
+  LOGO_SECTION_PLACEMENTS,
+  LOGO_SECTION_VISIBILITIES,
+  LOGO_SLIDE_POSITIONS,
+  SLIDE_HEIGHT,
   TITLED_CARD_STYLES,
   type LogoSectionPlacement,
   type LogoSectionVisibility,
@@ -89,10 +94,10 @@ import {
   type TitledCardStyle,
 } from '../../domain/constants'
 import type { LogoReservation } from '../../domain/geometry'
-import { deckLogoLayout, type LogoDeck } from '../../domain/logo'
-import { ok } from '../../domain/result'
-import type { PresentationTheme } from '../../domain/types'
-import { defineOperation, expectedRevisionSchema, presentationIdSchema } from '../operation'
+import { deckLogoLayout, type LogoDeck, type ThemeLogoPatch } from '../../domain/logo'
+import { ok, type Result } from '../../domain/result'
+import type { Presentation, PresentationTheme } from '../../domain/types'
+import { assetIdSchema, defineOperation, expectedRevisionSchema, presentationIdSchema } from '../operation'
 import { mutatePresentation, structuralOptions } from '../presentation'
 import type { AgentResult } from '../types'
 
@@ -137,8 +142,9 @@ export interface ThemeView {
   /** Hvordan et kort med tittel tegner tittelen. */
   titledCardStyle: TitledCardStyle
   /**
-   * Logoen i temaet, eller `null` uten logo. Den settes i editorens temaeditor;
-   * her leses den, så det er tydelig hvorfor sonene har mindre plass.
+   * Logoen i temaet, eller `null` uten logo. Den settes med `set_theme_logo`,
+   * eller i editorens temaeditor; her leses den, så det er tydelig hvorfor
+   * sonene har mindre plass.
    */
   logo: ThemeLogoView | null
 }
@@ -318,4 +324,89 @@ function patchFrom(input: {
   }
 }
 
-export const themeOperations = [setThemeOperation]
+/* ------------------------------------------------------------------ *
+ * set_theme_logo
+ * ------------------------------------------------------------------ */
+
+const logoHeightSchema = z.number().min(LOGO_MIN_HEIGHT).max(SLIDE_HEIGHT)
+
+/**
+ * Logoen i temaet, med de samme tre kommandoene temaeditoren bruker. Ingen
+ * egne grenser og ingen egen geometri: en høyde er et ønske, og det som tegnes
+ * er aldri mer enn alle sidene i gruppen har plass til (`drawnHeight` i svaret).
+ * Agenten måles strengt, som for alle andre temavalg: en logo som ville skjult
+ * innhold, avvises med `CONTENT_DOES_NOT_FIT`.
+ */
+export const setThemeLogoOperation = defineOperation({
+  name: 'set_theme_logo',
+  summary:
+    'Sett, flytt eller fjern logoen i temaet. Logoen gjelder hele presentasjonen: én innstilling for inndelingene (ingen, bare forsiden eller alle; over eller under overskriften) og én for vanlige slides (av/på, en av åtte plasseringer). Filen lastes opp først med upload_asset eller create_svg_asset, og assetId gis her; assetId null fjerner logoen. Høyden er et ønske i logiske piksler (sliden er 1600 × 900): logoen tegnes aldri større enn alle slidene i gruppen har plass til, og svaret sier hvor stor den faktisk tegnes (drawnHeight). Formen kommer fra filen og endres aldri. På vanlige slides tar logoen en stripe langs én kant, så hovedsonen blir mindre; en endring som ville skjult innhold avvises med CONTENT_DOES_NOT_FIT. Utelatte felter beholder verdien de har.',
+  mutates: true,
+  scopes: ['presentations:write'],
+  input: z.strictObject({
+    presentationId: presentationIdSchema,
+    expectedRevision: expectedRevisionSchema,
+    assetId: assetIdSchema
+      .nullable()
+      .optional()
+      .describe(
+        'Filen som skal være logo, eller null for å fjerne logoen. Utelatt: logoen som står, beholdes, og bare plasseringen endres.',
+      ),
+    sections: z
+      .strictObject({
+        visibility: z
+          .enum(LOGO_SECTION_VISIBILITIES)
+          .optional()
+          .describe('none = ingen inndeling, front = bare forsiden, all = alle inndelinger.'),
+        placement: z
+          .enum(LOGO_SECTION_PLACEMENTS)
+          .optional()
+          .describe(
+            'above = midt mellom slidens øvre kant og overskriften, below = midt mellom underoverskriften (eller overskriften) og nedre kant. Alltid midtstilt vannrett.',
+          ),
+        height: logoHeightSchema.optional().describe('Ønsket høyde på inndelingene.'),
+      })
+      .optional()
+      .describe('Logoen på inndelingene.'),
+    slides: z
+      .strictObject({
+        visible: z.boolean().optional().describe('Om logoen står på vanlige slides.'),
+        position: z
+          .enum(LOGO_SLIDE_POSITIONS)
+          .optional()
+          .describe(
+            'Hvor på vanlige slides. Øverst: tittel og hovedsone flyttes ned. Venstre/høyre: bare hovedsonen blir smalere. Nederst: en stripe over fremdriftsindikatoren.',
+          ),
+        height: logoHeightSchema.optional().describe('Ønsket høyde på vanlige slides.'),
+      })
+      .optional()
+      .describe('Logoen på vanlige slides.'),
+  }),
+  run(context, input): Promise<AgentResult<{ presentationId: string; theme: ThemeView }>> {
+    return mutatePresentation(context, input, (presentation) => {
+      const changed = withLogo(presentation, input, structuralOptions(context))
+      if (!changed.ok) return changed
+      return ok({
+        presentation: changed.value,
+        value: { presentationId: presentation.id, theme: themeView(changed.value) },
+      })
+    })
+  },
+})
+
+/** Kommandoen som svarer til det som ble bedt om – én, så endringen er ett steg. */
+function withLogo(
+  presentation: Presentation,
+  input: { assetId?: string | null; sections?: ThemeLogoPatch['sections']; slides?: ThemeLogoPatch['slides'] },
+  options: ReturnType<typeof structuralOptions>,
+): Result<Presentation> {
+  const patch: ThemeLogoPatch = {
+    ...(input.sections ? { sections: input.sections } : {}),
+    ...(input.slides ? { slides: input.slides } : {}),
+  }
+  if (input.assetId === null) return removeThemeLogo(presentation)
+  if (input.assetId !== undefined) return setThemeLogo(presentation, input.assetId, options, patch)
+  return updateThemeLogo(presentation, patch, options)
+}
+
+export const themeOperations = [setThemeOperation, setThemeLogoOperation]

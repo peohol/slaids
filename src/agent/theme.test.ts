@@ -31,7 +31,6 @@ import {
 import { SlaidsDatabase } from '../persistence/db'
 import { DexieSlaidsRepository } from '../persistence/dexieRepository'
 import type { Presentation } from '../domain/types'
-import { setThemeLogo } from '../domain/commands/logo'
 import { DEFAULT_LOGO_SECTION_HEIGHT, DEFAULT_LOGO_SLIDE_HEIGHT } from '../domain/constants'
 import { contentAt } from '../domain/testDecks'
 import type { PresentationView, ContentSlideInspection } from './operations/deck'
@@ -172,11 +171,8 @@ describe('å lese temaet', () => {
       name: 'logo',
       svgMarkup: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100"><rect width="300" height="100"/></svg>',
     })
-    // Logoen settes i editoren; agenten kan bare lese den.
+    await ok(context, 'set_theme_logo', { presentationId: deck.presentationId, assetId: asset.assetId })
     const document = await stored(context, deck.presentationId)
-    const withLogo = setThemeLogo(document, asset.assetId)
-    if (!withLogo.ok) throw new Error(withLogo.error.message)
-    await context.repository.savePresentation(withLogo.value)
 
     const view = await ok<PresentationView>(context, 'get_presentation', {
       presentationId: deck.presentationId,
@@ -752,3 +748,104 @@ describe('fonten en hodeløs måling dømmer etter', () => {
     expect(refused.details).toMatchObject({ subject: 'slide-title', slideId })
   })
 })
+
+/* ------------------------------------------------------------------ *
+ * set_theme_logo
+ * ------------------------------------------------------------------ */
+
+const LOGO_SVG = (width: number, height: number) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}"/></svg>`
+
+async function uploadLogo(context: AgentContext, presentationId: string, width = 300, height = 100): Promise<string> {
+  const asset = await ok<{ assetId: string }>(context, 'create_svg_asset', {
+    presentationId,
+    name: 'logo',
+    svgMarkup: LOGO_SVG(width, height),
+  })
+  return asset.assetId
+}
+
+describe('set_theme_logo', () => {
+  it('setter filen, plasseringen og størrelsen i ett kall, med de samme valgene som temaeditoren', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const assetId = await uploadLogo(context, deck.presentationId)
+    const result = await ok<{ theme: ThemeView; revision: string }>(context, 'set_theme_logo', {
+      presentationId: deck.presentationId,
+      assetId,
+      sections: { visibility: 'all', placement: 'below' },
+      slides: { position: 'top-left', height: 50 },
+    })
+    expect(result.theme.logo).toMatchObject({
+      assetId,
+      aspect: 3,
+      sections: { visibility: 'all', placement: 'below' },
+      slides: { visible: true, position: 'top-left', height: 50, drawnHeight: 50, reservedEdge: 'top' },
+    })
+    expect((await stored(context, deck.presentationId)).theme.logo?.slides.position).toBe('top-left')
+  })
+
+  it('flytter en logo som står, og fjerner den med null', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const assetId = await uploadLogo(context, deck.presentationId)
+    await ok(context, 'set_theme_logo', { presentationId: deck.presentationId, assetId })
+    const moved = await ok<{ theme: ThemeView }>(context, 'set_theme_logo', {
+      presentationId: deck.presentationId,
+      slides: { position: 'right', visible: false },
+    })
+    expect(moved.theme.logo?.slides).toMatchObject({ position: 'right', visible: false, drawnHeight: null, reservedEdge: null })
+
+    const removed = await ok<{ theme: ThemeView }>(context, 'set_theme_logo', {
+      presentationId: deck.presentationId,
+      assetId: null,
+    })
+    expect(removed.theme.logo).toBeNull()
+    // Filen ligger igjen i presentasjonen, som etter enhver annen fjerning.
+    expect((await stored(context, deck.presentationId)).assets.map((asset) => asset.id)).toEqual([assetId])
+  })
+
+  it('tegner aldri en logo større enn plassen, selv om høyden er lov', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    const assetId = await uploadLogo(context, deck.presentationId, 100, 800)
+    const result = await ok<{ theme: ThemeView }>(context, 'set_theme_logo', {
+      presentationId: deck.presentationId,
+      assetId,
+      slides: { position: 'left', height: 900 },
+    })
+    const slides = result.theme.logo!.slides
+    expect(slides.height).toBe(900)
+    expect(slides.drawnHeight).not.toBeNull()
+    expect(slides.drawnHeight!).toBeLessThan(900)
+  })
+
+  it('avviser en logo som ville skjult innhold, uten å lagre noe', async () => {
+    const context = freshContext()
+    const deck = await filledDeck(context)
+    const assetId = await uploadLogo(context, deck.presentationId)
+    const before = await stored(context, deck.presentationId)
+    const error = await fails(context, 'set_theme_logo', {
+      presentationId: deck.presentationId,
+      assetId,
+      slides: { position: 'top', height: 200 },
+    })
+    expect(error.code).toBe('CONTENT_DOES_NOT_FIT')
+    expect(await stored(context, deck.presentationId)).toEqual(before)
+  })
+
+  it('avviser en fil presentasjonen ikke har, og en høyde utenfor grensene', async () => {
+    const context = freshContext()
+    const deck = await newDeck(context)
+    expect((await fails(context, 'set_theme_logo', { presentationId: deck.presentationId, assetId: 'a_mangler' })).code).toBe(
+      'ASSET_NOT_FOUND',
+    )
+    expect(
+      (await fails(context, 'set_theme_logo', { presentationId: deck.presentationId, slides: { height: 5 } })).code,
+    ).toBe('INVALID_INPUT')
+    expect((await fails(context, 'set_theme_logo', { presentationId: deck.presentationId, slides: { height: 40 } })).code).toBe(
+      'INVALID_ARGUMENT',
+    )
+  })
+})
+

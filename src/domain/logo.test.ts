@@ -111,7 +111,8 @@ describe('themeAssetIds', () => {
 })
 
 describe('logo på vanlige slides', () => {
-  const aspects = [0.4, 1, 2, 6]
+  // Fra svært høye til svært brede logoer.
+  const aspects = [0.1, 0.4, 1, 2, 6, 20]
 
   for (const position of LOGO_SLIDE_POSITIONS) {
     for (const aspect of aspects) {
@@ -229,7 +230,7 @@ describe('logo på inndelinger', () => {
   const placements: LogoSectionPlacement[] = ['above', 'below']
 
   for (const placement of placements) {
-    for (const aspect of [0.5, 2, 8]) {
+    for (const aspect of [0.1, 0.5, 2, 8, 20]) {
       it(`${placement}, forhold ${aspect}: midtstilt og klar av begge linjene og indikatoren`, () => {
         const presentation = withLogo(
           deck(),

@@ -31,7 +31,7 @@
  *    shows. A crop for one frame is a *fork* — a new file for that one panel.
  */
 
-import { geometryForDeck } from './logo'
+import { geometryForDeck, themeAssetIds } from './logo'
 import {
   INLINE_IMAGE_DEFAULT_ASPECT,
   OPTIMIZATION_PIXEL_DENSITY,
@@ -120,11 +120,16 @@ export const PHOTO_MIN_DISTINCT_FRACTION = 0.2
  *  - `sandbox` — the file is parked, not placed. Nothing says where it will
  *    land, so it is sized as though it could fill a whole slide, and it can
  *    never be cropped.
+ *  - `logo` — the file is the theme's logo. Its size follows the slides and is
+ *    changed by dragging a handle, so it is sized as though it could fill a
+ *    whole slide at its own proportions, and it is never cropped: a logo shows
+ *    the whole file wherever it stands.
  */
 export type AssetOccurrence =
   | PanelOccurrence
   | { kind: 'inline'; slideId: string; nodeId: string; box: Size }
   | { kind: 'sandbox'; itemId: string }
+  | { kind: 'logo' }
 
 export interface PanelOccurrence {
   kind: 'panel'
@@ -140,8 +145,9 @@ const WHOLE_SLIDE: Size = { width: SLIDE_WIDTH, height: SLIDE_HEIGHT }
 /**
  * Every place every file is shown, keyed by asset id.
  *
- * Walks the same content `usedAssetIds` walks — zones on slides and the sandbox
- * — so a file this map does not list is a file nothing shows, and vice versa.
+ * Walks the same content `usedAssetIds` walks — zones on slides, the sandbox
+ * and the theme's logo — so a file this map does not list is a file nothing
+ * shows, and vice versa.
  * A file that is listed in `assets` but shown nowhere gets an empty list.
  */
 export function assetOccurrences(presentation: Presentation): Map<string, AssetOccurrence[]> {
@@ -194,6 +200,7 @@ export function assetOccurrences(presentation: Presentation): Map<string, AssetO
   for (const slide of presentation.sandboxSlides ?? []) {
     for (const content of slideContent([slide])) addParked(content, slide.id)
   }
+  for (const assetId of themeAssetIds(presentation.theme)) add(assetId, { kind: 'logo' })
 
   return occurrences
 }
@@ -316,6 +323,8 @@ export function displayScale(occurrence: AssetOccurrence, natural: Size): number
       )
     case 'sandbox':
       return coverScale(WHOLE_SLIDE, natural)
+    case 'logo':
+      return Math.min(WHOLE_SLIDE.width / natural.width, WHOLE_SLIDE.height / natural.height)
   }
 }
 

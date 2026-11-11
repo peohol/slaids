@@ -272,7 +272,7 @@ export function presentationView(presentation: Presentation): PresentationView {
 export const getPresentation = defineOperation({
   name: 'get_presentation',
   summary:
-    'En presentasjon i agenttermer: tittel, revisjon, tema (også logoen, som settes i editoren, og stripen den tar på slidene), slides og hvor mange filer og referanser den har.',
+    'En presentasjon i agenttermer: tittel, revisjon, tema (også logoen, som settes med set_theme_logo, og stripen den tar på slidene), slides og hvor mange filer og referanser den har.',
   mutates: false,
   scopes: ['presentations:read'],
   input: z.strictObject({ presentationId: presentationIdSchema }),
@@ -290,7 +290,7 @@ export const getPresentation = defineOperation({
 export const createPresentationOperation = defineOperation({
   name: 'create_presentation',
   summary:
-    'Opprett en ny presentasjon: en inndelingsslide som forside, og én tom slide etter den. Forsiden er alltid første slide, og fargene den settes i arves av slidene fram til neste inndeling.',
+    'Opprett en ny presentasjon: en inndelingsslide som forside, og én tom slide etter den. Forsiden er alltid første slide, og fargene den settes i arves av slidene fram til neste inndeling. Presentasjonen får standardtemaet; har brukeren en standard temamal (isDefault i list_theme_templates), bruk den med apply_theme_template rett etterpå, slik editoren gjør med nye presentasjoner.',
   mutates: true,
   scopes: ['presentations:write'],
   input: z.strictObject({

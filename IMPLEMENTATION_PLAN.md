@@ -2967,6 +2967,46 @@ legges til i Agent Core først og speiles i REST og MCP, med de samme reglene so
 editoren. Hver PR sier eksplisitt om ChatGPTs Slaids Dev MCP-tilkobling må
 oppdateres.
 
+## 15.5\. Integrasjon: logoen i alle filveier og agentflaten
+
+**Slik er det løst (etappe 5).** Logoen er en vanlig fil i presentasjonen som
+står i temaet i stedet for i en sone. Hver vei som spør «hvilke filer bruker
+dette dekket?», går derfor gjennom de samme hjelperne, og de ser temaet:
+
+| Vei | Hvordan logoen er med |
+| --- | --- |
+| Opprydding og sletting (`usedAssetIds`, `pruneAssets`, `removeAsset`) | Logoen regnes som brukt og kan ikke slettes mens den er logo. |
+| Deling og headless (`deckAssetIds`, `pageAssetIds`) | Det delte øyeblikksbildet og hver rendret side tar med logoen. |
+| Kopiering, import og innliming (`remapAssetIds`) | Logoen pekes om til kopiens egen fil. |
+| Avvist fil ved import (`dropAssetIds`) | Logoen tas ut av temaet; resten av dekket kommer inn. |
+| Sammenslåing av like filer (`mergeDuplicateAssets`) | Logoen pekes om til filen som blir stående. |
+| Bildeoptimalisering (`assetOccurrences`, `replaceAssetUses`) | Logoen er en egen forekomst (`logo`) som dimensjoneres som om den kunne fylle en hel slide i sin egen form, og aldri beskjæres – heller ikke når den samme filen fyller en bildesone. Byttes filen ut, følger logoen med og tar den nye filens form. |
+| Skjemamigrering | `logo` er valgfri. Et dokument uten logo har ingen filer i temaet og nøyaktig den samme geometrien som før. |
+
+En `.slaids`-fil er én presentasjon, og temaet med logoen følger med som en del
+av den. Temamalene hører til kontoen (og kan være delt med andre), så de tas
+ikke med i filen: ellers ville hver import lage en ny kopi av hver mal.
+
+**Agentene** har de samme reglene som editoren, gjennom de samme kommandoene:
+
+- `set_theme_logo` setter, flytter eller fjerner logoen
+  (`setThemeLogo`/`updateThemeLogo`/`removeThemeLogo`). Fil og plassering kan
+  gis i ett kall og blir ett steg. Høyden er et ønske; svaret sier hvor stor
+  logoen faktisk tegnes (`drawnHeight`). Filen lastes opp først med
+  `upload_asset` eller `create_svg_asset`.
+- `list_theme_templates` gir egne og delte maler, med `isDefault` for brukerens
+  standardmal.
+- `apply_theme_template` bruker en mal med `applyThemeTemplate` og kopierer
+  logoen inn gjennom den samme døren som `upload_asset` (scopes
+  `presentations:write` og `assets:write`). Malen prøves først uten å skrive,
+  så en avvisning lagrer verken filen eller temaet; feiler selve bruken etter
+  at filen er lagret, tas en ny fil tilbake.
+- Å lage og slette maler er editorens sak. `create_presentation` gir standardtemaet,
+  og beskrivelsen ber agenten bruke standardmalen med `apply_theme_template`
+  rett etterpå, slik editoren gjør med nye presentasjoner.
+- Nye feilkoder: `THEME_TEMPLATE_NOT_FOUND` (404) og
+  `THEME_TEMPLATES_UNAVAILABLE` (501).
+
 ---
 
 ## 16\. Rich text
@@ -4984,6 +5024,9 @@ rename_folder
 delete_folder
 
 set_theme
+set_theme_logo
+list_theme_templates
+apply_theme_template
 
 add_section
 set_section

@@ -23,6 +23,7 @@ import { sandboxOperations } from './operations/sandbox'
 import { sharingOperations } from './operations/sharing'
 import { slideOperations } from './operations/slides'
 import { themeOperations } from './operations/theme'
+import { themeTemplateOperations } from './operations/themeTemplates'
 import { validationOperations } from './operations/validation'
 import { storageFailure } from './presentation'
 import {
@@ -47,6 +48,7 @@ export const operations: readonly AnyAgentOperation[] = [
   ...deckOperations,
   ...libraryOperations,
   ...themeOperations,
+  ...themeTemplateOperations,
   ...sectionOperations,
   ...slideOperations,
   ...interactiveOperations,
