@@ -174,7 +174,7 @@ test.describe('rich text', () => {
     await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Tittelkilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
 
     await expect(stage(page).locator('.card-header .rd-citation')).toHaveCount(1)
     await expect(stage(page).locator('.card-header .rd-citation')).toHaveText('1')

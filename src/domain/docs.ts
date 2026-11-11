@@ -17,6 +17,7 @@ import { emptyDoc } from './richdoc'
 import { dropThemeAssetIds, remapThemeAssetIds } from './logo'
 import type {
   CardBody,
+  ContentSlide,
   DeckSlides,
   ImagePanel,
   LayoutNode,
@@ -126,6 +127,14 @@ export function mapPresentationDocs(
 ): Presentation {
   let changed = false
 
+  const mapSlide = (slide: ContentSlide): ContentSlide => {
+    const title = slide.title ? transform(slide.title) : null
+    const root = mapTreeDocs(slide.root, transform)
+    if (title === slide.title && root === slide.root) return slide
+    changed = true
+    return { ...slide, title, root }
+  }
+
   const slides = mapDeckSlides(presentation.slides, {
     section: (slide) => {
       const title = transform(slide.title)
@@ -134,13 +143,7 @@ export function mapPresentationDocs(
       changed = true
       return { ...slide, title, subtitle }
     },
-    content: (slide) => {
-      const title = slide.title ? transform(slide.title) : null
-      const root = mapTreeDocs(slide.root, transform)
-      if (title === slide.title && root === slide.root) return slide
-      changed = true
-      return { ...slide, title, root }
-    },
+    content: mapSlide,
     // A miniapp's source is a file, not a document: no transform reaches it.
     interactive: (slide) => slide,
   })
@@ -152,7 +155,8 @@ export function mapPresentationDocs(
     return { ...item, content }
   })
 
-  return changed ? { ...presentation, slides, sandbox } : presentation
+  const sandboxSlides = presentation.sandboxSlides?.map(mapSlide)
+  return changed ? { ...presentation, slides, sandbox, sandboxSlides } : presentation
 }
 
 /**
@@ -176,7 +180,14 @@ export function slideContent(slides: readonly Slide[]): ZoneContent[] {
 
 /** Every zone content in the presentation, slides first, then the sandbox. */
 export function allContent(presentation: Presentation): ZoneContent[] {
-  return [...slideContent(presentation.slides), ...presentation.sandbox.map((item) => item.content)]
+  return [...slideContent(presentation.slides), ...sandboxContent(presentation)]
+}
+
+export function sandboxContent(presentation: Presentation): ZoneContent[] {
+  return [
+    ...presentation.sandbox.map((item) => item.content),
+    ...slideContent(presentation.sandboxSlides ?? []),
+  ]
 }
 
 /** Rewrite asset ids inside a single content object. */
@@ -240,14 +251,15 @@ export function mapPresentationContent(
   transform: (content: ZoneContent) => ZoneContent,
 ): Presentation {
   let changed = false
+  const mapSlide = (slide: ContentSlide): ContentSlide => {
+    const root = mapTreeContent(slide.root, transform)
+    if (root === slide.root) return slide
+    changed = true
+    return { ...slide, root }
+  }
   const slides = mapDeckSlides(presentation.slides, {
     section: (slide) => slide,
-    content: (slide) => {
-      const root = mapTreeContent(slide.root, transform)
-      if (root === slide.root) return slide
-      changed = true
-      return { ...slide, root }
-    },
+    content: mapSlide,
     interactive: (slide) => slide,
   })
   const sandbox = presentation.sandbox.map((item) => {
@@ -256,7 +268,8 @@ export function mapPresentationContent(
     changed = true
     return { ...item, content }
   })
-  return changed ? { ...presentation, slides, sandbox } : presentation
+  const sandboxSlides = presentation.sandboxSlides?.map(mapSlide)
+  return changed ? { ...presentation, slides, sandbox, sandboxSlides } : presentation
 }
 
 /** Rewrite asset ids everywhere they are referenced. Used by import and paste. */
@@ -265,21 +278,9 @@ export function remapAssetIds(
   map: ReadonlyMap<string, string>,
 ): Presentation {
   if (map.size === 0) return presentation
-  const remapContent = (content: ZoneContent): ZoneContent => remapContentAssetIds(content, map)
-
-  const slides = mapDeckSlides(presentation.slides, {
-    // Only zones hold files, so only content slides can name one.
-    section: (slide) => slide,
-    content: (slide) => ({ ...slide, root: mapTreeContent(slide.root, remapContent) }),
-    interactive: (slide) => slide,
-  })
-  const sandbox = presentation.sandbox.map((item) => ({
-    ...item,
-    content: remapContent(item.content),
-  }))
+  const remapped = mapPresentationContent(presentation, (content) => remapContentAssetIds(content, map))
   const assets = presentation.assets.map((asset) => ({ ...asset, id: map.get(asset.id) ?? asset.id }))
-  const theme = remapThemeAssetIds(presentation.theme, map)
-  return { ...presentation, theme, slides, sandbox, assets }
+  return { ...remapped, theme: remapThemeAssetIds(presentation.theme, map), assets }
 }
 
 /**
@@ -309,16 +310,9 @@ export function dropAssetIds(
   ids: ReadonlySet<string>,
 ): Presentation {
   if (ids.size === 0) return presentation
-  const drop = (content: ZoneContent): ZoneContent => dropContentAssetIds(content, ids)
   return {
-    ...presentation,
+    ...mapPresentationContent(presentation, (content) => dropContentAssetIds(content, ids)),
     theme: dropThemeAssetIds(presentation.theme, ids),
-    slides: mapDeckSlides(presentation.slides, {
-      section: (slide) => slide,
-      content: (slide) => ({ ...slide, root: mapTreeContent(slide.root, drop) }),
-      interactive: (slide) => slide,
-    }),
-    sandbox: presentation.sandbox.map((item) => ({ ...item, content: drop(item.content) })),
     assets: presentation.assets.filter((asset) => !ids.has(asset.id)),
   }
 }

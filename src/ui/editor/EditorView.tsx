@@ -31,10 +31,12 @@ import {
   deleteSlide,
   duplicateLayoutNode,
   moveSlide,
+  moveSlideToSandbox,
   moveZoneContent,
   moveZoneContentToSandbox,
   placeSandboxItem,
   reorderLayoutNode,
+  restoreSandboxSlide,
   setContentKind,
   setPresentationTitle,
   setSlideHasTitle,
@@ -139,6 +141,7 @@ import { SandboxWindow } from './SandboxWindow'
 import { SplitModal, type SplitModalResult } from './SplitModal'
 import { splitCheck, type SplitCheck } from './splitDraft'
 import { ShortcutsModal } from './ShortcutsModal'
+import { editorShortcutFor } from './editorShortcuts'
 import { AutocorrectModal } from './AutocorrectModal'
 import { StatusBar } from './StatusBar'
 import { TemplateModal } from './TemplateModal'
@@ -278,6 +281,7 @@ export function EditorView({
   const [optimizeScope, setOptimizeScope] = useState<OptimizationScope | null>(null)
   const [ideasOpen, setIdeasOpen] = useState(() => readPref('ideasOpen', false))
   const [sandboxOpen, setSandboxOpen] = useState(() => readPref('sandboxOpen', false))
+  const toggleSandbox = useCallback(() => setSandboxOpen((open) => !open), [])
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [presenting, setPresenting] = useState(false)
@@ -1540,6 +1544,38 @@ export function EditorView({
 
       const state = useEditorStore.getState()
 
+      const shortcut = editorShortcutFor(event)
+      if (shortcut && state.presentation && !hasOpenDialog()) {
+        let act: (() => void) | undefined
+        if (shortcut === 'sandbox') act = toggleSandbox
+        if (shortcut === 'slide') act = () => setNewPage({ kind: 'content' })
+        if (shortcut === 'reference') {
+          const editor = useActiveEditor.getState().editor
+          if (editor?.isFocused && editor.isEditable && typeof editor.commands.insertCitation === 'function') {
+            act = textHandlers.insertReference
+          }
+        }
+
+        const slide = state.currentContentSlide()
+        const id = state.selectedNodeId
+        if (!typing && state.mode === 'zone' && slide && !viewedDerivedPage && id && zoneHandlers) {
+          const node = findNode(slide.root, id)
+          if (shortcut === 'splitVertical' && node?.kind === 'leaf') act = () => zoneHandlers.split(id, 'x')
+          if (shortcut === 'splitHorizontal' && node?.kind === 'leaf') act = () => zoneHandlers.split(id, 'y')
+          if (shortcut === 'clear' && node && canClearZone(node)) act = () => zoneHandlers.clear(id)
+          if (shortcut === 'remove' && node && id !== slide.root.id) act = () => zoneHandlers.remove(id)
+          if (shortcut === 'toSandbox' && node?.kind === 'leaf' && node.content) {
+            act = () => zoneHandlers.moveToSandbox(id)
+          }
+        }
+
+        if (act) {
+          event.preventDefault()
+          if (!event.repeat) act()
+          return
+        }
+      }
+
       /*
        * Escape leaves zone editing for content editing.
        *
@@ -1640,7 +1676,10 @@ export function EditorView({
 
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [openKeyboardMenu, presenting, redo, setMode, stepDeck, toggleMode, undo, zoneHandlers])
+  }, [
+    openKeyboardMenu, presenting, redo, setMode, setNewPage, stepDeck, textHandlers,
+    toggleMode, toggleSandbox, undo, viewedDerivedPage, zoneHandlers,
+  ])
 
   /* -------------------------------------------------------------- *
    * Render
@@ -1908,7 +1947,7 @@ export function EditorView({
       selectionHasContent: Boolean(selectedLeaf?.content),
       selectedKind: viewedDerivedPage === null ? (selectedLeaf?.content?.kind ?? null) : null,
       canEditZones: viewedDerivedPage === null && contentSlide !== null,
-      sandboxCount: presentation.sandbox.length,
+      sandboxCount: presentation.sandbox.length + (presentation.sandboxSlides?.length ?? 0),
       onBack: () => void handleBack(),
       backPending: leaving,
       onRename: () => {
@@ -1932,7 +1971,7 @@ export function EditorView({
       onOpenTemplates: () => setTemplatesOpen(true),
       onOpenImage: () => setImageOpen('ask'),
       onToggleIdeas: () => setIdeasOpen((open) => !open),
-      onToggleSandbox: () => setSandboxOpen((open) => !open),
+      onToggleSandbox: toggleSandbox,
       ideasOpen,
       sandboxOpen,
       onShowShortcuts: () => setShortcutsOpen(true),
@@ -1962,6 +2001,14 @@ export function EditorView({
         presentation={presentation}
         derived={derived}
         viewingDerivedId={viewedDerivedPage?.id ?? null}
+        onMoveToSandbox={(slideId) => {
+          const moved = run('move-slide-to-sandbox', (current) =>
+            moveSlideToSandbox(current, slideId, HUMAN_EDIT),
+          )
+          if (moved || useEditorStore.getState().pendingDepositBreak?.label === 'move-slide-to-sandbox') {
+            setSandboxOpen(true)
+          }
+        }}
         onSelectDerived={(pageId) =>
           setDerivedView(currentSlideId ? { id: pageId, from: currentSlideId } : null)
         }
@@ -1984,6 +2031,12 @@ export function EditorView({
       <SandboxWindow
         open={sandboxOpen}
         onClose={() => setSandboxOpen(false)}
+        onRestoreSlide={(slideId) => {
+          const restored = insertPage('restore-sandbox-slide', {}, (current, index) =>
+            restoreSandboxSlide(current, { slideId, index, ...HUMAN_EDIT }),
+          )
+          if (restored) setSandboxOpen(false)
+        }}
         onPlace={(item) => {
           // The sheet is the whole screen on a phone; the zone to press is
           // underneath it.

@@ -4,18 +4,23 @@
  */
 
 import { useDraggable } from '@dnd-kit/core'
+import type { CSSProperties } from 'react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { contentLabel } from '../../domain/content'
 import { deleteSandboxItem, duplicateSandboxItem } from '../../domain/commands'
+import { sectionColorsOf } from '../../domain/pages'
 import { sectionGoverning } from '../../domain/presentation'
+import { docToPlainText } from '../../domain/richdoc'
 import { useEditorStore } from '../../state/store'
 import { DEFAULT_SANDBOX_GEOMETRY } from '../../state/prefs'
-import type { SandboxItem } from '../../domain/types'
+import type { ContentSlide, SandboxItem } from '../../domain/types'
 import { FloatingWindow } from '../components/FloatingWindow'
 import { ZoneContentView } from '../slide/ZoneContentView'
-import { pillTokenStyle } from '../slide/SlideView'
+import { pillTokenStyle, SlideView } from '../slide/SlideView'
+import { SlideRenderProvider, useSlideRender } from '../slide/SlideRenderContext'
 import { Icon } from '../components/Icon'
 import { Tooltip } from '../components/Tooltip'
+import { DEFAULT_SECTION_COLORS, PageColorsProvider } from '../slide/SlideRenderContext'
 
 const PREVIEW_WIDTH = 150
 const PREVIEW_RECT = { width: SLIDE_WIDTH / 3, height: SLIDE_HEIGHT / 3 }
@@ -29,14 +34,12 @@ function SandboxItemCard({
   onPlace: (item: SandboxItem) => void
 }) {
   const run = useEditorStore((state) => state.run)
-  // The preview is outside the slide, so the accent has to be handed to it: a
-  // parked heading is the same heading it will be on a slide, and the section
-  // it would land under is the one the editor is currently in.
-  const pillColor = useEditorStore((state) =>
+  const section = useEditorStore((state) =>
     state.presentation && state.currentSlideId
-      ? sectionGoverning(state.presentation, state.currentSlideId).accentColor
-      : undefined,
+      ? sectionGoverning(state.presentation, state.currentSlideId)
+      : null,
   )
+  const colors = section ? sectionColorsOf(section) : DEFAULT_SECTION_COLORS
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `sandbox:${item.id}`,
     data: { kind: 'sandbox-item', itemId: item.id },
@@ -47,7 +50,13 @@ function SandboxItemCard({
     <article className="sandbox-item" data-testid="sandbox-item" style={{ opacity: isDragging ? 0.4 : 1 }}>
       <div
         className="sandbox-item__preview"
-        style={{ width: PREVIEW_WIDTH, height: PREVIEW_RECT.height * scale }}
+        style={
+          {
+            width: PREVIEW_WIDTH,
+            height: PREVIEW_RECT.height * scale,
+            '--sandbox-preview-background': colors.background,
+          } as CSSProperties
+        }
       >
         <div
           style={{
@@ -56,10 +65,12 @@ function SandboxItemCard({
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
             pointerEvents: 'none',
-            ...(pillColor ? pillTokenStyle(pillColor) : null),
+            ...pillTokenStyle(colors.accent),
           }}
         >
-          <ZoneContentView content={item.content} />
+          <PageColorsProvider colors={colors}>
+            <ZoneContentView content={item.content} />
+          </PageColorsProvider>
         </div>
       </div>
       <div className="sandbox-item__meta">
@@ -114,10 +125,63 @@ function SandboxItemCard({
   )
 }
 
+function SandboxSlideCard({
+  slide,
+  onRestore,
+}: {
+  slide: ContentSlide
+  onRestore: (slideId: string) => void
+}) {
+  const render = useSlideRender()
+  const colors = useEditorStore((state) =>
+    state.presentation && state.currentSlideId
+      ? sectionGoverning(state.presentation, state.currentSlideId)
+      : null,
+  )
+  const sectionColors = new Map(render.sectionColors)
+  if (colors) {
+    sectionColors.set(slide.id, { accent: colors.accentColor, background: colors.backgroundColor })
+  }
+  const scale = PREVIEW_WIDTH / SLIDE_WIDTH
+  const label = docToPlainText(slide.title).trim() || 'Slide uten tittel'
+
+  return (
+    <article className="sandbox-item" data-testid="sandbox-slide">
+      <div
+        className="sandbox-item__preview"
+        style={{ width: PREVIEW_WIDTH, height: SLIDE_HEIGHT * scale }}
+        aria-hidden="true"
+        inert
+      >
+        <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+          <SlideRenderProvider value={{ ...render, sectionColors, isStatic: true }}>
+            <SlideView slide={slide} />
+          </SlideRenderProvider>
+        </div>
+      </div>
+      <div className="sandbox-item__meta">
+        <span className="sandbox-item__label">{label}</span>
+        <div className="sandbox-item__tools">
+          <button
+            type="button"
+            className="btn btn--sm"
+            data-testid="sandbox-restore-slide"
+            aria-label={`Sett tilbake ${label}`}
+            onClick={() => onRestore(slide.id)}
+          >
+            Sett tilbake
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
 export function SandboxWindow({
   open,
   onClose,
   onPlace,
+  onRestoreSlide,
 }: {
   open: boolean
   onClose: () => void
@@ -128,28 +192,35 @@ export function SandboxWindow({
    * and both end in `placeSandboxItem` with the same fit validation.
    */
   onPlace: (item: SandboxItem) => void
+  onRestoreSlide: (slideId: string) => void
 }) {
-  const items = useEditorStore((state) => state.presentation?.sandbox ?? [])
+  const presentation = useEditorStore((state) => state.presentation)
+  const items = presentation?.sandbox ?? []
+  const slides = presentation?.sandboxSlides ?? []
+  const count = items.length + slides.length
 
   return (
     <FloatingWindow
       prefKey="sandbox"
-      title={`Sandkassen (${items.length})`}
+      title={`Sandkassen (${count})`}
       icon="sandbox"
       open={open}
       onClose={onClose}
       defaults={DEFAULT_SANDBOX_GEOMETRY}
       testId="sandbox-window"
     >
-      {items.length === 0 ? (
+      {count === 0 ? (
         <p className="hint">
           Tomt. Innhold havner her når du flytter det ut av en sone, eller når en strukturendring
-          ikke har plass til det.
+          ikke har plass til det. Hele innholdsslider kan flyttes hit fra slideoversikten.
         </p>
       ) : (
         <div className="sandbox-list">
           {items.map((item) => (
             <SandboxItemCard key={item.id} item={item} onPlace={onPlace} />
+          ))}
+          {slides.map((slide) => (
+            <SandboxSlideCard key={slide.id} slide={slide} onRestore={onRestoreSlide} />
           ))}
         </div>
       )}

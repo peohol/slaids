@@ -3489,7 +3489,7 @@ Krav:
 
 ## 25\. Sandbox
 
-Sandbox er et globalt arbeidsområde for innhold som midlertidig ikke ligger på en slide.
+Sandkassen er et arbeidsområde for innhold og slides som midlertidig er tatt ut av en presentasjon.
 
 Formål:
 
@@ -3499,7 +3499,7 @@ Formål:
 
 Krav:
 
-- et item beholder typed `ZoneContent`;
+- et parkert soneelement beholder typen `ZoneContent`;
 - ikke render hele objektet i full størrelse under drag;
 - bruk en liten `DragOverlay`;
 - target-zoner markeres bare som gyldige hvis:
@@ -3508,9 +3508,14 @@ Krav:
   - innholdstypen er kompatibel;
   - `canFit()` godkjenner plassering når streng fit er implementert.
 
-Sandbox kommer rett etter content-fit i prioritert backlog.
+En vanlig innholdsslide kan flyttes til sandkassen fra slideoversikten. Tittel,
+sonetre og innhold bevares samlet. «Sett tilbake» setter sliden inn etter den
+valgte sliden. Begge operasjonene kan angres. Parkerte slides er private og
+teller ikke i fremdriften eller henvisningsrekkefølgen. Bilder og referanser de
+bruker beholdes, slik at sliden kan settes tilbake. Inndelinger og miniapper
+parkeres ikke.
 
-> **Oppdatert:** en agent har samme tilgang til sandkassen som editoren, gjennom
+> **Oppdatert:** en agent har tilgang til soneinnhold i sandkassen gjennom
 > `list_sandbox_items`, `place_sandbox_item`, `duplicate_sandbox_item` og
 > `delete_sandbox_item` i § 44 – tynne innpakninger over de samme
 > domenekommandoene (`placeSandboxItem` m.fl.) som drag-and-drop-flyten over
@@ -3733,6 +3738,14 @@ Hvis referanselisten ikke får plass ved definert minimumsfont:
 
 - generer flere referenceslides;
 - ikke krymp teksten vilkårlig.
+
+### Oppslag med DOI eller PubMed-ID
+
+Innliming av en DOI eller PubMed-ID i oppslagsfeltet i referansedialogen henter
+tittel, forfattere, år og lenke som et redigerbart utkast. Oppslaget bruker
+Crossref og DataCite for DOI, og Europe PMC for PubMed-ID. Oppslagstjenesten får
+identifikatoren uten resten av referanseutkastet. Feltene kan også fylles ut manuelt.
+Referansen opprettes først når brukeren lagrer utkastet.
 
 ---
 

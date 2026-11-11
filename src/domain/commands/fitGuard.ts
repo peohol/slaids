@@ -541,9 +541,10 @@ export function findGeometryRegression(
 ): GeometryRegression | null {
   const afterGeometry = { ...geometryForDeck(after), ...options.geometry }
   const beforeGeometry = { ...geometryForDeck(before), ...options.geometry }
-  const previous = new Map(before.slides.map((slide) => [slide.id, slide]))
+  const previous = new Map([...before.slides, ...(before.sandboxSlides ?? [])].map((slide) => [slide.id, slide]))
 
-  for (const slide of after.slides) {
+  // Et temabytte må også la parkerte slides passe når de settes tilbake.
+  for (const slide of [...after.slides, ...(after.sandboxSlides ?? [])]) {
     // A section has no zone tree, so there is no zone in it to fall below a
     // minimum. Its own failure mode is a line that no longer fits, which is the
     // content check above.

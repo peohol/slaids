@@ -8,6 +8,7 @@ import {
   makeAssetNodeRewriter,
   mapContentDocs,
   mapPresentationContent,
+  sandboxContent,
   remapContentAssetIds,
   slideContent,
 } from '../docs'
@@ -150,10 +151,7 @@ export function summarizeAssetUsage(
   assetId: string,
 ): AssetUsageSummary {
   const slides = countUses(slideContent(presentation.slides), assetId)
-  const sandbox = countUses(
-    presentation.sandbox.map((item) => item.content),
-    assetId,
-  )
+  const sandbox = countUses(sandboxContent(presentation), assetId)
   const theme = themeAssetIds(presentation.theme).filter((id) => id === assetId).length
   return {
     total:

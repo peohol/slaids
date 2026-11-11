@@ -1736,6 +1736,24 @@
   gap: 10px;
 }
 
+.reference-lookup {
+  grid-column: 1 / -1;
+}
+
+.reference-lookup__row {
+  display: flex;
+  gap: 10px;
+}
+
+.reference-lookup__row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.reference-lookup > .hint:empty {
+  display: none;
+}
+
 .reference-heading {
   margin: 0 0 8px;
   font-size: 14px;
@@ -1969,6 +1987,11 @@
   overflow: hidden;
   border-radius: 4px;
   background: var(--chrome-bg-hover);
+}
+
+/* Seksjonsbakgrunnen gir teksten i gjennomsiktige soner riktig kontrast. */
+.sandbox-item:is(:hover, :has(:focus-visible)) .sandbox-item__preview {
+  background: var(--sandbox-preview-background, var(--chrome-bg-hover));
 }
 
 .sandbox-item__meta {

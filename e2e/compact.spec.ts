@@ -624,7 +624,7 @@ test.describe('kompakt arbeidsflate', () => {
     await expect(page.getByTestId('reference-modal')).toBeVisible()
     await page.getByTestId('reference-title').fill('En viktig kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
     await exitFocus(page)
 
     // Go to the generated page from the slide overview.
@@ -1034,7 +1034,7 @@ test.describe('kompakt arbeidsflate', () => {
     await page.getByTestId('insert-reference').click()
     await page.getByTestId('reference-title').fill('En kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
     await exitFocus(page)
 
     // … and a miniapp, so every kind of page the stage can show is in the deck.
@@ -1462,7 +1462,7 @@ test.describe('kompakt arbeidsflate', () => {
     await page.getByTestId('insert-reference').click()
     await page.getByTestId('reference-title').fill('En kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
     await exitFocus(page)
 
     // Start on the last authored page. The next page in the audience order is

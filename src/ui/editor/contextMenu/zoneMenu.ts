@@ -250,6 +250,9 @@ function sandboxSubmenu(
 ): MenuEntry {
   const { presentation, slide, nodeId, checks } = input
   const items = presentation.sandbox.slice(0, SANDBOX_ITEMS_LISTED)
+  const parkedSlides = presentation.sandboxSlides?.length ?? 0
+  const total = presentation.sandbox.length + parkedSlides
+  const emptyLabel = parkedSlides > 0 ? 'Sandkassen har ingen soneelementer' : 'Sandkassen er tom'
   const listed: MenuEntry[] = items.map((item) => {
     const reason = refusalOf(
       placeSandboxItem(presentation, { itemId: item.id, slideId: slide.id, nodeId, ...checks }),
@@ -269,10 +272,10 @@ function sandboxSubmenu(
     label: 'Hent fra sandkassen',
     icon: 'sandbox',
     disabled: presentation.sandbox.length === 0,
-    reason: presentation.sandbox.length === 0 ? 'Sandkassen er tom.' : null,
+    reason: presentation.sandbox.length === 0 ? `${emptyLabel}.` : null,
     entries:
       presentation.sandbox.length === 0
-        ? [{ kind: 'action', id: 'sandbox-empty', label: 'Sandkassen er tom', disabled: true, onSelect: () => undefined }]
+        ? [{ kind: 'action', id: 'sandbox-empty', label: emptyLabel, disabled: true, onSelect: () => undefined }]
         : [
             ...listed,
             SEPARATOR,
@@ -280,8 +283,8 @@ function sandboxSubmenu(
               kind: 'action',
               id: 'open-sandbox',
               label:
-                presentation.sandbox.length > items.length
-                  ? `Åpne sandkassen (${presentation.sandbox.length})`
+                total > items.length
+                  ? `Åpne sandkassen (${total})`
                   : 'Åpne sandkassen',
               icon: 'sandbox',
               onSelect: handlers.openSandbox,

@@ -33,7 +33,7 @@ import { interactiveBudgetRefusal, storedInteractiveRefusal } from './interactiv
 import type { ImageDepositStatus } from './imageDeposit'
 import type { LayoutNode, Presentation, RichNode } from './types'
 
-export const CURRENT_SCHEMA_VERSION = 18
+export const CURRENT_SCHEMA_VERSION = 19
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{3,8}$/, 'Ugyldig fargeverdi')
 const axisSchema = z.union([z.literal('x'), z.literal('y')])
@@ -375,6 +375,7 @@ export const presentationSchema = z.object({
   references: z.array(referenceSchema),
   includeReferencesInProgress: z.boolean().optional(),
   sandbox: z.array(sandboxItemSchema),
+  sandboxSlides: z.array(contentSlideSchema).optional(),
   ideas: z.array(ideaRowSchema),
   assets: z.array(assetRefSchema),
   createdAt: z.string(),
@@ -430,16 +431,26 @@ export function validatePresentation(input: unknown): SchemaResult<Presentation>
   if (!parsed.success) return { ok: false, issues: toIssues(parsed.error) }
 
   const issues: ValidationIssue[] = []
+  const validateContentTree = (slide: z.infer<typeof contentSlideSchema>, path: string): void => {
+    for (const violation of validateTree(slide.root)) {
+      issues.push({ path: `${path}.root.${violation.nodeId}`, message: violation.message })
+    }
+  }
   parsed.data.slides.forEach((slide, index) => {
     if (slide.kind === 'interactive') {
       const refusal = storedInteractiveRefusal(slide)
       if (refusal) issues.push({ path: `slides.${index}`, message: refusal.error.message })
       return
     }
-    if (slide.kind !== 'content') return
-    for (const violation of validateTree(slide.root)) {
-      issues.push({ path: `slides.${index}.root.${violation.nodeId}`, message: violation.message })
+    if (slide.kind === 'content') validateContentTree(slide, `slides.${index}`)
+  })
+  const slideIds = new Set(parsed.data.slides.map((slide) => slide.id))
+  parsed.data.sandboxSlides?.forEach((slide, index) => {
+    if (slideIds.has(slide.id)) {
+      issues.push({ path: `sandboxSlides.${index}.id`, message: 'Den samme sliden finnes flere ganger.' })
     }
+    slideIds.add(slide.id)
+    validateContentTree(slide, `sandboxSlides.${index}`)
   })
   /*
    * The deck-wide budget, which no single slide can be measured against: every
