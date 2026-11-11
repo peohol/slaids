@@ -354,12 +354,14 @@ export class DexieSlaidsRepository implements SlaidsRepository {
   }
 
   async getUserSettings(_ownerId: string | null): Promise<UserSettings> {
-    const [progress, dialogs] = await this.database.settings.bulkGet([
+    const [progress, dialogs, citation] = await this.database.settings.bulkGet([
       'includeReferencesInProgress',
       'fewerDialogs',
+      'citationStyle',
     ])
     return {
       ...DEFAULT_USER_SETTINGS,
+      citationStyle: citation?.value === 'author-year' ? 'author-year' : 'numbered',
       includeReferencesInProgress: progress?.value === true,
       fewerDialogs: dialogs?.value === true,
     }

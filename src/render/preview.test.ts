@@ -13,7 +13,7 @@
  * a browser or touches the network.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   agentOperation,
   closeTestDatabases,
@@ -53,6 +53,47 @@ function request(scale = 1) {
 }
 
 describe('det som kommer ut', () => {
+  it('bruker forfatter og år i både henvisningen og den avledede referansesiden', async () => {
+    let html = ''
+    const context = testAgentContext({
+      preview: slidePreviewRenderer((raster) => {
+        html = raster.html
+        return Promise.resolve({
+          bytes: FAKE_PNG, width: 1600, height: 900, fontsReady: true, warnings: [],
+        })
+      }, { fonts: noFonts }),
+    })
+    const deck = await newAgentDeck(context)
+    const added = await agentOperation<{ reference: { id: string } }>(context, 'add_reference', {
+      presentationId: deck.presentationId,
+      title: 'Kilden',
+      authors: 'Hansen, Ola; Berg, Eli',
+      year: '2024',
+    })
+    await agentOperation(context, 'set_zone_text', {
+      presentationId: deck.presentationId, slideId: deck.slideId, nodeId: deck.rootNodeId,
+      blocks: [{ type: 'paragraph', spans: [{ text: 'Se kilden' }, { citation: [added.reference.id] }] }],
+    })
+    const presentation = await storedPresentation(context, deck.presentationId)
+    await context.repository.updateUserSettings(null, { citationStyle: 'author-year' })
+    const reads = vi.spyOn(context.repository, 'getUserSettings')
+
+    await agentOperation(context, 'render_slide_preview', {
+      presentationId: deck.presentationId, slideId: deck.slideId,
+    })
+    expect(html).toMatch(/<sup[^>]*>Hansen et al\., 2024<\/sup>/)
+    const references = deckPages(presentation, { citationStyle: 'author-year' })
+      .find((page) => page.kind === 'reference-slide')
+    if (!references) throw new Error('Fant ikke referansesiden.')
+    await agentOperation(context, 'render_slide_preview', {
+      presentationId: deck.presentationId, slideId: references.id,
+    })
+    expect(html).toContain('Hansen et al., 2024 — ')
+    expect(html).not.toMatch(/>1\. /)
+    expect(reads).toHaveBeenCalledTimes(2)
+    expect(await storedPresentation(context, deck.presentationId)).toEqual(presentation)
+  })
+
   it.each([false, true])('bruker eierens fremdriftsvalg %s gjennom agentens preview-flyt', async (includeReferences) => {
     let html = ''
     const context = testAgentContext({

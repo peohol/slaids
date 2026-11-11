@@ -2,6 +2,7 @@
 
 import type { GeometryOptions } from '../geometry'
 import type { ContentFitChecker, TitleFitChecker } from '../fit'
+import type { CitationStyle } from '../references'
 import type { Presentation, ZoneContent } from '../types'
 
 /** What happens to content that a structural change would otherwise destroy. */
@@ -20,6 +21,7 @@ export type ContentDisposition = 'sandbox' | 'delete'
  */
 export interface StructuralOptions {
   geometry?: GeometryOptions
+  citationStyle?: CitationStyle
   fits?: ContentFitChecker
   fitsTitle?: TitleFitChecker
 }

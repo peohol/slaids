@@ -16,6 +16,7 @@ import type { z } from 'zod'
 import type { ContentFitChecker, TitleFitChecker } from '../domain/fit'
 import type { GeometryOptions } from '../domain/geometry'
 import type { DomainError, DomainErrorCode } from '../domain/result'
+import type { UserSettings } from '../domain/userSettings'
 import type { SharingRepository, SlaidsRepository } from '../persistence/repository'
 import type { SlidePreviewRenderer } from './preview'
 
@@ -102,6 +103,8 @@ export type AgentResult<T> = { ok: true; value: T } | AgentFailure
  */
 export interface AgentContext {
   repository: SlaidsRepository
+  /** Eierens innstillinger, hentet én gang for dette dekk-kallet av `runOperation`. */
+  userSettings?: Readonly<UserSettings>
   /**
    * Publishing, when the deployment has somewhere to publish to.
    *

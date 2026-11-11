@@ -747,6 +747,18 @@
   user-select: none;
 }
 
+.rich-doc .rd-citation.rd-citation--author-year {
+  display: inline;
+  white-space: inherit;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* Tiptap gir omslaget rundt atomnoden sin egen linjebryting. Tittelen har én linje. */
+.rich-doc--title .node-citation[contenteditable="false"] {
+  white-space: inherit;
+}
+
 .rich-doc :is(table, .rd-table) {
   border-collapse: collapse;
   width: 100%;

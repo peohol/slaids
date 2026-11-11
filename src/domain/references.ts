@@ -20,6 +20,12 @@ import { collectCitationIds } from './richdoc'
 import type { DeckSource, Presentation, Reference } from './types'
 
 export type ReferenceNumbering = ReadonlyMap<string, number>
+export type CitationStyle = 'numbered' | 'author-year'
+
+export interface CitationLabelContext {
+  numbering: ReferenceNumbering
+  authorYearLabels?: ReadonlyMap<string, string>
+}
 
 /**
  * Reference ids in first-occurrence order across the deck.
@@ -56,6 +62,60 @@ export function computeReferenceNumbering(deck: DeckSource): ReferenceNumbering 
   const numbering = new Map<string, number>()
   referenceOrder(deck).forEach((id, index) => numbering.set(id, index + 1))
   return numbering
+}
+
+function authorYearParts(reference: Reference): { author: string; year: string } {
+  const authors = reference.authors.split(';').map((author) => author.trim()).filter(Boolean)
+  const first = authors[0]
+  // Importert metadata skiller etternavn og fornavn med komma. Frie
+  // forfatterfelt kan også inneholde organisasjonsnavn, som vises i sin helhet.
+  const author = first?.split(',')[0]?.trim() || reference.title.trim() || 'Ukjent forfatter'
+  return {
+    author: authors.length > 1 ? `${author} et al.` : author,
+    year: reference.year.trim() || 'u.å.',
+  }
+}
+
+function yearSuffix(index: number): string {
+  const letter = String.fromCharCode(97 + (index % 26))
+  return index < 26 ? letter : yearSuffix(Math.floor(index / 26) - 1) + letter
+}
+
+function computeAuthorYearLabels(
+  references: readonly Reference[],
+  numbering: ReferenceNumbering,
+): ReadonlyMap<string, string> {
+  const groups = new Map<string, Reference[]>()
+  const collator = new Intl.Collator('nb', { sensitivity: 'base' })
+  const used = references
+    .filter((reference) => numbering.has(reference.id))
+    .sort((a, b) => collator.compare(a.title, b.title) || a.id.localeCompare(b.id))
+  for (const reference of used) {
+    const { author, year } = authorYearParts(reference)
+    const key = `${author}, ${year}`.toLocaleLowerCase('nb')
+    const group = groups.get(key)
+    if (group) group.push(reference)
+    else groups.set(key, [reference])
+  }
+  const labels = new Map<string, string>()
+  for (const group of groups.values()) {
+    group.forEach((reference, index) => {
+      const { author, year } = authorYearParts(reference)
+      const suffix = group.length > 1 ? yearSuffix(index) : ''
+      labels.set(reference.id, `${author}, ${year}${suffix}`)
+    })
+  }
+  return labels
+}
+
+export function citationLabelsFor(
+  deck: DeckSource,
+  style: CitationStyle = 'numbered',
+): CitationLabelContext {
+  const numbering = computeReferenceNumbering(deck)
+  return style === 'author-year'
+    ? { numbering, authorYearLabels: computeAuthorYearLabels(deck.references, numbering) }
+    : { numbering }
 }
 
 /**
@@ -144,7 +204,14 @@ export function compressNumbers(numbers: readonly number[]): string {
 export function citationLabel(
   referenceIds: readonly string[],
   numbering: ReferenceNumbering,
+  authorYearLabels?: CitationLabelContext['authorYearLabels'],
 ): string {
+  if (authorYearLabels) {
+    return [...new Set(referenceIds)]
+      .map((id) => authorYearLabels.get(id))
+      .filter(Boolean)
+      .join('; ')
+  }
   const numbers = referenceIds
     .map((id) => numbering.get(id))
     .filter((value): value is number => typeof value === 'number')
@@ -171,22 +238,28 @@ function formatReferenceParts(
 export interface ReferenceEntry {
   id: string
   number: number
+  authorYearLabel?: string
   text: string
   /** `text` with the url stripped off, so a renderer can link only the url itself. */
   label: string
   url: string
 }
 
-export function referenceEntries(deck: DeckSource): ReferenceEntry[] {
-  const numbering = computeReferenceNumbering(deck)
+export function referenceEntries(deck: DeckSource, style?: CitationStyle): ReferenceEntry[] {
+  const { numbering, authorYearLabels } = citationLabelsFor(deck, style)
   const byId = new Map(deck.references.map((reference) => [reference.id, reference]))
-  return referenceOrder(deck).flatMap((id) => {
+  const ids = [...numbering.keys()]
+  if (authorYearLabels) {
+    ids.sort((a, b) => (authorYearLabels.get(a) ?? '').localeCompare(authorYearLabels.get(b) ?? '', 'nb'))
+  }
+  return ids.flatMap((id) => {
     const reference = byId.get(id)
     if (!reference) return []
     return [
       {
         id,
         number: numbering.get(id) ?? 0,
+        ...(authorYearLabels ? { authorYearLabel: authorYearLabels.get(id) } : {}),
         text: formatReference(reference),
         label: formatReferenceParts(reference, false),
         url: reference.url.trim(),

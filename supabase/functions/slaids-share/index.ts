@@ -175,7 +175,7 @@ async function publishedDeck(address: DeckAddress): Promise<PublishedDeck | null
 
 async function snapshotForAudience(deck: PublishedDeck): Promise<unknown> {
   const { data, error } = await client.from(USER_SETTINGS_TABLE)
-    .select('include_references_in_progress')
+    .select('include_references_in_progress, citation_style')
     .eq('owner_id', deck.ownerId)
     .maybeSingle()
   if (error) return deck.document
@@ -183,6 +183,7 @@ async function snapshotForAudience(deck: PublishedDeck): Promise<unknown> {
   return {
     ...(deck.document as Record<string, unknown>),
     includeReferencesInProgress: data?.include_references_in_progress === true,
+    citationStyle: data?.citation_style === 'author-year' ? 'author-year' : 'numbered',
   }
 }
 

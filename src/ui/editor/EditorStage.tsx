@@ -289,11 +289,14 @@ export function EditorStage({
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const reportScale = useZoneScales((state) => state.report)
   const titleEditorRef = useRef<Editor | null>(null)
-  const { theme, numbering } = useSlideRender()
+  const { theme, numbering, authorYearLabels } = useSlideRender()
   const colors = useSectionColorsFor(slide.id)
   // A ratio drag changes geometry, never the deck's citation numbers, so the
   // same context serves as both baseline and prospective state.
-  const fitContext = useMemo(() => ({ theme, numbering }), [theme, numbering])
+  const fitContext = useMemo(
+    () => ({ theme, numbering, authorYearLabels }),
+    [theme, numbering, authorYearLabels],
+  )
   // The gap the author set is the gap a ratio drag works in.
   const tokens = themeMetrics(theme)
 
