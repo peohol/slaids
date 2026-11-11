@@ -1153,11 +1153,13 @@ avstand over tittelen og en annen overalt ellers. Å utlede den fra typografien
 gjør dessuten «større tekst havner aldri i en boks bygget for mindre» sant ved
 konstruksjon, i stedet for ved at to konstanter holdes i takt.
 
-Det som blir igjen mellom glyfene og kanten av boksen er fontens egen
-half-leading — noen få piksler, og en egenskap ved skriftsnittet snarere enn en
-avstandsbeslutning. `TITLE_LINE_HEIGHT` ligger like over den største summen av
-ascent og descent i fontkatalogen, så en aksent eller en underlengde aldri
-klippes.
+Hvor langt glyfene rekker over og under linjen, er en egenskap ved skriftsnittet
+snarere enn en avstandsbeslutning. I flere av katalogens fonter rekker en
+aksent eller en underlengde forbi linjen, og ingen linjehøyde passer for alle
+fonter. Derfor klipper en tittellinje (slidetittelen, overskriften i et kort med
+tittel og linjene på en inndelingsside) bare til sidene, aldri i høyden: det som
+stikker ut over eller under linjen, er blekk og tegnes i luften rundt tittelen
+uten å endre noe mål. En aksent eller en underlengde klippes aldri.
 
 Sliden har enten:
 
