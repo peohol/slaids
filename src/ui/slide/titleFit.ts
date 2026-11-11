@@ -32,6 +32,17 @@ const SCALED = 1 - 1e-4
  * Plassen er boksens innholdsboks uten polstring, så en forminsket linje
  * beholder lik luft på begge sider og står midtstilt.
  *
+ * Plassen leses med desimaler, fra boksens beregnede bredde, ikke i hele
+ * piksler. En pille på en inndelingsside er nøyaktig like bred som teksten sin,
+ * så plass og behov er der det samme tallet; med plassen rundet ned og behovet
+ * rundet opp bommet de på hverandre med en brøkdel annenhver gang, og en linje
+ * med god plass – også en tom en – ble satt en promille mindre og markert mens
+ * man skrev. Linjens bredde finnes bare i hele piksler, så den får én piksels
+ * slingringsmonn; mindre enn det er ikke en linje som ikke får plass.
+ *
+ * Alt måles i boksens egne enheter, upåvirket av skaleringen sliden er tegnet
+ * i på skjermen – også før den skaleringen er kjent.
+ *
  * Selvstendig – ingen referanse utenfor egne parametere – så forhåndsvisningens
  * rasterisering kan gi akkurat denne funksjonen til siden den tegner
  * (`render/chromium.ts`).
@@ -49,12 +60,19 @@ export function fitTitleLines(boxes: Iterable<HTMLElement>): number {
       // Plassen leses på nytt hver gang: en boks som er like bred som teksten
       // (pillen på en inndelingsside), blir smalere med den.
       const style = getComputedStyle(box)
-      const room = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      const border = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth)
+      const width = parseFloat(style.width)
+      // Den beregnede bredden er innholdsboksen, eller hele boksen med `border-box`.
+      // En boks uten beregnet bredde (jsdom) har bare den avrundede.
+      const room = Number.isFinite(width)
+        ? width - (style.boxSizing === 'border-box' ? padding + (border || 0) : 0)
+        : box.clientWidth - padding
       if (!(room > 0)) break
       // Linjens egen bredde der den legges ut i tekstens bredde, rullebredden
       // der en flex-rad har klemt den inn til boksen.
       const needed = Math.max(line.offsetWidth, line.scrollWidth)
-      if (needed <= room + 0.5) break
+      if (needed <= room + 1) break
       fit *= room / needed
       box.style.setProperty('--slaids-title-fit', String(fit))
     }
@@ -138,10 +156,26 @@ export function useTitleFit(ref: RefObject<HTMLElement | null>): TitleFit {
       if (records.some((record) => !(record.target === box && record.type === 'attributes'))) schedule()
     })
     observer.observe(box, { subtree: true, childList: true, characterData: true, attributes: true })
+    // Markeringen står der boksen står, og boksen flyttes også av naboene sine:
+    // på en inndelingsside står pillene i en midtstilt kolonne, så den ene
+    // flytter seg når den andre blir høyere eller lavere – for eksempel når
+    // linjen i den kommer på plass etter at denne ble målt. Ingenting inni
+    // boksen endres da, så boksen og naboene i flyten følges også i størrelse.
+    // En nabo som er tatt ut av flyten (en sone, en markering), flytter den ikke.
+    const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
+    if (sizes) {
+      sizes.observe(box)
+      for (const sibling of box.parentElement?.children ?? []) {
+        if (sibling === box || !(sibling instanceof HTMLElement)) continue
+        const position = getComputedStyle(sibling).position
+        if (position !== 'absolute' && position !== 'fixed') sizes.observe(sibling)
+      }
+    }
     const fonts = typeof document !== 'undefined' ? document.fonts : undefined
     fonts?.addEventListener?.('loadingdone', schedule)
     return () => {
       observer.disconnect()
+      sizes?.disconnect()
       fonts?.removeEventListener?.('loadingdone', schedule)
       if (frame !== null) cancelAnimationFrame(frame)
     }
