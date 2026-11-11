@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
 import { deckPages, deckProgress, deckSectionColors, type DeckPage } from '../../domain/pages'
-import { computeReferenceNumbering } from '../../domain/references'
+import { citationLabelsFor, type CitationStyle } from '../../domain/references'
 import type { DeckSource } from '../../domain/types'
 import { deckLogoLayout } from '../../domain/logo'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
@@ -98,7 +98,9 @@ function PlayerPage({ page, scale }: { page: DeckPage; scale: number }) {
 }
 
 export interface PresentationPlayerProps {
+  includeReferencesInProgress?: boolean
   deck: DeckSource
+  citationStyle?: CitationStyle
   /** The share link, when sharing is on: what the derived QR page points at. */
   shareUrl?: string | null
   startIndex?: number
@@ -112,18 +114,22 @@ export interface PresentationPlayerProps {
 
 export function PresentationPlayer({
   deck,
+  citationStyle,
   shareUrl = null,
   startIndex = 0,
+  includeReferencesInProgress = deck.includeReferencesInProgress,
   onExit = null,
 }: PresentationPlayerProps) {
-  const pages = useMemo(() => deckPages(deck, { shareUrl }), [deck, shareUrl])
-  const { includeReferencesInProgress } = deck
+  const pages = useMemo(
+    () => deckPages(deck, { shareUrl, citationStyle }),
+    [deck, shareUrl, citationStyle],
+  )
   const progress = useMemo(
     () => deckProgress(pages, includeReferencesInProgress),
     [pages, includeReferencesInProgress],
   )
   const sectionColors = useMemo(() => deckSectionColors(pages), [pages])
-  const numbering = useMemo(() => computeReferenceNumbering(deck), [deck])
+  const citationLabels = useMemo(() => citationLabelsFor(deck, citationStyle), [deck, citationStyle])
   const [index, setIndex] = useState(() => Math.min(Math.max(0, startIndex), pages.length - 1))
   const hostRef = useRef<HTMLDivElement>(null)
   const scale = useFitScale(hostRef, 1)
@@ -291,7 +297,7 @@ export function PresentationPlayer({
       <SlideRenderProvider
         value={{
           theme: deck.theme,
-          numbering,
+          ...citationLabels,
           sectionColors,
           progress,
           logo: deckLogoLayout(deck),

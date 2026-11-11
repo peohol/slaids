@@ -16,7 +16,11 @@ import { MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN } from '../../domain/constants'
 import type { StructuralOutcome } from '../../domain/commands'
 import { collectLeaves, countContent, findNode } from '../../domain/layout'
 import { describeError, type Result } from '../../domain/result'
-import type { LayoutNode } from '../../domain/types'
+import type { Axis, LayoutNode, Rect } from '../../domain/types'
+
+export function defaultSplitAxis(rect: Pick<Rect, 'width' | 'height'>): Axis {
+  return rect.width >= rect.height ? 'x' : 'y'
+}
 
 /** A typed ratio as a number: decimal comma or point, `NaN` when it is not one. */
 export function parseWeight(value: string): number {

@@ -33,7 +33,7 @@ import {
 import { advanceRatioFor, DEFAULT_ADVANCE_RATIO } from './fonts'
 import type { LogoReservation } from './geometry'
 import { themeMetrics, type ThemeMetrics } from './metrics'
-import { citationLabel, type ReferenceNumbering } from './references'
+import { citationLabel, type CitationLabelContext, type ReferenceNumbering } from './references'
 import { inlineImageOf } from './richdoc'
 import type {
   CardBody,
@@ -87,9 +87,8 @@ export interface FitResult {
  * that live above a single zone — global typography and derived citation
  * numbers — are always the ones that will actually be rendered.
  */
-export interface FitContext {
+export interface FitContext extends CitationLabelContext {
   theme: PresentationTheme
-  numbering: ReferenceNumbering
   /**
    * Stripen logoen reserverer på dekkets vanlige slides (§ 15.2). Avledet av
    * hele dekket, som sitatnumrene: hvor stor logoen kan være, avgjøres av alle
@@ -182,11 +181,10 @@ interface FitMetrics {
 }
 
 /** What the estimator needs to turn a document into a height. */
-interface EstimateContext {
+interface EstimateContext extends CitationLabelContext {
   metrics: FitMetrics
   /** Sizes and spacing the theme dictates — see `domain/metrics.ts`. */
   tokens: ThemeMetrics
-  numbering: ReferenceNumbering
 }
 
 const DEFAULT_METRICS: FitMetrics = {
@@ -207,6 +205,7 @@ function estimateContext(context?: Partial<FitContext>): EstimateContext {
     metrics: metricsFor(context?.theme),
     tokens: themeMetrics(context?.theme),
     numbering: context?.numbering ?? EMPTY_NUMBERING,
+    authorYearLabels: context?.authorYearLabels,
   }
 }
 
@@ -228,7 +227,7 @@ function citationCharCost(node: RichNode, context: EstimateContext): number {
   const ids = Array.isArray(node.attrs?.referenceIds)
     ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
     : []
-  const label = citationLabel(ids, context.numbering)
+  const label = citationLabel(ids, context.numbering, context.authorYearLabels)
   // A citation whose references are not numbered renders nothing at all.
   if (!label) return 0
   const advance = context.metrics.body

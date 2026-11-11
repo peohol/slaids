@@ -181,7 +181,12 @@ Ved sletting av et barn:
 - søsknenes tilgjengelige plass fordeles på nytt ved samme vekter/prinsipp;
 - dersom en split står igjen med ett barn, kollapses splitten automatisk til dette barnet;
 - subtree-sletting skal være eksplisitt og håndteres atomisk;
-- destruktive handlinger skal ha trygg bekreftelse når innhold går tapt.
+- destruktive handlinger skal som standard ha trygg bekreftelse når innhold går tapt.
+
+Brukerinnstillingen **Færre popuper** er av som standard. Når den er på, utføres
+eksplisitte slettehandlinger som kan angres i editoren direkte. Innholdet
+slettes fremfor å flyttes til sandkassen. Bekreftelse for permanent sletting
+og avbrudd av en aktiv bildedeponering vises fortsatt.
 
 ---
 
@@ -1360,10 +1365,12 @@ noen forrige bredde å animere fra. Nøyaktig det sidebyttet ville hoppet.
 
 Forsiden telles ikke. Første ordinære slide etter forsiden er side 1, og
 QR-siden teller når den vises. Automatisk genererte referanseslides beholder
-fremdriften fra forrige side som standard. Under **Presentasjon → Referanser**
-kan forfatteren velge å telle dem med for den aktuelle presentasjonen. Den
-siste siden som telles, fyller indikatoren. Valget følger også publiserte
-kopier av presentasjonen.
+fremdriften fra forrige side som standard. Eieren kan telle dem med i
+**Brukerinnstillinger** i biblioteket. Valget gjelder alle eierens
+presentasjoner. Når en delt presentasjon åpnes, får publikum eierens
+gjeldende visningsvalg sammen med den publiserte kopien. Den siste siden
+som telles, fyller indikatoren. Agentens `render_slide_preview` bruker også
+eierens gjeldende valg uten å endre den lagrede presentasjonen eller revisjonen.
 
 ---
 
@@ -1886,6 +1893,10 @@ Begge går gjennom den samme kommandoen som dragehåndtaket.
 
 ## 11\. Splitt-modal
 
+Med **Færre popuper** oppretter «Ny slide» en slide med overskrift. «Del sone»
+deler en bladsone i to like deler langs samme akse som dialogen ville foreslått.
+«Avansert deling» og «Rediger deling» åpner fortsatt dialogen.
+
 Splitt-dialogen skal vise valgt sone med riktig aspektforhold og live preview.
 
 Den er én dialog med samme mål, sti og handling uansett hvor den åpnes fra
@@ -1947,8 +1958,9 @@ angrebar endring.
 - **Lavere antall** fjerner de siste direkte subsonene med hele undertrærne
   deres. Dialogen sier hvilke soner som fjernes og hvor mange innholdselementer
   som finnes i dem, uansett hvor dypt. Standard er å flytte innholdet til
-  sandkassen; å slette det krever en egen bekreftelse som oppgir antallet, og
-  bekreftelsen kan gjøres om til sandkassen i stedet.
+  sandkassen; å slette det krever som standard en egen bekreftelse som oppgir
+  antallet, og bekreftelsen kan gjøres om til sandkassen i stedet. Med
+  **Færre popuper** holder det å velge sletting og trykke «Bruk» i dialogen.
 - **Deling av en fylt sone**: dialogen viser hvilken subsone som er valgt for
   innholdet – som forslag til tørrkjøringen har svart, deretter som resultat i
   tekst og preview. Går innholdet til sandkassen fordi det ikke får plass,
@@ -2351,6 +2363,8 @@ Dersom antall barn reduseres og fjernede subtrees har innhold:
 
 - brukeren må få et eksplisitt valg om å flytte dette til Sandbox eller slette;
 - appen skal ikke stille miste innhold.
+
+Med **Færre popuper** er valget i dialogen og «Bruk» tilstrekkelig.
 
 Direkte manipulasjon av ratios finnes: separatoren mellom to soner kan dras
 (langs splitten flytter den grensen, på tvers komprimerer den hele splitten inn
@@ -3548,6 +3562,16 @@ allerede viser et bilde bytter bare filen: utsnittet, bildeteksten og, på et
 kort med tittel og bilde, tittelpanelet blir stående. Å erstatte hele innholdet
 ville kastet bort tre ting brukeren ikke ba om å miste.
 
+En bildefil kan også slippes direkte i en bladsone. Et bilde fra
+utklippstavlen følger teksteditorens innliming når markøren står i et
+tekstfelt. Utenfor tekstfelt settes det inn direkte når sliden har én
+bladsone. Med flere bladsoner velger brukeren målet på sliden. Begge veier
+bytter bare bildefilen
+i et eksisterende bildepanel og fyller en tom sone direkte. For annet
+eksisterende soneinnhold kan brukeren avbryte, slette innholdet eller flytte
+det til sandkassen. Med «Færre popuper» slettes slikt innhold direkte.
+Plasseringen og registreringen av bildefilen angres som én endring.
+
 Et nytt bilde får bredden som faktisk er ledig i feltet, og kan dras i
 størrelse etterpå. Bare bredden dras – høyden følger av aspektforholdet – så
 bildet kan aldri forvrenges, og draget stopper ved den ledige plassen i
@@ -3729,6 +3753,25 @@ Sekvenser på minst 3 kan komprimeres:
 ```
 
 To tall på rad beholdes som `5, 6`.
+
+### Forfatter og år
+
+Brukerinnstillingen «Henvisninger på slides» velger mellom nummerert visning
+(standard) og «Forfatter, år». Det samme valget gjelder i editoren, i
+presentasjonsmodus og for publikum som åpner en delt lenke. Valget endrer
+visningen og innholdsmålingen. Presentasjonen lagrer fortsatt referanse-ID-er.
+
+Agentinngangen henter eierens visningsvalg én gang per dekk-kall. Skriving,
+inspeksjon, validering og forhåndsvisning bruker dette valget, også når
+referansesidene avledes. En manuell rettelse av forfatter eller år går gjennom
+`HUMAN_EDIT` og kan føre til forminsket visning. Agentens rettelser må fortsatt
+bestå fit-kontrollen.
+
+I forfatter–år-visningen brukes første forfatter og «et al.» ved flere.
+Kilder som ellers ville fått samme henvisning får en bokstav etter året.
+Referanseslidene bruker de samme etikettene og sorteres alfabetisk etter dem.
+Manglende forfatter erstattes av tittelen hvis den finnes, og manglende år
+vises som «u.å.».
 
 ### Referanseslides
 

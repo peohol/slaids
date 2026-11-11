@@ -919,7 +919,7 @@ function inspectZones(
     ...context.geometry,
   }).rects
   const zones: ZoneInspection[] = []
-  collectZones(slide.root, rects, fitContextFor(presentation), context, zones)
+  collectZones(slide.root, rects, fitContextFor(presentation, context.userSettings?.citationStyle), context, zones)
   return zones
 }
 

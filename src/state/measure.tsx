@@ -26,6 +26,7 @@ import {
   type TitleFitChecker,
 } from '../domain/fit'
 import type { StructuralOptions } from '../domain/commands'
+import { useUserSettings } from './userSettings'
 import { TITLE_LINE_HEIGHT } from '../domain/constants'
 import { themeMetrics } from '../domain/metrics'
 import type { Rect, TitleDoc, ZoneContent } from '../domain/types'
@@ -106,6 +107,7 @@ export function measureContentFit(
         value={{
           theme,
           numbering: context.numbering,
+          authorYearLabels: context.authorYearLabels,
           // A zone is measured on its own, not as a page of a deck: there is
           // no section above it whose colours apply and no progress to draw,
           // and the room the indicator takes was already subtracted from the
@@ -157,6 +159,7 @@ export function measureTitleFit(
         value={{
           theme,
           numbering: context.numbering,
+          authorYearLabels: context.authorYearLabels,
           // A zone is measured on its own, not as a page of a deck: there is
           // no section above it whose colours apply and no progress to draw,
           // and the room the indicator takes was already subtracted from the
@@ -204,7 +207,10 @@ export function measureTitleFit(
  * One bundle rather than two loose arguments, so no call site can validate zone
  * content but silently skip slide titles.
  */
-export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitle'>> = {
+export const domFitCheckers: Required<Pick<StructuralOptions, 'fits' | 'fitsTitle' | 'citationStyle'>> = {
   fits: measureContentFit satisfies ContentFitChecker,
   fitsTitle: measureTitleFit satisfies TitleFitChecker,
+  get citationStyle() {
+    return useUserSettings.getState().citationStyle
+  },
 }

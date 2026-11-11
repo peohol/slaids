@@ -751,3 +751,9 @@
 :root[data-compact='true'] .auth__actions {
   grid-template-columns: 1fr;
 }
+
+.user-settings-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

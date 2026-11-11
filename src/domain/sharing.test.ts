@@ -188,6 +188,16 @@ describe('parseSharedSnapshot', () => {
     expect(parseSharedSnapshot(fullPresentation()).ok).toBe(false)
   })
 
+  it('leser valgfritt visningsformat uten å kreve det på eldre delte kopier', () => {
+    const snapshot = buildSharedSnapshot(fullPresentation())
+    expect(parseSharedSnapshot(snapshot)).toMatchObject({ ok: true })
+    expect(parseSharedSnapshot({ ...snapshot, citationStyle: 'author-year' })).toMatchObject({
+      ok: true,
+      value: { citationStyle: 'author-year' },
+    })
+    expect(parseSharedSnapshot({ ...snapshot, citationStyle: 'ukjent' }).ok).toBe(false)
+  })
+
   it('leser en delingslenke som ble publisert før forsiden fantes', () => {
     // Et snapshot fra før v8 har ikke feltet i det hele tatt. Konvolutten må
     // slippe det gjennom til migreringene, ellers slutter hver eneste lenke som

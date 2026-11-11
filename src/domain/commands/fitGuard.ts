@@ -134,7 +134,7 @@ import { contentDocs } from '../content'
 import { FIT_TOLERANCE, GEOMETRY_EPSILON } from '../constants'
 import { sectionGeometryForTheme, geometryForTheme, themeMetrics } from '../metrics'
 import { sameFitRelevantTheme, type FitContext } from '../fit'
-import { citationLabel, computeReferenceNumbering, type ReferenceNumbering } from '../references'
+import { citationLabel, citationLabelsFor, type CitationLabelContext, type CitationStyle } from '../references'
 import { walkRichNodes } from '../richdoc'
 import { err, ERROR_MESSAGES_NB, ok, type Result } from '../result'
 import { airMeetings } from '../negativeSpace'
@@ -160,10 +160,10 @@ import type { StructuralOptions } from './types'
  * build this from the presentation they are about to commit, so what is
  * measured is what will be rendered.
  */
-export function fitContextFor(presentation: Presentation): FitContext {
+export function fitContextFor(presentation: Presentation, citationStyle?: CitationStyle): FitContext {
   return {
     theme: presentation.theme,
-    numbering: computeReferenceNumbering(presentation),
+    ...citationLabelsFor(presentation, citationStyle),
     logo: logoReservationFor(presentation),
   }
 }
@@ -203,8 +203,8 @@ function slideDocs(slide: Slide): RichDoc[] {
  */
 function sameCitationLabels(
   slide: Slide,
-  before: ReferenceNumbering,
-  after: ReferenceNumbering,
+  before: CitationLabelContext,
+  after: CitationLabelContext,
 ): boolean {
   let same = true
   for (const doc of slideDocs(slide)) {
@@ -213,7 +213,10 @@ function sameCitationLabels(
       const ids = Array.isArray(node.attrs?.referenceIds)
         ? (node.attrs.referenceIds as unknown[]).filter((id): id is string => typeof id === 'string')
         : []
-      if (citationLabel(ids, before) !== citationLabel(ids, after)) same = false
+      if (
+        citationLabel(ids, before.numbering, before.authorYearLabels) !==
+        citationLabel(ids, after.numbering, after.authorYearLabels)
+      ) same = false
     })
   }
   return same
@@ -441,8 +444,8 @@ export function findFitRegressions(
   options: StructuralOptions = {},
 ): FitRegression[] {
   if (!options.fits && !options.fitsTitle) return []
-  const beforeContext = fitContextFor(before)
-  const afterContext = fitContextFor(after)
+  const beforeContext = fitContextFor(before, options.citationStyle)
+  const afterContext = fitContextFor(after, options.citationStyle)
   const typographyUnchanged =
     sameFitRelevantTheme(before.theme, after.theme) && sameLogoReservation(beforeContext, afterContext)
   const previousSlides = new Map(before.slides.map((slide) => [slide.id, slide]))
@@ -460,7 +463,7 @@ export function findFitRegressions(
     if (
       previous === slide &&
       typographyUnchanged &&
-      sameCitationLabels(slide, beforeContext.numbering, afterContext.numbering)
+      sameCitationLabels(slide, beforeContext, afterContext)
     ) {
       continue
     }

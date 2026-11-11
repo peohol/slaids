@@ -181,6 +181,7 @@ export function SharedDeck({
       <AssetSourceProvider value={assetSource}>
         <PresentationPlayer
           deck={outcome.value}
+          citationStyle={outcome.value.citationStyle}
           shareUrl={qrUrl}
           startIndex={0}
           onExit={onExit}

@@ -15,6 +15,7 @@ import {
   REFERENCE_SLIDE_ID_PREFIX,
   planReferenceSlides,
   referenceEntries,
+  type CitationStyle,
   type ReferenceEntry,
 } from './references'
 import type { ContentSlide, DeckSource, LayoutNode, RichDoc, RichNode, Slide } from './types'
@@ -28,7 +29,8 @@ import type { ContentSlide, DeckSource, LayoutNode, RichDoc, RichNode, Slide } f
  * bibliography with nothing to show for it.
  */
 function entryParagraph(entry: ReferenceEntry): RichNode {
-  const children: RichNode[] = [{ type: 'text', text: `${entry.number}. ` }]
+  const prefix = entry.authorYearLabel ? `${entry.authorYearLabel} — ` : `${entry.number}. `
+  const children: RichNode[] = [{ type: 'text', text: prefix }]
   if (entry.label) children.push({ type: 'text', text: entry.label })
   if (entry.url) {
     if (entry.label) children.push({ type: 'text', text: ' ⋅ ' })
@@ -71,8 +73,8 @@ function columnLeaf(id: string, entries: ReferenceEntry[]): LayoutNode {
  * Reference slides for the whole deck, or an empty list when nothing is cited.
  * Ids are deterministic so React can reconcile them across renders.
  */
-export function buildReferenceSlides(deck: DeckSource): ContentSlide[] {
-  const entries = referenceEntries(deck)
+export function buildReferenceSlides(deck: DeckSource, citationStyle?: CitationStyle): ContentSlide[] {
+  const entries = referenceEntries(deck, citationStyle)
   if (entries.length === 0) return []
 
   const geometry = geometryForDeck(deck)

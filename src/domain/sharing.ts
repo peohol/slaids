@@ -26,7 +26,7 @@ import { z } from 'zod'
 import { deckAssetIds } from './commands/assets'
 import { withoutDepositNumbers } from './imageDeposit'
 import { migratePresentation } from './migrations'
-import { splitReferences } from './references'
+import { splitReferences, type CitationStyle } from './references'
 import { err, ok, type Result } from './result'
 import type {
   AssetRef,
@@ -61,6 +61,7 @@ export interface SharedPresentationSnapshot extends DeckSource {
   slides: DeckSlides
   /** Only the references that are actually cited, in numbering order. */
   references: Reference[]
+  citationStyle?: CitationStyle
   /** Only the assets the slides actually show. */
   assets: AssetRef[]
   publishedAt: string
@@ -139,6 +140,7 @@ const envelopeSchema = z.object({
   cover: z.unknown().optional(),
   slides: z.unknown(),
   references: z.unknown(),
+  citationStyle: z.enum(['numbered', 'author-year']).optional(),
   includeReferencesInProgress: z.unknown().optional(),
   assets: z.unknown(),
 })
@@ -188,6 +190,7 @@ export function parseSharedSnapshot(input: unknown): Result<SharedPresentationSn
     theme: deck.theme,
     slides: deck.slides,
     references: deck.references,
+    ...(parsed.citationStyle ? { citationStyle: parsed.citationStyle } : {}),
     includeReferencesInProgress: deck.includeReferencesInProgress,
     assets: deck.assets,
     publishedAt: parsed.publishedAt,

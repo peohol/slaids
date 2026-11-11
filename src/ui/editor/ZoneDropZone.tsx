@@ -13,10 +13,12 @@ import type { ReactNode } from 'react'
 export function ZoneDropZone({
   nodeId,
   acceptable,
+  fileOver,
   children,
 }: {
   nodeId: string
   acceptable: boolean
+  fileOver: boolean
   children: ReactNode
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `zone:${nodeId}`, disabled: !acceptable })
@@ -26,8 +28,8 @@ export function ZoneDropZone({
       ref={setNodeRef}
       className={[
         'zone-drop',
-        acceptable ? 'zone-drop--available' : '',
-        acceptable && isOver ? 'zone-drop--over' : '',
+        acceptable || fileOver ? 'zone-drop--available' : '',
+        (acceptable && isOver) || fileOver ? 'zone-drop--over' : '',
       ]
         .filter(Boolean)
         .join(' ')}

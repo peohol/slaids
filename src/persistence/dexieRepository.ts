@@ -6,6 +6,7 @@
  * clear error instead of a broken editor.
  */
 
+import { DEFAULT_USER_SETTINGS, type UserSettings } from '../domain/userSettings'
 import {
   defaultAutocorrectRules,
   normalizeAutocorrectRules,
@@ -350,6 +351,26 @@ export class DexieSlaidsRepository implements SlaidsRepository {
 
   async deleteTemplate(id: string): Promise<void> {
     await this.database.templates.delete(id)
+  }
+
+  async getUserSettings(_ownerId: string | null): Promise<UserSettings> {
+    const [progress, dialogs, citation] = await this.database.settings.bulkGet([
+      'includeReferencesInProgress',
+      'fewerDialogs',
+      'citationStyle',
+    ])
+    return {
+      ...DEFAULT_USER_SETTINGS,
+      citationStyle: citation?.value === 'author-year' ? 'author-year' : 'numbered',
+      includeReferencesInProgress: progress?.value === true,
+      fewerDialogs: dialogs?.value === true,
+    }
+  }
+
+  async updateUserSettings(_ownerId: string | null, patch: Partial<UserSettings>): Promise<void> {
+    await this.database.settings.bulkPut(
+      Object.entries(patch).map(([key, value]) => ({ key, value })),
+    )
   }
 
   async loadAutocorrectRules(): Promise<AutocorrectRule[]> {

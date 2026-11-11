@@ -10,12 +10,13 @@ import {
   addReference,
   deleteReference,
   deleteUnusedReferences,
-  setIncludeReferencesInProgress,
   updateReference,
 } from '../../domain/commands'
 import { computeReferenceNumbering, formatReference, splitReferences } from '../../domain/references'
 import { useActiveEditor } from '../../state/activeEditor'
+import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { useEditorStore } from '../../state/store'
+import { useUserSettings } from '../../state/userSettings'
 import type { Reference } from '../../domain/types'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -38,7 +39,9 @@ export function ReferenceModal({
 }) {
   const presentation = useEditorStore((state) => state.presentation)
   const run = useEditorStore((state) => state.run)
+  const fewerDialogs = useUserSettings((state) => state.fewerDialogs)
   const editor = useActiveEditor((state) => state.editor)
+  const authorYear = useUserSettings((state) => state.citationStyle === 'author-year')
   const [draft, setDraft] = useState(EMPTY)
   const [editing, setEditing] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<Reference | null>(null)
@@ -61,6 +64,9 @@ export function ReferenceModal({
   const numbering = computeReferenceNumbering(presentation)
   const { used, unused } = splitReferences(presentation)
   const canSubmit = Boolean(draft.title.trim() || draft.authors.trim() || draft.url.trim())
+  const removeReference = (reference: Reference) =>
+    run('reference-delete', (current) => deleteReference(current, reference.id))
+  const clearUnused = () => run('reference-clear-unused', (current) => deleteUnusedReferences(current))
 
   const clearLookup = (value = ''): void => {
     pendingLookup.current?.abort()
@@ -125,7 +131,7 @@ export function ReferenceModal({
   const submit = (): void => {
     if (!canSubmit) return
     if (editing) {
-      run('reference-update', (current) => updateReference(current, editing, draft))
+      if (!run('reference-update', (current) => updateReference(current, editing, draft, HUMAN_EDIT))) return
       setEditing(null)
       setDraft(EMPTY)
       return
@@ -157,7 +163,7 @@ export function ReferenceModal({
           : undefined
       }
     >
-      {isUsed && <span className="reference-row__number">{numbering.get(reference.id)}</span>}
+      {isUsed && !authorYear && <span className="reference-row__number">{numbering.get(reference.id)}</span>}
       <span className="reference-row__text">{formatReference(reference) || '(tom referanse)'}</span>
       <button
         type="button"
@@ -189,7 +195,10 @@ export function ReferenceModal({
         className="btn btn--sm btn--icon"
         aria-label="Slett referanse"
         data-testid="delete-reference"
-        onClick={() => setDeleting(reference)}
+        onClick={() => {
+          if (fewerDialogs) removeReference(reference)
+          else setDeleting(reference)
+        }}
       >
         <Icon name="close" size={14} />
       </button>
@@ -202,7 +211,9 @@ export function ReferenceModal({
         open={open}
         onOpenChange={changeOpen}
         title="Referanser"
-        description="Nummereringen følger rekkefølgen referansene først brukes i."
+        description={authorYear
+          ? 'Henvisninger vises med forfatter og år.'
+          : 'Nummereringen følger rekkefølgen referansene først brukes i.'}
         testId="reference-modal"
         width={720}
         footer={
@@ -211,17 +222,6 @@ export function ReferenceModal({
           </button>
         }
       >
-        <label className="reference-progress-option">
-          <input
-            type="checkbox"
-            checked={presentation.includeReferencesInProgress ?? false}
-            onChange={(event) => {
-              const { checked } = event.currentTarget
-              run('reference-progress', (current) => setIncludeReferencesInProgress(current, checked))
-            }}
-          />
-          Tell med referanseslides i fremdriftslinjen
-        </label>
         <div className="reference-form">
           {!editing && (
             <form
@@ -335,7 +335,10 @@ export function ReferenceModal({
               <button
                 type="button"
                 className="btn btn--sm"
-                onClick={() => setClearingUnused(true)}
+                onClick={() => {
+                  if (fewerDialogs) clearUnused()
+                  else setClearingUnused(true)
+                }}
                 data-testid="clear-unused-references"
               >
                 <Icon name="trash" size={14} /> Slett alle ubrukte
@@ -360,7 +363,7 @@ export function ReferenceModal({
         }
         onConfirm={() => {
           if (!deleting) return
-          run('reference-delete', (current) => deleteReference(current, deleting.id))
+          removeReference(deleting)
           setDeleting(null)
         }}
         onCancel={() => setDeleting(null)}
@@ -371,7 +374,7 @@ export function ReferenceModal({
         title="Slette alle ubrukte referanser?"
         message={`${unused.length} referanse(r) som ikke er i bruk slettes.`}
         onConfirm={() => {
-          run('reference-clear-unused', (current) => deleteUnusedReferences(current))
+          clearUnused()
           setClearingUnused(false)
         }}
         onCancel={() => setClearingUnused(false)}

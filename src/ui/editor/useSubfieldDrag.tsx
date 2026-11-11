@@ -18,7 +18,7 @@ import { setBodyWeightsByHand } from '../../domain/commands/manualLayout'
 import { FIT_TOLERANCE, SUBFIELD_DIVIDER_THICKNESS } from '../../domain/constants'
 import { bodyOf, withBody } from '../../domain/content'
 import { minimumSubfieldLength } from '../../domain/contentSize'
-import { subfieldPart } from '../../domain/fit'
+import { subfieldPart, type FitContext } from '../../domain/fit'
 import { themeMetrics } from '../../domain/metrics'
 import { isDocEmpty } from '../../domain/richdoc'
 import type { CardBody, Presentation, Rect, ZoneContent } from '../../domain/types'
@@ -78,14 +78,16 @@ export function useSubfieldDrag({
 }): SubfieldDragHandles {
   const run = useEditorStore((state) => state.run)
   const selectNode = useEditorStore((state) => state.selectNode)
-  const { theme, numbering } = useSlideRender()
+  // Et delfelt måles i sonens eget rektangel, så bare typografi og sitatmerker teller.
+  const { theme, numbering, authorYearLabels } = useSlideRender()
+  const context: FitContext = { theme, numbering, authorYearLabels }
   const [preview, setPreview] = useState<{ boundary: number; weights: number[] | null } | null>(null)
   const stateRef = useRef<DragState | null>(null)
 
   // Lest gjennom en ref av lytterne, som lever lenger enn renderen som laget dem.
-  const latest = useRef({ content, rect, theme, numbering })
+  const latest = useRef({ content, rect, context })
   useEffect(() => {
-    latest.current = { content, rect, theme, numbering }
+    latest.current = { content, rect, context }
   })
 
   const end = useCallback((): DragState | null => {
@@ -100,7 +102,7 @@ export function useSubfieldDrag({
   useEffect(() => () => void end(), [end])
 
   const body = bodyOf(content)
-  const tokens = themeMetrics(theme)
+  const tokens = themeMetrics(context.theme)
 
   const begin = (boundary: number, event: ReactPointerEvent<HTMLElement>): void => {
     if (event.button !== 0 || stateRef.current || !body) return
@@ -153,7 +155,7 @@ export function useSubfieldDrag({
 
     /** Om delfelt `index` sitt innhold får plass i normal størrelse med lengden `length`. */
     const fitsAt = (index: number, length: number): boolean => {
-      const { content: current, rect: zone, theme: currentTheme, numbering: currentNumbering } = latest.current
+      const { content: current, rect: zone, context: currentContext } = latest.current
       if (!zone) return true
       // Hvert delfelt legges ut for seg, så bare dets egen andel teller: de
       // andre deler resten i forholdet de hadde.
@@ -163,7 +165,7 @@ export function useSubfieldDrag({
       const factor = others > 0 ? (room - length) / others : 0
       const weights = drag.lengths.map((value, position) => (position === index ? length : value * factor))
       const probe = withBody(current, { ...state.body, weights })
-      const result = measureContentFit(probe, zone, { theme: currentTheme, numbering: currentNumbering })
+      const result = measureContentFit(probe, zone, currentContext)
       const overflow = result.parts?.[subfieldPart(state.body.subfields[index].id)] ?? result.overflow
       return overflow <= FIT_TOLERANCE
     }

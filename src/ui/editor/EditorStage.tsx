@@ -18,7 +18,7 @@ import {
   rectContainsPoint,
   viewportToSlide,
 } from '../../domain/geometry'
-import { collectContent, replaceNode } from '../../domain/layout'
+import { collectContent, findLeaf, replaceNode } from '../../domain/layout'
 import { normalizedSlide } from '../../domain/presentation'
 import { bestTextColor, textShadowFor } from '../../domain/color'
 import {
@@ -89,6 +89,8 @@ import { FULL_SLIDE, NO_ZOOM, type StageZoom } from './stageView'
 import { StageSurface } from './StageSurface'
 import { ZoneOverlay, type ZoneAction } from './ZoneOverlay'
 import { ZoneDropZone } from './ZoneDropZone'
+import { imageTransferFiles } from './zoneImage'
+import { notify } from '../../state/toast'
 import { EmptyZone } from './EmptyZone'
 
 /**
@@ -182,6 +184,7 @@ export interface EditorStageProps {
   onAddContent: (nodeId: NodeId, kind: ZoneContentKind) => void
   /** Opens the upload dialog for a picture zone that has no file yet. */
   onPickImage: (nodeId: NodeId) => void
+  onDropImage: (nodeId: NodeId, file: File) => void
   /** Opens the note in a zone that holds one. */
   /**
    * Zones that can accept what is currently looking for one — the item being
@@ -254,6 +257,7 @@ export function EditorStage({
   actions,
   onAddContent,
   onPickImage,
+  onDropImage,
   dropTargets,
   selectOnTap = false,
   textEditing = 'all',
@@ -268,6 +272,7 @@ export function EditorStage({
 }: EditorStageProps) {
   const slideRef = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState<NodeId | null>(null)
+  const [fileDropTarget, setFileDropTarget] = useState<NodeId | null>(null)
   const [preview, setPreview] = useState<DragPreview | null>(null)
   const dragRef = useRef<DragState | null>(null)
   /**
@@ -288,11 +293,14 @@ export function EditorStage({
   const setActiveEditor = useActiveEditor((state) => state.setEditor)
   const reportScale = useZoneScales((state) => state.report)
   const titleEditorRef = useRef<Editor | null>(null)
-  const { theme, numbering } = useSlideRender()
+  const { theme, numbering, authorYearLabels } = useSlideRender()
   const colors = useSectionColorsFor(slide.id)
   // A ratio drag changes geometry, never the deck's citation numbers, so the
   // same context serves as both baseline and prospective state.
-  const fitContext = useMemo(() => ({ theme, numbering }), [theme, numbering])
+  const fitContext = useMemo(
+    () => ({ theme, numbering, authorYearLabels }),
+    [theme, numbering, authorYearLabels],
+  )
   // The gap the author set is the gap a ratio drag works in.
   const tokens = themeMetrics(theme)
 
@@ -396,10 +404,40 @@ export function EditorStage({
     // when the placement started, so a press on anything else does nothing
     // rather than quietly moving the selection out from under the prompt.
     if (onPlace) {
+      event.stopPropagation()
       if (dropTargets.has(hit)) onPlace(hit)
       return
     }
     selectNode(hit)
+  }
+
+  const fileTarget = (event: React.DragEvent): NodeId | null => {
+    const point = toSlidePoint(event.clientX, event.clientY)
+    if (!point) return null
+    const hit = hitTestLayout(displaySlide.root, geometry.rects, point.x, point.y)
+    return hit && findLeaf(displaySlide.root, hit) ? hit : null
+  }
+
+  const handleFileDragOver = (event: React.DragEvent): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    event.stopPropagation()
+    const target = fileTarget(event)
+    event.dataTransfer.dropEffect = target ? 'copy' : 'none'
+    setFileDropTarget(target)
+  }
+
+  const handleFileDrop = (event: React.DragEvent): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    event.stopPropagation()
+    setFileDropTarget(null)
+    const target = fileTarget(event)
+    if (!target) return
+    const images = imageTransferFiles(event.dataTransfer)
+    if (images.length === 1) onDropImage(target, images[0])
+    else if (images.length > 1) notify.warning('Slipp ett bilde om gangen.')
+    else notify.warning('Velg en bildefil.')
   }
 
   /**
@@ -721,7 +759,15 @@ export function EditorStage({
       }}
       onPointerMove={handlePointerMove}
       onPointerLeave={() => setHovered(null)}
-      onClick={handleClick}
+      onClick={onPlace ? undefined : handleClick}
+      onClickCapture={onPlace ? handleClick : undefined}
+      onDragOverCapture={handleFileDragOver}
+      onDragLeave={(event) => {
+        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+          setFileDropTarget(null)
+        }
+      }}
+      onDropCapture={handleFileDrop}
       onContextMenu={handleContextMenu}
     >
       {(scale) => (
@@ -776,7 +822,11 @@ export function EditorStage({
               </TitleFitLine>
             )}
             renderLeaf={(leaf, rect) => (
-              <ZoneDropZone nodeId={leaf.id} acceptable={dropTargets.has(leaf.id)}>
+              <ZoneDropZone
+                nodeId={leaf.id}
+                acceptable={dropTargets.has(leaf.id)}
+                fileOver={fileDropTarget === leaf.id}
+              >
                 {!leaf.content ? (
                   /* The picker's buttons are drawn inside the slide, so they
                      shrink with it: at a phone's scale they are a few pixels

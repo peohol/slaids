@@ -43,12 +43,13 @@ import {
   setZoneContent,
   splitLeaf,
   updateSplit,
+  type ContentDisposition,
   type StructuralOutcome,
 } from '../../domain/commands'
 import { HUMAN_EDIT, setSplitWeightsByHand } from '../../domain/commands/manualLayout'
 import { contentIsEmpty, createContentOfKind, imagePanelOf } from '../../domain/content'
 import { CONTENT_KIND_ICONS, CONTENT_KIND_TONES, contentKindOptions } from './contentKinds'
-import { computeReferenceNumbering } from '../../domain/references'
+import { citationLabelsFor } from '../../domain/references'
 import { isDocEmpty } from '../../domain/richdoc'
 import { TITLE_NODE_ID, computeSlideGeometry } from '../../domain/geometry'
 import {
@@ -74,11 +75,13 @@ import { repository } from '../../persistence/activeRepository'
 import { leaveWhenSaved, startAutosave } from '../../state/autosave'
 import { isInteractiveRuntimeActive } from '../../state/interactiveRuntime'
 import { readPref, writePref } from '../../state/prefs'
+import { hasStructuralClipboard } from '../../state/clipboard'
 import { useSharingStore, useShareUrl } from '../../state/sharing'
 import { useEditorStore, type ActiveField } from '../../state/store'
 import { notify } from '../../state/toast'
 import { ensureWebFonts, webFontsReady } from '../fonts'
 import { copyZoneToClipboard, cutZoneToClipboard, pasteClipboardIntoZone } from './zoneClipboard'
+import { imageTransferFiles, uploadZoneImage, zoneImageRequest, type ZoneImageRequest } from './zoneImage'
 import type { InteractiveSource } from '../../domain/interactive'
 import type { OptimizationScope } from '../../domain/imageOptimization'
 import type {
@@ -139,7 +142,7 @@ import { NewSlideModal } from './NewSlideModal'
 import { ReferenceModal } from './ReferenceModal'
 import { SandboxWindow } from './SandboxWindow'
 import { SplitModal, type SplitModalResult } from './SplitModal'
-import { splitCheck, type SplitCheck } from './splitDraft'
+import { defaultSplitAxis, splitCheck, type SplitCheck } from './splitDraft'
 import { ShortcutsModal } from './ShortcutsModal'
 import { editorShortcutFor } from './editorShortcuts'
 import { AutocorrectModal } from './AutocorrectModal'
@@ -151,6 +154,7 @@ import { ImageBriefModal } from './ImageBriefModal'
 import { ImageDepositIntroModal } from './ImageDepositIntroModal'
 import { ImageDepositModal } from './ImageDepositModal'
 import { ThemeModal } from './ThemeModal'
+import { useUserSettings } from '../../state/userSettings'
 import { PresentView } from '../present/PresentView'
 import { useSurfacePointerSensor } from './dragActivation'
 import type { ZoneAction } from './ZoneOverlay'
@@ -241,6 +245,7 @@ export function EditorView({
   const mode = useEditorStore((state) => state.mode)
   const setMode = useEditorStore((state) => state.setMode)
   const toggleMode = useEditorStore((state) => state.toggleMode)
+  const fewerDialogs = useUserSettings((state) => state.fewerDialogs)
   const run = useEditorStore((state) => state.run)
   const runStructural = useEditorStore((state) => state.runStructural)
   const depositBreak = useEditorStore((state) => state.pendingDepositBreak)
@@ -252,9 +257,9 @@ export function EditorView({
 
   const [splitOpen, setSplitOpen] = useState(false)
   /** Which new-page dialog is open, and where its page goes. */
-  const [newPage, setNewPage] = useState<NewPageRequest | null>(null)
+  const [newPage, setNewPageDialog] = useState<NewPageRequest | null>(null)
   const closeNewPage = (open: boolean): void => {
-    if (!open) setNewPage(null)
+    if (!open) setNewPageDialog(null)
   }
   const [referencesOpen, setReferencesOpen] = useState(false)
   /** Reference to scroll to and highlight when the list is opened from a pill. */
@@ -277,6 +282,7 @@ export function EditorView({
    * where the picture goes, so the dialog does not offer the text field.
    */
   const [imageOpen, setImageOpen] = useState<false | 'ask' | 'zone'>(false)
+  const [replacingZoneImage, setReplacingZoneImage] = useState<ZoneImageRequest | null>(null)
   /** The picture optimiser, and which files it is about. `null` while closed. */
   const [optimizeScope, setOptimizeScope] = useState<OptimizationScope | null>(null)
   const [ideasOpen, setIdeasOpen] = useState(() => readPref('ideasOpen', false))
@@ -285,7 +291,7 @@ export function EditorView({
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [presenting, setPresenting] = useState(false)
-  const [deletingSlide, setDeletingSlide] = useState<Slide | null>(null)
+  const [deletingSlide, setDeletingSlideDialog] = useState<Slide | null>(null)
   const [deletingZoneId, setDeletingZoneId] = useState<string | null>(null)
   const [clearingZoneId, setClearingZoneId] = useState<string | null>(null)
   const [dragItemId, setDragItemId] = useState<string | null>(null)
@@ -555,9 +561,10 @@ export function EditorView({
    * turning `Del` off makes the QR page disappear by itself, because nothing
    * ever put it in `presentation.slides`.
    */
+  const citationStyle = useUserSettings((state) => state.citationStyle)
   const pages = useMemo(
-    () => (presentation ? deckPages(presentation, { shareUrl }) : []),
-    [presentation, shareUrl],
+    () => (presentation ? deckPages(presentation, { shareUrl, citationStyle }) : []),
+    [presentation, shareUrl, citationStyle],
   )
   const derived = useMemo(() => pages.filter(isDerivedPage), [pages])
   /**
@@ -565,7 +572,7 @@ export function EditorView({
    * stage and on every thumbnail — a deck being edited is a deck, and the strip
    * it takes is reserved on every slide whether or not anyone is watching.
    */
-  const includeReferencesInProgress = presentation?.includeReferencesInProgress
+  const includeReferencesInProgress = useUserSettings((state) => state.includeReferencesInProgress)
   const progress = useMemo(
     () => deckProgress(pages, includeReferencesInProgress),
     [pages, includeReferencesInProgress],
@@ -592,9 +599,9 @@ export function EditorView({
       ? (derived.find((entry) => entry.id === derivedView.id) ?? null)
       : null
 
-  const numbering = useMemo(
-    () => (presentation ? computeReferenceNumbering(presentation) : new Map<string, number>()),
-    [presentation],
+  const citationLabels = useMemo(
+    () => (presentation ? citationLabelsFor(presentation, citationStyle) : { numbering: new Map<string, number>() }),
+    [presentation, citationStyle],
   )
 
   const selectedNode =
@@ -606,6 +613,7 @@ export function EditorView({
       ? computeSlideGeometry(contentSlide, geometryForDeck(presentation))
       : null
   const selectedRect = geometry && selectedNodeId ? geometry.rects.get(selectedNodeId) : undefined
+  const quickSplitAxis = fewerDialogs && selectedRect ? defaultSplitAxis(selectedRect) : null
   /**
    * The content kinds as they stand for the selected zone.
    *
@@ -810,6 +818,32 @@ export function EditorView({
     [insertPage],
   )
 
+  const setNewPage = useCallback((request: NewPageRequest) => {
+    if (fewerDialogs && request.kind === 'content') {
+      insertSlide(true, undefined, request)
+    } else {
+      setNewPageDialog(request)
+    }
+  }, [fewerDialogs, insertSlide])
+
+  const removeSlide = useCallback(
+    (slideId: string) => run('delete-slide', (current) => deleteSlide(current, slideId)),
+    [run],
+  )
+
+  const setDeletingSlide = useCallback((slide: Slide) => {
+    if (fewerDialogs) removeSlide(slide.id)
+    else setDeletingSlideDialog(slide)
+  }, [fewerDialogs, removeSlide])
+
+  const removeZone = useCallback(
+    (action: 'clear' | 'delete', slideId: string, nodeId: string, contentDisposition: ContentDisposition) => {
+      const command = action === 'clear' ? clearLayoutNode : deleteLayoutNode
+      runStructural(`${action}-zone`, (current) => command(current, { slideId, nodeId, contentDisposition }))
+    },
+    [runStructural],
+  )
+
   /**
    * Take the zone away.
    *
@@ -820,7 +854,7 @@ export function EditorView({
   const removeTitle = useCallback(() => {
     if (!contentSlide?.title) return
     const removed = contentSlide.title
-    // `force` is the user's confirmation; the command refuses without it.
+    // Brukeren har bekreftet fjerningen eller valgt færre popuper.
     const done = run('toggle-title', (current) =>
       setSlideHasTitle(current, contentSlide.id, false, { ...HUMAN_EDIT, force: true }),
     )
@@ -1050,11 +1084,27 @@ export function EditorView({
     setDropTargets(new Set())
   }, [])
 
+  const beginZoneImage = useCallback((nodeId: string, file: File) => {
+    const request = zoneImageRequest(file, nodeId)
+    if (!request) return
+    cancelPlacement()
+    if (request.content && !imagePanelOf(request.content) && !fewerDialogs) {
+      setReplacingZoneImage(request)
+      return
+    }
+    void uploadZoneImage(request, fewerDialogs ? 'delete' : undefined)
+  }, [cancelPlacement, fewerDialogs])
+
   /** The target was pressed. Same commands a drop would have run. */
   const commitPlacement = useCallback(
     (nodeId: string) => {
       const slide = useEditorStore.getState().currentContentSlide()
       if (!placement || !slide || placement.slideId !== slide.id) return
+      if (placement.kind === 'image') {
+        useEditorStore.getState().selectNode(nodeId)
+        beginZoneImage(nodeId, placement.file)
+        return
+      }
       if (placement.kind === 'sandbox') {
         runStructural('place-sandbox-item', (current) =>
           placeSandboxItem(current, {
@@ -1077,7 +1127,7 @@ export function EditorView({
       useEditorStore.getState().selectNode(nodeId)
       cancelPlacement()
     },
-    [cancelPlacement, placement, runStructural],
+    [beginZoneImage, cancelPlacement, placement, runStructural],
   )
 
   /*
@@ -1087,6 +1137,79 @@ export function EditorView({
    * having to notice and reset anything.
    */
   const activePlacement = placement?.slideId === currentSlideId ? placement : null
+  const placingImage = activePlacement?.kind === 'image'
+
+  useEffect(() => {
+    let pasteFallback: number | undefined
+    const clearPasteFallback = (): void => window.clearTimeout(pasteFallback)
+    const canPasteOnStage = (): boolean =>
+      !presenting && !viewedDerivedPage && !isInteractiveRuntimeActive() && !hasOpenDialog()
+
+    const onPasteKey = (event: KeyboardEvent): void => {
+      if (
+        !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'v' ||
+        event.repeat || !hasStructuralClipboard() || !canPasteOnStage()
+      ) return
+      const target = event.target as HTMLElement | null
+      if (target?.isContentEditable || target?.closest?.('input, textarea, select')) return
+      const state = useEditorStore.getState()
+      const slide = state.currentContentSlide()
+      if (state.mode !== 'zone' || !slide || !state.selectedNodeId) return
+      const leaf = findLeaf(slide.root, state.selectedNodeId)
+      if (!leaf || leaf.content) return
+
+      // Når systemets utklippstavle er tom, kan den interne kopien fortsatt
+      // finnes uten at nettleseren sender noen innlimingshendelse.
+      clearPasteFallback()
+      pasteFallback = window.setTimeout(() => {
+        const live = useEditorStore.getState()
+        if (live.presentation?.id === state.presentation?.id && live.currentSlideId === slide.id &&
+            live.selectedNodeId === leaf.id && live.mode === 'zone' && canPasteOnStage()) {
+          void pasteClipboardIntoZone(leaf.id)
+        }
+      }, 150)
+    }
+
+    const onPaste = (event: ClipboardEvent): void => {
+      clearPasteFallback()
+      if (!canPasteOnStage()) return
+      const target = event.target as HTMLElement | null
+      if (target?.isContentEditable || target?.closest?.('input, textarea, select')) return
+      const state = useEditorStore.getState()
+      const slide = state.currentContentSlide()
+      if (!slide) return
+
+      const file = event.clipboardData && imageTransferFiles(event.clipboardData)[0]
+      if (file) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (slide.root.kind === 'leaf') {
+          beginZoneImage(slide.root.id, file)
+        } else {
+          setStageFocus(null)
+          setCompactPanel(null)
+          beginPlacement({ kind: 'image', file })
+        }
+        return
+      }
+
+      // En vanlig tekstinnliming går til feltet. Slaids-innhold limes som før
+      // inn i en valgt, tom sone når Soner-modus har tastaturet.
+      if (state.mode !== 'zone' || !state.selectedNodeId) return
+      const leaf = findLeaf(slide.root, state.selectedNodeId)
+      if (leaf && !leaf.content) {
+        event.preventDefault()
+        void pasteClipboardIntoZone(leaf.id)
+      }
+    }
+    window.addEventListener('keydown', onPasteKey, true)
+    window.addEventListener('paste', onPaste, true)
+    return () => {
+      clearPasteFallback()
+      window.removeEventListener('keydown', onPasteKey, true)
+      window.removeEventListener('paste', onPaste, true)
+    }
+  }, [beginPlacement, beginZoneImage, presenting, viewedDerivedPage])
 
   /* -------------------------------------------------------------- *
    * Focused fields
@@ -1207,10 +1330,16 @@ export function EditorView({
         void runStructural('reorder-zone', (current) =>
           reorderLayoutNode(current, { slideId, nodeId, toIndex, ...HUMAN_EDIT }),
         ),
-      clear: setClearingZoneId,
-      remove: setDeletingZoneId,
+      clear: (nodeId) => {
+        if (fewerDialogs) removeZone('clear', slideId, nodeId, 'delete')
+        else setClearingZoneId(nodeId)
+      },
+      remove: (nodeId) => {
+        if (fewerDialogs) removeZone('delete', slideId, nodeId, 'delete')
+        else setDeletingZoneId(nodeId)
+      },
     }
-  }, [addContentTo, applyContentKindTo, beginPlacement, contentSlide, runStructural])
+  }, [addContentTo, applyContentKindTo, beginPlacement, contentSlide, fewerDialogs, removeZone, runStructural])
 
   /**
    * Open the zone menu for one zone.
@@ -1359,6 +1488,7 @@ export function EditorView({
   const zoneActions: ZoneAction[] = useMemo(() => {
     if (!contentSlide || !selectedNodeId || !selectedNode || !zoneHandlers) return []
     const isLeaf = selectedNode.kind === 'leaf'
+    const quickSplit = isLeaf && quickSplitAxis
     const content = selectedLeaf?.content ?? null
     const isRoot = contentSlide.root.id === selectedNodeId
     const panel = content ? imagePanelOf(content) : null
@@ -1417,8 +1547,11 @@ export function EditorView({
       {
         id: 'split',
         group: 'zone',
-        ...(isLeaf ? { ...ZONE_ACTIONS.split, label: `${ZONE_ACTIONS.split.label} …` } : ZONE_ACTIONS.editSplit),
-        onSelect: () => setSplitOpen(true),
+        ...(isLeaf ? { ...ZONE_ACTIONS.split, label: quickSplit ? ZONE_ACTIONS.split.label : `${ZONE_ACTIONS.split.label} …` } : ZONE_ACTIONS.editSplit),
+        onSelect: () => {
+          if (quickSplit) zoneHandlers.split(selectedNodeId, quickSplit)
+          else zoneHandlers.openSplitDialog(selectedNodeId)
+        },
         testId: 'zone-action-split',
       },
       /*
@@ -1457,6 +1590,7 @@ export function EditorView({
     applyContentKind,
     contentSlide,
     openZoneMenu,
+    quickSplitAxis,
     selectedLeaf,
     selectedNode,
     selectedNodeId,
@@ -1656,7 +1790,7 @@ export function EditorView({
       }
 
       if (!meta) return
-      // Only a slide with zones has anything to cut, copy or paste into.
+      // Klipp ut og kopier soneinnhold gjelder bare slides med soner.
       const activeSlide = state.currentContentSlide()
       if (!activeSlide || !state.selectedNodeId) return
       const leaf = findLeaf(activeSlide.root, state.selectedNodeId)
@@ -1666,11 +1800,6 @@ export function EditorView({
         event.preventDefault()
         if (key === 'c') copyZoneToClipboard(leaf.id)
         else cutZoneToClipboard(leaf.id)
-        return
-      }
-      if (key === 'v' && leaf && !leaf.content) {
-        event.preventDefault()
-        void pasteClipboardIntoZone(leaf.id)
       }
     }
 
@@ -1875,6 +2004,7 @@ export function EditorView({
         useEditorStore.getState().selectNode(nodeId)
         setImageOpen('zone')
       }}
+      onDropImage={beginZoneImage}
       dropTargets={dropTargets}
       // While a field is focused, a press means "put the caret here" again —
       // which is what the field was made big enough for.
@@ -1956,7 +2086,7 @@ export function EditorView({
       },
       onToggleTitle: () => {
         if (contentSlide?.title != null) {
-          if (!isDocEmpty(contentSlide.title)) {
+          if (!fewerDialogs && !isDocEmpty(contentSlide.title)) {
             setRemovingTitle(true)
             return
           }
@@ -2047,7 +2177,7 @@ export function EditorView({
     ),
     placementBar: activePlacement ? (
       <div className="placement-bar" data-testid="placement-bar" role="status">
-        <span>{PLACEMENT_PROMPT}</span>
+        <span>{placingImage ? 'Velg sonen der bildet skal settes inn.' : PLACEMENT_PROMPT}</span>
         <button
           type="button"
           className="btn btn--sm"
@@ -2080,7 +2210,7 @@ export function EditorView({
     <SlideRenderProvider
       value={{
         theme: presentation.theme,
-        numbering,
+        ...citationLabels,
         sectionColors,
         progress,
         logo,
@@ -2127,13 +2257,14 @@ export function EditorView({
         </DragOverlay>
       </DndContext>
 
-      <ContextMenuHost />
+      <ContextMenuHost skipConfirmations={fewerDialogs} />
 
       {splitOpen && selectedRect && contentSlide && selectedNodeId && (
         <SplitModal
           key={`split-${selectedNodeId}`}
           open={splitOpen}
           onOpenChange={setSplitOpen}
+          fewerDialogs={fewerDialogs}
           targetRect={selectedRect}
           theme={presentation?.theme}
           targetLabels={breadcrumbLabels(contentSlide.root, selectedNodeId)}
@@ -2153,7 +2284,7 @@ export function EditorView({
         onOpenChange={closeNewPage}
         onCreate={(hasTitle) => {
           insertSlide(hasTitle, undefined, newPage ?? {})
-          setNewPage(null)
+          setNewPageDialog(null)
         }}
       />
 
@@ -2163,7 +2294,7 @@ export function EditorView({
         onOpenChange={closeNewPage}
         onCreate={(title) => {
           const created = insertSection(title, newPage ?? {})
-          if (created) setNewPage(null)
+          if (created) setNewPageDialog(null)
           return created
         }}
       />
@@ -2270,6 +2401,23 @@ export function EditorView({
       </Modal>
 
       <ConfirmDialog
+        open={replacingZoneImage !== null}
+        title="Erstatte soneinnholdet med bildet?"
+        message="Sonen har innhold fra før. Du kan slette det eller flytte det til sandkassen."
+        confirmLabel="Slett og sett inn"
+        alternativeLabel="Flytt til sandkassen"
+        onConfirm={() => {
+          if (replacingZoneImage) void uploadZoneImage(replacingZoneImage, 'delete')
+          setReplacingZoneImage(null)
+        }}
+        onAlternative={() => {
+          if (replacingZoneImage) void uploadZoneImage(replacingZoneImage, 'sandbox')
+          setReplacingZoneImage(null)
+        }}
+        onCancel={() => setReplacingZoneImage(null)}
+      />
+
+      <ConfirmDialog
         open={depositBreak !== null}
         title="Avslutte den automatiske bildeinnsettingen?"
         message="Denne endringen fjerner en av bildeplassene presentasjonen venter på. Da kan ikke bildene lenger legges inn samlet, og du må sette inn hvert bilde selv. Det kan ikke gjøres om."
@@ -2296,10 +2444,10 @@ export function EditorView({
         message={`${deletingSlideName.charAt(0).toUpperCase()}${deletingSlideName.slice(1)} og alt innhold på den fjernes. Du kan angre etterpå.`}
         onConfirm={() => {
           if (!deletingSlide) return
-          run('delete-slide', (current) => deleteSlide(current, deletingSlide.id))
-          setDeletingSlide(null)
+          removeSlide(deletingSlide.id)
+          setDeletingSlideDialog(null)
         }}
-        onCancel={() => setDeletingSlide(null)}
+        onCancel={() => setDeletingSlideDialog(null)}
       />
 
       <ConfirmDialog
@@ -2316,28 +2464,15 @@ export function EditorView({
           deletingZoneHasContent
             ? () => {
                 if (!deletingZoneId) return
-                runStructural('delete-zone', (current) =>
-                  deleteLayoutNode(current, {
-                    slideId: slide.id,
-                    nodeId: deletingZoneId,
-                    contentDisposition: 'sandbox',
-                  }),
-                )
+                removeZone('delete', slide.id, deletingZoneId, 'sandbox')
                 setDeletingZoneId(null)
               }
             : undefined
         }
         onConfirm={() => {
           if (!deletingZoneId) return
-          runStructural('delete-zone', (current) =>
-            deleteLayoutNode(current, {
-              slideId: slide.id,
-              nodeId: deletingZoneId,
-              // Content is only ever discarded when the dialog said so; if content
-              // appeared since (an undo, say), it is rescued instead.
-              contentDisposition: deletingZoneHasContent ? 'delete' : 'sandbox',
-            }),
-          )
+          // Hvis nytt innhold dukket opp etter at dialogen ble åpnet, tas det vare på.
+          removeZone('delete', slide.id, deletingZoneId, deletingZoneHasContent ? 'delete' : 'sandbox')
           setDeletingZoneId(null)
         }}
         onCancel={() => setDeletingZoneId(null)}
@@ -2359,28 +2494,14 @@ export function EditorView({
           clearingZoneKeeps
             ? () => {
                 if (!clearingZoneId) return
-                runStructural('clear-zone', (current) =>
-                  clearLayoutNode(current, {
-                    slideId: slide.id,
-                    nodeId: clearingZoneId,
-                    contentDisposition: 'sandbox',
-                  }),
-                )
+                removeZone('clear', slide.id, clearingZoneId, 'sandbox')
                 setClearingZoneId(null)
               }
             : undefined
         }
         onConfirm={() => {
           if (!clearingZoneId) return
-          // What the dialog said goes is what goes: with nothing worth keeping,
-          // there is nothing to park in the sandbox either.
-          runStructural('clear-zone', (current) =>
-            clearLayoutNode(current, {
-              slideId: slide.id,
-              nodeId: clearingZoneId,
-              contentDisposition: 'delete',
-            }),
-          )
+          removeZone('clear', slide.id, clearingZoneId, 'delete')
           setClearingZoneId(null)
         }}
         onCancel={() => setClearingZoneId(null)}

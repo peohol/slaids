@@ -59,6 +59,7 @@ export function structuralOptions(context: AgentContext): StructuralOptions {
   return {
     fits: context.fits ?? estimateFitChecker,
     fitsTitle: context.fitsTitle ?? estimateTitleFitChecker,
+    citationStyle: context.userSettings?.citationStyle,
     ...(context.geometry ? { geometry: context.geometry } : {}),
   }
 }
