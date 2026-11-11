@@ -171,7 +171,7 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('reference-modal')).toBeVisible()
     await page.getByTestId('reference-title').fill('En viktig kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
 
     await expect(stage(page).locator('.rd-citation')).toHaveCount(1)
 
@@ -225,7 +225,7 @@ test.describe('presentation mode', () => {
     await page.getByTestId('insert-reference').click()
     await page.getByTestId('reference-title').fill('Kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
 
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-with-title').click()
@@ -338,7 +338,7 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('reference-row')).toHaveCount(1)
     await page.getByTestId('delete-reference').click()
     await page.getByTestId('confirm-accept').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
 
     await expect(stage(page).locator('.rd-citation')).toHaveCount(0)
     await expect(page.getByTestId('filmstrip-derived')).toHaveCount(0)
