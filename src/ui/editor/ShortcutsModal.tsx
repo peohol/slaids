@@ -23,6 +23,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl + Z', 'Angre'],
       ['Ctrl + Shift + Z', 'Gjør om'],
       ['↑ / ↓', 'Forrige/neste side (ikke mens du skriver)'],
+      ['Delete / Backspace', 'Slett sliden som er valgt i slideoversikten'],
       ['F5', 'Vis presentasjonen'],
       shortcut('sandbox'),
       shortcut('slide'),

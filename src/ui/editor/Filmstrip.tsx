@@ -5,7 +5,7 @@
  * thumbnail can never misrepresent the slide.
  */
 
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   SortableContext,
   rectSortingStrategy,
@@ -15,10 +15,12 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useDndContext } from '@dnd-kit/core'
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../domain/constants'
-import { duplicateSlide, moveSlide } from '../../domain/commands'
+import { deleteSlide, duplicateSlide, moveSlide } from '../../domain/commands'
+import { describeError } from '../../domain/result'
 import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { authoredPage, type DeckPage } from '../../domain/pages'
 import { useEditorStore } from '../../state/store'
+import { notify } from '../../state/toast'
 import type { Presentation, Slide } from '../../domain/types'
 import { DeckPageView } from '../slide/DeckPageView'
 import { SlideProgressBar } from '../slide/SlideProgressBar'
@@ -278,6 +280,13 @@ function SlideThumb({
           if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
             event.preventDefault()
             menu.open(anchorInside(event.currentTarget), true)
+            return
+          }
+          // Delete – og Backspace, som er slettetasten på en Mac – sletter den
+          // valgte sliden, på samme måte som «Slett …» i menyen.
+          if (isDeleteKey(event)) {
+            event.preventDefault()
+            if (!event.repeat) menu.remove()
           }
         }}
       >
@@ -288,7 +297,16 @@ function SlideThumb({
         */}
         <div
           className="filmstrip__handle"
-          onClick={onSelect}
+          onClick={(event) => {
+            onSelect()
+            /*
+             * Tastaturet følger sliden som ble valgt, så Delete virker rett
+             * etter et klikk. Safari gir ikke en knapp fokus når den klikkes,
+             * og et klikk på nummerraden treffer ingen knapp, så fokus settes
+             * her i stedet for å overlates til nettleseren.
+             */
+            event.currentTarget.querySelector<HTMLElement>('.filmstrip__thumb')?.focus({ preventScroll: true })
+          }}
           data-drag-activation="surface"
           data-draggable={frontPage ? undefined : ''}
           {...listeners}
@@ -357,6 +375,14 @@ interface PageMenu {
   title: string
   entries: () => MenuEntry[]
   open: (anchor: MenuAnchor, keyboard: boolean) => void
+  /** Slett siden fra tastaturet – eller si hvorfor den ikke kan slettes. */
+  remove: () => void
+}
+
+/** Delete, eller Backspace, uten modifikatortaster. */
+function isDeleteKey(event: React.KeyboardEvent): boolean {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false
+  return event.key === 'Delete' || event.key === 'Backspace'
 }
 
 /** «Ny slide» is the strip's own button; the other kinds are in its menu. */
@@ -448,6 +474,28 @@ export function Filmstrip({
 
   const openMenu = useContextMenu((state) => state.open)
 
+  /*
+   * En slide som slettes med tastaturet, tar fokuset med seg. Når den er borte,
+   * får sliden som nå er valgt fokuset, så neste Delete gjelder den. Det skjer
+   * én oppgave senere, etter at en eventuell bekreftelsesdialog har gitt fra
+   * seg fokuset, og bare når ingenting annet har tatt det.
+   */
+  const refocusAfterRemoval = useRef(false)
+  useEffect(() => {
+    if (!refocusAfterRemoval.current) return
+    refocusAfterRemoval.current = false
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement
+      if (active && active !== document.body) return
+      const currentId = useEditorStore.getState().currentSlideId
+      if (!currentId) return
+      listRef.current
+        ?.querySelector<HTMLElement>(`[data-slide-id="${window.CSS.escape(currentId)}"] .filmstrip__thumb`)
+        ?.focus({ preventScroll: true })
+    })
+    return () => window.clearTimeout(timer)
+  }, [slideIds])
+
   const duplicate = (slideId: string, index: number): void => {
     if (!run('duplicate-slide', (current) => duplicateSlide(current, slideId))) return
     const copy = useEditorStore.getState().presentation?.slides[index + 1]
@@ -491,6 +539,17 @@ export function Filmstrip({
       open: (anchor: MenuAnchor, keyboard: boolean) => {
         const built = build()
         openMenu({ anchor, title: built.title, entries: built.entries, keyboard, owner })
+      },
+      /*
+       * Menyen gråer ut «Slett …» og sier hvorfor når kommandoen ville nektet;
+       * en tast har ingen grå knapp å vise, så den sier det samme som melding.
+       */
+      remove: () => {
+        const removal = deleteSlide(presentation, slide.id)
+        if (removal.ok) {
+          refocusAfterRemoval.current = true
+          handlers.remove()
+        } else notify.error(describeError(removal.error))
       },
     }
   }
