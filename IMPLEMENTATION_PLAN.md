@@ -2969,13 +2969,18 @@ samtidig.
   det om endringene skal lagres i malen. Presentasjoner som har brukt malen
   før, endres ikke. Tilstanden står i `ui/editor/useThemeTemplateEdit.ts`;
   reglene i `ui/editor/themeTemplates.ts` (`updateThemeTemplateFromDeck`).
-  Lageret har `updateThemeTemplate`: i Supabase skrives den nye logoen over den
-  gamle på samme sti før raden, og den gamle legges tilbake om raden avvises;
-  tas logoen bort, slettes filen etter raden. Logoen hentes med `updated_at`
-  som `cacheNonce`, så nettleseren aldri viser en logo fra før endringen. I
-  Dexie er det én transaksjon. Endringen trengte ingen ny migrasjon: radreglene
-  for å endre egne maler og egne filer fantes fra før. Agentene kan ikke lagre
-  eller endre maler; de ser den endrede malen i `list_theme_templates`.
+  Mens en logo lastes opp, en font lastes eller en annen mal tas i bruk,
+  venter «Lagre i malen» og «Avbryt», så malen aldri lagres uten det som var
+  på vei. Lageret har `updateThemeTemplate`: i Supabase får en ny logo sin egen
+  sti (`<eier>/<mal>/logo-<utgave>`), raden pekes dit i én oppdatering, og den
+  gamle filen slettes etterpå; avvises raden, slettes bare den nye. En gammel
+  fil skrives aldri over, så raden og filen kan ikke sprike, heller ikke ved
+  to lagringer samtidig. Oppdateringen gjelder bare raden slik den nettopp ble
+  lest (`updated_at`); er malen lagret et annet sted i mellomtiden, er det en
+  konflikt. Migrasjonen `20261113090000_slaids_theme_template_logo_versions.sql`
+  lar `logo_path` ha en utgave, fortsatt bare i eierens mappe for malen. I
+  Dexie er det én transaksjon. Agentene kan ikke lagre eller endre maler; de
+  ser den endrede malen i `list_theme_templates`.
 - *Migrasjonen* er `20261111120000_slaids_theme_templates.sql`, med
   tilbakerulling i `supabase/rollback/` og tilgangstester i
   `supabase/tests/access.test.ts`.

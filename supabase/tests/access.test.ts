@@ -415,10 +415,19 @@ describe('temamaler', () => {
       expect(await affectedAs(db, anna, `delete from public.slaids_theme_templates where id = $1`, [id])).toBe(0)
     }
     expect(await affectedAs(db, peder, `update public.slaids_theme_templates set name = 'Ny' where id = 'tt_shared'`)).toBe(1)
-    // En endret mal skriver den nye logoen over den gamle, på samme sti.
+  })
+
+  it('en endret mal kan peke på en ny utgave av logoen, men bare i eierens egen mappe for malen', async () => {
+    const version = `${logo(PEDER, 'tt_shared')}-abc123`
     expect(
-      await affectedAs(db, peder, `update storage.objects set name = name where bucket_id = $1 and name = $2`, [BUCKET, logo(PEDER, 'tt_shared')]),
+      await affectedAs(db, peder, `update public.slaids_theme_templates set logo_path = $1 where id = 'tt_shared'`, [version]),
     ).toBe(1)
+    for (const wrong of [`${logo(PEDER, 'tt_private')}-abc123`, `${logo(PEDER, 'tt_shared')}-ABC`, `${logo(PEDER, 'tt_shared')}-a/b`, `${logo(ANNA, 'tt_shared')}-abc`]) {
+      await expect(
+        db.query(`update public.slaids_theme_templates set logo_path = $1 where id = 'tt_shared'`, [wrong]),
+      ).rejects.toThrow(/slaids_theme_templates_check/)
+    }
+    await db.query(`update public.slaids_theme_templates set logo_path = $1 where id = 'tt_shared'`, [logo(PEDER, 'tt_shared')])
   })
 
   it('alle aktive brukere kan lage delte maler, men bare i sitt eget navn', async () => {

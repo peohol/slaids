@@ -97,12 +97,14 @@ export function ThemeTemplates({ presentation, edit }: { presentation: Presentat
 
   const apply = async (template: ThemeTemplate): Promise<void> => {
     setBusy(template.id)
+    edit.busyWith('template', true)
     try {
       if ((await applyThemeTemplateToOpenDeck(template)) === 'set') {
         notify.success(`Malen «${template.name}» er brukt.`)
       }
     } finally {
       setBusy(null)
+      edit.busyWith('template', false)
     }
   }
 

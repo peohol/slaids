@@ -31,6 +31,8 @@ export const newSandboxId = () => createId('sb')
 export const newAssetId = () => createId('a')
 export const newTemplateId = () => createId('t')
 export const newThemeTemplateId = () => createId('tt')
+/** En utgave av logoen i en temamal: bare små bokstaver og tall, som databasens regel krever. */
+export const newThemeTemplateLogoVersion = () => randomToken(16)
 export const newFolderId = () => createId('fl')
 export const newIdeaId = () => createId('i')
 export const newIdeaCategoryId = () => createId('ic')

@@ -25,7 +25,7 @@ import {
   normalizeAutocorrectRules,
   type AutocorrectRule,
 } from '../domain/autocorrect'
-import { newShareToken } from '../domain/ids'
+import { newShareToken, newThemeTemplateLogoVersion } from '../domain/ids'
 import { migratePresentation } from '../domain/migrations'
 import { presentationByteSize } from '../domain/presentation'
 import { presentationRevision } from '../domain/revision'
@@ -81,12 +81,15 @@ interface ThemeTemplateRow {
 }
 
 /**
- * Hvor logoen til en mal ligger. Den samme stien står i databasens regel
+ * Hvor logoen til en mal ligger. Den samme regelen står i databasen
  * (`slaids_theme_templates.logo_path`), så en mal kan bare peke på eierens fil.
+ * En ny mal har `…/logo`; hver endret logo får sin egen utgave, `…/logo-<utgave>`,
+ * så en ny fil aldri skrives over en raden fortsatt peker på.
  */
-export function themeTemplateLogoPath(ownerId: string, templateId: string): string {
-  return `${ownerId}/${templateId}/logo`
+export function themeTemplateLogoPath(ownerId: string, templateId: string, version?: string): string {
+  return version ? `${ownerId}/${templateId}/logo-${version}` : `${ownerId}/${templateId}/logo`
 }
+
 
 /** Postgres `unique_violation`, i.e. the row already exists. */
 const UNIQUE_VIOLATION = '23505'
@@ -1261,11 +1264,15 @@ export class SupabaseSlaidsRepository
   }
 
   /**
-   * Logoen har alltid den samme stien, så en ny logo skrives over den gamle.
-   * Filen skrives før raden, slik den lagres når malen lages; avvises raden,
-   * legges den gamle filen tilbake (eller den nye tas bort, når malen ikke
-   * hadde logo), så malen og filen aldri spriker. Tar endringen bort logoen,
-   * går filen etter raden, slik den gjør når malen slettes.
+   * En ny logo får sin egen sti (`themeTemplateLogoPath` med en utgave), så den
+   * gamle aldri skrives over: filen lastes opp, raden pekes dit i én
+   * oppdatering, og den gamle filen tas bort etterpå. Avvises raden, tas bare
+   * den nye filen bort. Slik kan raden aldri beskrive én logo mens filen er en
+   * annen.
+   *
+   * Oppdateringen gjelder bare raden slik den nettopp ble lest (`updated_at`):
+   * er malen lagret et annet sted i mellomtiden, avvises endringen som en
+   * konflikt i stedet for å skrive over den andre lagringen halvveis.
    */
   async updateThemeTemplate(template: ThemeTemplateUpdate, logo: Blob | null): Promise<void> {
     const content = parseThemeTemplateContent(template.content)
@@ -1275,27 +1282,20 @@ export class SupabaseSlaidsRepository
     const ownerId = await this.ownerId()
     const current = await this.client
       .from(THEME_TEMPLATES_TABLE)
-      .select('logo_path')
+      .select('logo_path, updated_at')
       .eq('id', template.id)
       .eq('owner_id', ownerId)
       .maybeSingle()
     if (current.error) fail('Kunne ikke hente malen', current.error)
     if (!current.data) throw new RepositoryError(`Malen «${template.name}» finnes ikke lenger, eller den er ikke din.`)
-    const previousPath = (current.data as { logo_path: string | null }).logo_path
+    const read = current.data as { logo_path: string | null; updated_at: string }
 
-    const bucket = this.client.storage.from(THEME_TEMPLATES_BUCKET)
-    const logoPath = content.logo && logo ? themeTemplateLogoPath(ownerId, template.id) : null
-    // Den gamle filen, så den kan legges tilbake om raden avvises.
-    let previousLogo: Blob | null = null
-    if (logoPath && previousPath === logoPath) {
-      const download = await bucket.download(previousPath)
-      if (download.error || !download.data) fail('Kunne ikke lese logoen i malen', download.error)
-      previousLogo = download.data
-    }
-    const writeLogo = async (path: string, blob: Blob, mimeType: string) =>
-      bucket.upload(path, blob, { contentType: mimeType || 'application/octet-stream', upsert: true })
+    const logoPath = content.logo && logo ? themeTemplateLogoPath(ownerId, template.id, newThemeTemplateLogoVersion()) : null
     if (content.logo && logo && logoPath) {
-      const upload = await writeLogo(logoPath, logo, content.logo.file.mimeType)
+      const upload = await this.client.storage.from(THEME_TEMPLATES_BUCKET).upload(logoPath, logo, {
+        contentType: content.logo.file.mimeType || 'application/octet-stream',
+        upsert: false,
+      })
       if (upload.error) fail('Kunne ikke laste opp logoen til malen', upload.error)
     }
 
@@ -1310,40 +1310,32 @@ export class SupabaseSlaidsRepository
       })
       .eq('id', template.id)
       .eq('owner_id', ownerId)
+      .eq('updated_at', read.updated_at)
       .select('id')
     if (!error && (data ?? []).length > 0) {
-      // Stien er i bruk; en eldre, mislykket opprydding skal ikke ta den.
-      if (logoPath) this.pendingTemplateLogoRemovals.delete(logoPath)
-      if (previousPath && previousPath !== logoPath) await this.removeThemeTemplateLogos([previousPath])
+      if (read.logo_path && read.logo_path !== logoPath) await this.removeThemeTemplateLogos([read.logo_path])
       return
     }
-    if (logoPath) {
-      if (previousLogo) await writeLogo(logoPath, previousLogo, previousLogo.type)
-      else await this.removeThemeTemplateLogos([logoPath])
-    }
+    // Ingenting peker på den nye filen; den gamle er urørt.
+    if (logoPath) await this.removeThemeTemplateLogos([logoPath])
     if (error) fail('Kunne ikke lagre endringene i malen', error)
-    throw new RepositoryError(`Malen «${template.name}» finnes ikke lenger, eller den er ikke din.`)
+    throw new RepositoryConflictError(
+      `Malen «${template.name}» ble endret eller slettet et annet sted mens du endret den. Lukk temaeditoren og prøv igjen.`,
+    )
   }
 
-  /**
-   * `updated_at` følger med som `cacheNonce`: logoen har alltid den samme
-   * stien, så uten den kunne nettleseren svare med en logo fra før malen ble
-   * endret.
-   */
   async getThemeTemplateLogo(id: string): Promise<Blob | null> {
     const ownerId = await this.ownerId()
     const { data, error } = await this.client
       .from(THEME_TEMPLATES_TABLE)
-      .select('logo_path, updated_at')
+      .select('logo_path')
       .eq('id', id)
       .or(`owner_id.eq.${ownerId},visibility.eq.shared`)
       .maybeSingle()
     if (error) fail('Kunne ikke hente malen', error)
-    const row = data as { logo_path: string | null; updated_at: string } | null
-    if (!row?.logo_path) return null
-    const download = await this.client.storage
-      .from(THEME_TEMPLATES_BUCKET)
-      .download(row.logo_path, { cacheNonce: row.updated_at })
+    const path = (data as { logo_path: string | null } | null)?.logo_path
+    if (!path) return null
+    const download = await this.client.storage.from(THEME_TEMPLATES_BUCKET).download(path)
     if (download.error || !download.data) fail('Kunne ikke laste ned logoen i malen', download.error)
     return download.data
   }

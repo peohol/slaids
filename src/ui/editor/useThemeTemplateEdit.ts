@@ -10,6 +10,11 @@
  * Tilstanden står i temaeditoren selv, ikke i listen over maler, så knappene
  * kan stå i dialogens bunn (alltid synlige mens man blar) og dialogen kan
  * spørre før den lukkes midt i en endring.
+ *
+ * Mens noe i temaeditoren fortsatt pågår – en logo lastes opp, en font
+ * lastes, en annen mal tas i bruk – venter både «Lagre i malen» og «Avbryt»:
+ * ellers ville malen bli lagret uten det som var på vei, eller presentasjonen
+ * endret igjen etter at den var satt tilbake.
  */
 
 import { useCallback, useState } from 'react'
@@ -23,6 +28,8 @@ import {
   updateThemeTemplateFromDeck,
   type ThemeRestorePoint,
 } from './themeTemplates'
+
+const WAIT_MESSAGE = 'Vent litt: temaeditoren er ikke ferdig med forrige endring.'
 
 export interface ThemeTemplateEditing {
   template: ThemeTemplate
@@ -38,9 +45,14 @@ export interface ThemeTemplateEdit {
   pending: boolean
   /** Den sist lagrede malen, så listen kan hente seg inn og vise den. */
   saved: ThemeTemplate | null
+  /** Sant mens noe i temaeditoren fortsatt endrer presentasjonen. */
+  busy: boolean
+  /** Meld fra at et arbeid (`key`) pågår eller er ferdig. */
+  busyWith: (key: string, busy: boolean) => void
   start: (template: ThemeTemplate) => Promise<void>
   change: (patch: Partial<Pick<ThemeTemplateEditing, 'name' | 'visibility'>>) => void
-  cancel: () => void
+  /** `true` når endringen er avsluttet og presentasjonen satt tilbake. */
+  cancel: () => boolean
   /** `true` når malen er lagret; ellers er den som før, og endringen pågår fortsatt. */
   save: () => Promise<boolean>
 }
@@ -49,6 +61,18 @@ export function useThemeTemplateEdit(): ThemeTemplateEdit {
   const [editing, setEditing] = useState<ThemeTemplateEditing | null>(null)
   const [pending, setPending] = useState(false)
   const [saved, setSaved] = useState<ThemeTemplate | null>(null)
+  const [working, setWorking] = useState<ReadonlySet<string>>(() => new Set())
+  const busy = working.size > 0
+
+  const busyWith = useCallback((key: string, on: boolean): void => {
+    setWorking((current) => {
+      if (current.has(key) === on) return current
+      const next = new Set(current)
+      if (on) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }, [])
 
   const start = useCallback(async (template: ThemeTemplate): Promise<void> => {
     const presentation = useEditorStore.getState().presentation
@@ -62,14 +86,23 @@ export function useThemeTemplateEdit(): ThemeTemplateEdit {
     setEditing((current) => (current ? { ...current, ...patch } : current))
   }, [])
 
-  const cancel = useCallback((): void => {
+  const cancel = useCallback((): boolean => {
+    if (busy) {
+      notify.info(WAIT_MESSAGE)
+      return false
+    }
     if (editing) restoreTheme(editing.restore)
     setEditing(null)
-  }, [editing])
+    return true
+  }, [editing, busy])
 
   const save = useCallback(async (): Promise<boolean> => {
     const presentation = useEditorStore.getState().presentation
     if (!editing || pending) return false
+    if (busy) {
+      notify.info(WAIT_MESSAGE)
+      return false
+    }
     if (presentation?.id !== editing.restore.presentationId) {
       notify.warning('En annen presentasjon ble åpnet, så malen ble ikke endret.')
       setEditing(null)
@@ -88,7 +121,7 @@ export function useThemeTemplateEdit(): ThemeTemplateEdit {
     } finally {
       setPending(false)
     }
-  }, [editing, pending])
+  }, [editing, pending, busy])
 
-  return { editing, pending, saved, start, change, cancel, save }
+  return { editing, pending, saved, busy, busyWith, start, change, cancel, save }
 }

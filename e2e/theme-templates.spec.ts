@@ -253,6 +253,30 @@ test.describe('temamaler', () => {
       await expect(stage(page).getByTestId('slide-logo')).toHaveCount(0)
     })
 
+    test('venter med «Lagre i malen» og «Avbryt» til en font er ferdig lastet', async ({ page }) => {
+      let release = (): void => {}
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      await page.route('https://fonts.googleapis.com/**', async (route) => {
+        await held
+        await route.abort('failed')
+      })
+      await templateAndFreshDeck(page)
+      await templateNamed(page, 'Firma').getByTestId('theme-template-edit').click()
+      await expect(page.getByTestId('theme-template-edit-form')).toBeVisible()
+
+      await page.getByTestId('theme-body-font').selectOption({ label: 'Inter' })
+      await expect(page.getByTestId('font-loading')).toBeVisible()
+      await expect(page.getByTestId('theme-template-edit-save')).toBeDisabled()
+      await expect(page.getByTestId('theme-template-edit-cancel')).toBeDisabled()
+
+      release()
+      await expect(page.getByTestId('font-loading')).toBeHidden()
+      await expect(page.getByTestId('theme-template-edit-save')).toBeEnabled()
+      await expect(page.getByTestId('theme-template-edit-cancel')).toBeEnabled()
+    })
+
     test('spør før temaeditoren lukkes midt i en endring', async ({ page }) => {
       await templateAndFreshDeck(page)
       await templateNamed(page, 'Firma').getByTestId('theme-template-edit').click()

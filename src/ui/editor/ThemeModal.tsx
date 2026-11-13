@@ -8,7 +8,7 @@
  * opprettet (§ 15.1), og hver endring i den er en vanlig, angrebar endring.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { setSectionAccentColor, setSectionBackgroundColor, setTheme } from '../../domain/commands'
 import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { TITLED_CARD_STYLES, type TitledCardStyle } from '../../domain/constants'
@@ -105,6 +105,9 @@ export function ThemeModal({
   const edit = useThemeTemplateEdit()
   /** Dialogen ble bedt om å lukkes midt i en endring av en mal. */
   const [closing, setClosing] = useState(false)
+  // En font som lastes, er en endring på vei: malen venter på den.
+  const { busyWith } = edit
+  useEffect(() => busyWith('font', loading !== null), [busyWith, loading])
   if (!presentation) return null
   const theme = presentation.theme
   // Dekket har ikke én bakgrunn, så forhåndsvisningene står på den leseren møter
@@ -157,8 +160,7 @@ export function ThemeModal({
 
   const finishEditing = async (keep: boolean): Promise<void> => {
     setClosing(false)
-    if (!keep) edit.cancel()
-    else if (!(await edit.save())) return
+    if (!(keep ? await edit.save() : edit.cancel())) return
     onOpenChange(false)
   }
 
@@ -177,8 +179,8 @@ export function ThemeModal({
               type="button"
               className="btn"
               data-testid="theme-template-edit-cancel"
-              disabled={edit.pending}
-              onClick={edit.cancel}
+              disabled={edit.pending || edit.busy}
+              onClick={() => void edit.cancel()}
             >
               Avbryt
             </button>
@@ -186,7 +188,7 @@ export function ThemeModal({
               type="button"
               className="btn btn--primary"
               data-testid="theme-template-edit-save"
-              disabled={edit.pending || !edit.editing.name.trim()}
+              disabled={edit.pending || edit.busy || !edit.editing.name.trim()}
               onClick={() => void edit.save()}
             >
               {edit.pending ? 'Lagrer …' : 'Lagre i malen'}
@@ -245,7 +247,7 @@ export function ThemeModal({
         </p>
       </div>
 
-      <ThemeLogoSettings presentation={presentation} />
+      <ThemeLogoSettings presentation={presentation} onBusyChange={(busy) => busyWith('logo', busy)} />
 
       <div className="theme-modal__fonts" data-font-loading={loading ?? 'none'}>
         <div className="field">
