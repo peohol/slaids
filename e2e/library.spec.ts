@@ -120,6 +120,7 @@ test.describe('presentation library', () => {
       'Gi nytt navn …',
       'Dupliser',
       'Kopier presentasjons-ID',
+      'Eksporter til PDF',
       'Last ned sikkerhetskopi',
       'Flytt til søppelkassen …',
     ])

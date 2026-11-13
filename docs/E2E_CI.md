@@ -24,6 +24,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | Fil | Hva PR-kontrollen sjekker |
 | --- | --- |
 | `library.spec.ts` | Opprette (bare tittel, så åpnes temaeditoren), åpne og liste en presentasjon; den åpne presentasjonen huskes etter omlasting |
+| `pdf-export.spec.ts` | Laste ned en ekte PDF med én 16:9-side per slide fra bibliotekets meny |
 | `editor.spec.ts` | Legge til, duplisere, flytte og slette slider; navigere mellom slider; slå tittel av og på; tittel og brødtekst overlever omlasting; fet skrift fra tekstlinjen; kort med tittel; angre og gjør om |
 | `golden-path.spec.ts` | Hele gullstien med nøyaktig ett mellomrom overalt |
 | `zones.spec.ts` | Dele en sone, nøstet deling uten ekstra mellomrom, endre forhold fra inspektøren |

@@ -114,6 +114,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string, options?: OpenOpt
   const [managingTokens, setManagingTokens] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [managingUsers, setManagingUsers] = useState(false)
+  const [pdfProgress, setPdfProgress] = useState<{ title: string; completed: number; total: number } | null>(null)
+  const pdfExporting = useRef(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const mode = storageMode()
@@ -293,6 +295,26 @@ export function LibraryView({ onOpen }: { onOpen: (id: string, options?: OpenOpt
     }
   }
 
+  const handleExportPdf = async (summary: PresentationSummary): Promise<void> => {
+    if (pdfExporting.current) return
+    pdfExporting.current = true
+    setPdfProgress({ title: summary.title, completed: 0, total: 0 })
+    try {
+      const { exportPresentationPdf } = await import('../export/presentationPdf')
+      const pdf = await exportPresentationPdf(repository, summary.id, {
+        ownerId: sessionUserId,
+        onProgress: (completed, total) => setPdfProgress({ title: summary.title, completed, total }),
+      })
+      downloadBlob(pdf, suggestedFileName(summary.title).replace(/\.slaids$/, '.pdf'))
+      notify.success('PDF lastet ned.')
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : 'Kunne ikke eksportere til PDF.')
+    } finally {
+      pdfExporting.current = false
+      setPdfProgress(null)
+    }
+  }
+
   const handleCopyId = async (summary: PresentationSummary): Promise<void> => {
     if (await copyToClipboard(summary.id)) notify.success('Presentasjons-ID kopiert')
     else notify.error('Kunne ikke kopiere presentasjons-ID.')
@@ -383,6 +405,12 @@ export function LibraryView({ onOpen }: { onOpen: (id: string, options?: OpenOpt
         <div>
           <h1 className="library__title">Slaids</h1>
           <p className="library__subtitle">Presentasjoner med matematisk stram soneinndeling.</p>
+          {pdfProgress && (
+            <p className="library__subtitle" role="status" data-testid="pdf-export-status">
+              Lager PDF av «{pdfProgress.title}»
+              {pdfProgress.total > 0 ? `: ${pdfProgress.completed} av ${pdfProgress.total} sider` : ' …'}
+            </p>
+          )}
         </div>
         <div className="library__actions">
           <MenuButton
@@ -681,7 +709,7 @@ export function LibraryView({ onOpen }: { onOpen: (id: string, options?: OpenOpt
                       id={`presentation-menu-${summary.id}`}
                       label={`Flere handlinger for ${summary.title}`}
                       title={summary.title}
-                      tooltip="Gi nytt navn, dupliser, kopier ID, last ned eller slett"
+                      tooltip="Gi nytt navn, dupliser, kopier ID, eksporter til PDF, last ned sikkerhetskopi eller slett"
                       icon="more"
                       className="presentation-card__more"
                       testId="presentation-more"
@@ -690,6 +718,8 @@ export function LibraryView({ onOpen }: { onOpen: (id: string, options?: OpenOpt
                           rename: () => startRenaming({ kind: 'presentation', summary }),
                           duplicate: () => void handleDuplicate(summary.id),
                           copyId: () => void handleCopyId(summary),
+                          exportPdf: () => void handleExportPdf(summary),
+                          pdfExporting: pdfProgress !== null,
                           exportBackup: () => void handleExport(summary),
                           trash: () => setDeleting(summary),
                         })

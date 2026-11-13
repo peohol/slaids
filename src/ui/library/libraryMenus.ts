@@ -16,6 +16,8 @@ export interface PresentationMenuHandlers {
   rename: () => void
   duplicate: () => void
   copyId: () => void
+  exportPdf: () => void
+  pdfExporting?: boolean
   exportBackup: () => void
   /** Ask to move it to the trash; the question is the caller's. */
   trash: () => void
@@ -46,6 +48,15 @@ export function presentationEntries(handlers: PresentationMenuHandlers): MenuEnt
       icon: 'copy',
       testId: 'copy-presentation-id',
       onSelect: handlers.copyId,
+    },
+    {
+      kind: 'action',
+      id: 'presentation-export-pdf',
+      label: 'Eksporter til PDF',
+      icon: 'download',
+      testId: 'export-presentation-pdf',
+      disabled: handlers.pdfExporting,
+      onSelect: handlers.exportPdf,
     },
     {
       kind: 'action',
