@@ -37,6 +37,10 @@ layoutet er nestet.
 - hvert kort sier hvor mye plass presentasjonen tar: dokumentet pluss filene
 - mapper, og flytting av presentasjoner mellom dem
 - eksport og import av `.slaids`-sikkerhetskopi (zip med manifest, data og filer)
+- PDF-eksport fra «Flere handlinger» på presentasjonskortet: én 16:9-side per
+  slide, inkludert genererte referansesider, med samme utseende som i spilleren.
+  PDF-en lages lokalt i nettleseren; miniapper vises som forsider. Sidene lagres
+  som bilder, så teksten i PDF-en kan ikke søkes i eller markeres.
 - agenttokens: lag, se og trekk tilbake nøklene en KI-agent bruker mot REST-API-et
   og MCP-serveren
 

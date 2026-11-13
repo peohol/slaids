@@ -4054,6 +4054,22 @@ navigator.storage.persist()
 
 når dette er hensiktsmessig, men backup må fortsatt eksistere.
 
+### 33.1 PDF-eksport
+
+«Eksporter til PDF» ligger i presentasjonskortets «Flere handlinger»-meny.
+Eksporten laster ned hele presentasjonen som én PDF, med én 16:9-side per
+slide og genererte referansesider i dekkets rekkefølge. Den følger brukerens
+henvisningsformat og valg for fremdriftslinjen. Miniapper vises som forsider
+og kjøres aldri. En delingslenke publiseres ikke som del av eksporten.
+
+PDF-en lages i nettleseren gjennom samme `DeckPageView`, tema, geometri og
+innholdstilpasning som den vanlige visningen. Bildefiler leses gjennom
+`SlaidsRepository`, og webfonter bygges inn før hver side rasteriseres. Ingen
+eksportdata sendes til en egen PDF-tjeneste. Én side tegnes om gangen;
+fremdriften vises, og manglende filer eller webfonter gir en synlig feil.
+PDF-sidene er bilder, så teksten kan ikke markeres eller søkes i. Den
+redigerbare sikkerhetskopien beholder det eksisterende `.slaids`-formatet.
+
 ---
 
 ## 34\. Domain commands
