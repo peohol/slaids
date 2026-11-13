@@ -2900,7 +2900,7 @@ andre appers objekter i det delte Supabase-prosjektet berøres.
 
 **Bruk av mal.** Temaeditoren viser Mine maler og Delte maler med en enkel
 forhåndsvisning, lar brukeren bruke en mal, lagre gjeldende tema som ny mal (navn
-og synlighet) og slette egne maler – uten et stort kontrollpanel.
+og synlighet), endre og slette egne maler – uten et stort kontrollpanel.
 
 - Å bruke en mal er én angrebar operasjon som setter temaet, forsidens to farger
   og logoen.
@@ -2957,6 +2957,25 @@ samtidig.
 - *I temaeditoren* (`ThemeTemplates.tsx`) står Mine maler (private) og Delte
   maler (alle delte, egne merket «Din») med en liten forhåndsvisning: forsidens
   farger, «Aa» i titlenes font og logoen.
+- *Å endre en mal* skjer der temaer endres, ikke i et eget malredigeringsvindu.
+  Blyanten på en egen mal bruker malen på den åpne presentasjonen (ett
+  angrebart steg) og åpner et lite skjema for navn og synlighet; resten av
+  temaeditoren endrer temaet som ellers, og forhåndsvisningen viser det.
+  «Lagre i malen» (i dialogens bunn, alltid synlig) skriver øyeblikksbildet av
+  presentasjonens tema over malen med samme id, så standardvalget og de delte
+  brukerne følger med. «Avbryt» setter presentasjonens tema, forsidens farger
+  og logo tilbake slik de var (`restoreTheme`, ett angrebart steg; logofilen
+  ligger fortsatt i fillageret). Lukkes dialogen midt i en endring, spørres
+  det om endringene skal lagres i malen. Presentasjoner som har brukt malen
+  før, endres ikke. Tilstanden står i `ui/editor/useThemeTemplateEdit.ts`;
+  reglene i `ui/editor/themeTemplates.ts` (`updateThemeTemplateFromDeck`).
+  Lageret har `updateThemeTemplate`: i Supabase skrives den nye logoen over den
+  gamle på samme sti før raden, og den gamle legges tilbake om raden avvises;
+  tas logoen bort, slettes filen etter raden. Logoen hentes med `updated_at`
+  som `cacheNonce`, så nettleseren aldri viser en logo fra før endringen. I
+  Dexie er det én transaksjon. Endringen trengte ingen ny migrasjon: radreglene
+  for å endre egne maler og egne filer fantes fra før. Agentene kan ikke lagre
+  eller endre maler; de ser den endrede malen i `list_theme_templates`.
 - *Migrasjonen* er `20261111120000_slaids_theme_templates.sql`, med
   tilbakerulling i `supabase/rollback/` og tilgangstester i
   `supabase/tests/access.test.ts`.

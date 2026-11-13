@@ -1,11 +1,12 @@
 /**
  * Temamaler i bruk: malens logo kopieres inn i presentasjonens eget fillager,
  * og en kopi som ikke blir brukt, tas tilbake – men aldri en fil
- * presentasjonen hadde fra før.
+ * presentasjonen hadde fra før. En egen mal kan endres fra presentasjonen den
+ * er tatt i bruk i, og presentasjonens tema kan settes tilbake etterpå.
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { registerAsset, setThemeLogo } from '../../domain/commands'
+import { registerAsset, setSectionBackgroundColor, setTheme, setThemeLogo } from '../../domain/commands'
 import { createPresentation } from '../../domain/presentation'
 import { err, ok, type Result } from '../../domain/result'
 import { themeTemplateContent, type ThemeTemplate } from '../../domain/themeTemplate'
@@ -13,8 +14,11 @@ import type { AssetRef, Presentation } from '../../domain/types'
 import type { UploadedAsset } from '../../state/assetUpload'
 import {
   applyThemeTemplateToOpenDeck,
+  restoreTheme,
   saveThemeAsTemplate,
   startInThemeTemplate,
+  themeRestorePoint,
+  updateThemeTemplateFromDeck,
   type ThemeTemplateDependencies,
 } from './themeTemplates'
 
@@ -79,6 +83,7 @@ function dependencies(
   } = {},
 ) {
   const created: { template: unknown; logo: Blob | null }[] = []
+  const updated: { template: unknown; logo: Blob | null }[] = []
   const deps = {
     store: { getState: () => state } as unknown as ThemeTemplateDependencies['store'],
     discard: vi.fn(async () => {}),
@@ -92,6 +97,9 @@ function dependencies(
       listThemeTemplates: vi.fn(async () => []),
       createThemeTemplate: vi.fn(async (template: unknown, logo: Blob | null) => {
         created.push({ template, logo })
+      }),
+      updateThemeTemplate: vi.fn(async (template: unknown, logo: Blob | null) => {
+        updated.push({ template, logo })
       }),
       getThemeTemplateLogo: vi.fn(async () => (options.logo === undefined ? new Blob(['png!']) : options.logo)),
       deleteThemeTemplate: vi.fn(async () => {}),
@@ -107,7 +115,7 @@ function dependencies(
       if (options.defaultFails) throw new Error('innstillingen ble avvist')
     }),
   } satisfies ThemeTemplateDependencies
-  return { deps, created }
+  return { deps, created, updated }
 }
 
 describe('saveThemeAsTemplate', () => {
@@ -225,5 +233,69 @@ describe('startInThemeTemplate', () => {
       startInThemeTemplate(createPresentation({ title: 'Ny' }), templateOf(sourceDeck()), deps),
     ).rejects.toThrow(/nett nede/)
     expect(deps.discard).toHaveBeenCalledWith([COPY.id])
+  })
+})
+
+describe('updateThemeTemplateFromDeck', () => {
+  const own = (deck: Presentation): ThemeTemplate => ({ ...templateOf(deck), own: true })
+
+  it('erstatter innholdet, navnet og synligheten, og beholder id-en og når malen ble laget', async () => {
+    const { deps, updated } = dependencies(editor(null))
+    const before = own(createPresentation({ title: 'Ren' }))
+    const deck = unwrap(setTheme(sourceDeck(), { boxShadows: false }))
+    const result = await updateThemeTemplateFromDeck(before, deck, { name: '  Ny   tittel ', visibility: 'private' }, deps)
+    expect(result).toMatchObject({ id: before.id, createdAt: before.createdAt, name: 'Ny tittel', visibility: 'private', own: true })
+    expect(result.content).toEqual(themeTemplateContent(deck).content)
+    expect(result.updatedAt > before.updatedAt).toBe(true)
+    expect(updated).toHaveLength(1)
+    expect(updated[0].template).not.toHaveProperty('createdAt')
+    expect(updated[0].logo).toBeInstanceOf(Blob)
+  })
+
+  it('tar logoen bort fra malen når presentasjonen ikke har noen', async () => {
+    const { deps, updated } = dependencies(editor(null))
+    const result = await updateThemeTemplateFromDeck(
+      own(sourceDeck()),
+      createPresentation({ title: 'Ren' }),
+      { name: 'Firma', visibility: 'shared' },
+      deps,
+    )
+    expect(result.content.logo).toBeNull()
+    expect(updated[0].logo).toBeNull()
+    expect(deps.library.getAsset).not.toHaveBeenCalled()
+  })
+
+  it('endrer ingenting uten navn, i en annens mal, eller når logofilen ikke kan leses', async () => {
+    const { deps, updated } = dependencies(editor(null))
+    const deck = sourceDeck()
+    await expect(updateThemeTemplateFromDeck(own(deck), deck, { name: ' ', visibility: 'shared' }, deps)).rejects.toThrow(/navn/)
+    await expect(updateThemeTemplateFromDeck(templateOf(deck), deck, { name: 'X', visibility: 'shared' }, deps)).rejects.toThrow(/Bare den/)
+    deps.library.getAsset.mockResolvedValueOnce(null)
+    await expect(updateThemeTemplateFromDeck(own(deck), deck, { name: 'X', visibility: 'shared' }, deps)).rejects.toThrow(/Logofilen/)
+    expect(updated).toHaveLength(0)
+  })
+})
+
+describe('restoreTheme', () => {
+  it('setter tema, forsidens farger og logo tilbake etter at en mal er brukt, i ett angresteg', async () => {
+    const themed = unwrap(setTheme(sourceDeck(), { boxShadows: false }))
+    const original = unwrap(setSectionBackgroundColor(themed, themed.slides[0].id, '#123456'))
+    const state = editor(original)
+    const { deps } = dependencies(state)
+    const point = themeRestorePoint(original)
+    expect(await applyThemeTemplateToOpenDeck(templateOf(createPresentation({ title: 'Ren' })), deps)).toBe('set')
+    expect(state.presentation?.theme.logo).toBeUndefined()
+
+    state.run.mockClear()
+    expect(restoreTheme(point, deps)).toBe(true)
+    expect(state.run).toHaveBeenCalledTimes(1)
+    expect(themeTemplateContent(state.presentation!)).toEqual(themeTemplateContent(original))
+  })
+
+  it('rører ikke en annen presentasjon', () => {
+    const state = editor(createPresentation({ title: 'En annen' }))
+    const { deps } = dependencies(state)
+    expect(restoreTheme(themeRestorePoint(sourceDeck()), deps)).toBe(false)
+    expect(state.run).not.toHaveBeenCalled()
   })
 })

@@ -4266,6 +4266,25 @@
   gap: 8px;
 }
 
+/* Malen som endres nå: skjemaet og malen i listen får aksentfargen. */
+.theme-templates__edit {
+  border-color: var(--chrome-accent);
+}
+
+.theme-templates__edit-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.theme-template[data-editing] {
+  border-color: var(--chrome-accent);
+  box-shadow: 0 0 0 1px var(--chrome-accent);
+}
+
+.theme-template [data-testid='theme-template-edit'][aria-pressed='true'] {
+  color: var(--chrome-accent-text);
+}
+
 /* ------------------------------------------------------------------ *
  * Logoen i temaeditoren (§ 15.2)
  * ------------------------------------------------------------------ */

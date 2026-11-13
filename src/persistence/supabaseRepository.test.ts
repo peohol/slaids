@@ -752,6 +752,70 @@ describe('SupabaseSlaidsRepository – temamaler', () => {
     ])
   })
 
+  describe('endre en mal', () => {
+    const path = `${TEST_OWNER_ID}/tt_new/logo`
+    const changed = (withLogo: boolean) => {
+      const { createdAt: _createdAt, ...rest } = newTemplate(withLogo)
+      return { ...rest, name: 'Nytt navn', updatedAt: '2026-11-12T10:00:00.000Z' }
+    }
+    /** Svarer på lesingen av raden med `before`, og på endringen med `update`. */
+    const answers = (before: unknown, update: { data?: unknown; error?: { message: string } }) => (record: QueryRecord) =>
+      record.op === 'update' ? update : { data: before }
+
+    it('skriver den nye logoen over den gamle før raden, og endrer bare en egen rad', async () => {
+      const { repository, fake } = repositoryFor({
+        resolve: answers({ logo_path: path }, { data: [{ id: 'tt_new' }] }),
+      })
+      await repository.updateThemeTemplate(changed(true), new Blob(['ny!']))
+      expect(fake.storageCalls.map((call) => [call.op, call.paths[0]])).toEqual([
+        ['download', path],
+        ['upload', path],
+      ])
+      const update = fake.queries.at(-1)!
+      expect(update.op).toBe('update')
+      expect(filterValue(update, 'owner_id')).toBe(TEST_OWNER_ID)
+      expect(update.values).toMatchObject({ name: 'Nytt navn', visibility: 'shared', logo_path: path })
+      expect(update.values).not.toHaveProperty('created_at')
+    })
+
+    it('legger den gamle logoen tilbake når raden avvises', async () => {
+      const old = new Blob(['gammel'], { type: 'image/png' })
+      const { repository, fake } = repositoryFor({
+        resolve: answers({ logo_path: path }, { error: { message: 'rad avvist' } }),
+        download: () => ({ data: old }),
+      })
+      await expect(repository.updateThemeTemplate(changed(true), new Blob(['ny!']))).rejects.toThrow(/rad avvist/)
+      expect(fake.storageCalls.map((call) => call.op)).toEqual(['download', 'upload', 'upload'])
+    })
+
+    it('tar den nye logoen bort igjen når malen ikke hadde noen og raden ikke ble endret', async () => {
+      const { repository, fake } = repositoryFor({ resolve: answers({ logo_path: null }, { data: [] }) })
+      await expect(repository.updateThemeTemplate(changed(true), new Blob(['ny!']))).rejects.toThrow(/finnes ikke/)
+      expect(fake.storageCalls.map((call) => call.op)).toEqual(['upload', 'remove'])
+    })
+
+    it('fjerner logofilen etter raden når den endrede malen ikke har logo', async () => {
+      const { repository, fake } = repositoryFor({
+        resolve: answers({ logo_path: path }, { data: [{ id: 'tt_new' }] }),
+      })
+      await repository.updateThemeTemplate(changed(false), null)
+      expect(fake.queries.at(-1)!.values).toMatchObject({ logo_path: null })
+      expect(fake.storageCalls).toEqual([{ op: 'remove', bucket: THEME_TEMPLATES_BUCKET, paths: [path] }])
+    })
+
+    it('rører ingenting i en mal som ikke er brukerens egen, eller som er ugyldig', async () => {
+      const notOwn = repositoryFor({ resolve: () => ({ data: null }) })
+      await expect(notOwn.repository.updateThemeTemplate(changed(true), new Blob(['ny!']))).rejects.toThrow(/ikke din/)
+      expect(notOwn.fake.storageCalls).toHaveLength(0)
+      expect(notOwn.fake.queries.map((query) => query.op)).toEqual(['select'])
+      expect(filterValue(notOwn.fake.queries[0], 'owner_id')).toBe(TEST_OWNER_ID)
+
+      const invalid = repositoryFor({ resolve: () => ({ data: null }) })
+      await expect(invalid.repository.updateThemeTemplate(changed(true), null)).rejects.toThrow(/ugyldig/)
+      expect(invalid.fake.queries).toHaveLength(0)
+    })
+  })
+
   it('henter logoen til en mal brukeren kan se, og ingenting for en mal uten logo', async () => {
     const blob = new Blob(['png!'])
     const withLogo = repositoryFor({

@@ -1,8 +1,11 @@
 /**
  * Temamalene i temaeditoren (§ 15.4): Mine maler og Delte maler, med en enkel
  * forhåndsvisning av hver. Et trykk på en mal bruker den; stjernen gjør den til
- * standard for nye presentasjoner; egne maler kan slettes. Gjeldende tema
- * lagres som ny mal med navn og synlighet.
+ * standard for nye presentasjoner; egne maler kan endres og slettes. Gjeldende
+ * tema lagres som ny mal med navn og synlighet.
+ *
+ * Å endre en mal (`useThemeTemplateEdit`) styres av temaeditoren, som eier
+ * knappene for å lagre og avbryte; her står skjemaet for navn og synlighet.
  *
  * Mine maler er brukerens private maler. Delte maler er alle delte, også
  * brukerens egne, som er merket og kan slettes der. Hver mal står ett sted.
@@ -27,6 +30,7 @@ import {
   saveThemeAsTemplate,
   type SavedThemeTemplate,
 } from './themeTemplates'
+import type { ThemeTemplateEdit } from './useThemeTemplateEdit'
 
 const VISIBILITY_LABELS: Record<ThemeTemplateVisibility, string> = {
   private: 'Bare meg',
@@ -42,7 +46,7 @@ function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
-export function ThemeTemplates({ presentation }: { presentation: Presentation }) {
+export function ThemeTemplates({ presentation, edit }: { presentation: Presentation; edit: ThemeTemplateEdit }) {
   const [templates, setTemplates] = useState<ThemeTemplate[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [tab, setTab] = useState<ThemeTemplateVisibility>('private')
@@ -72,6 +76,20 @@ export function ThemeTemplates({ presentation }: { presentation: Presentation })
     }
   }, [reloadToken])
 
+  // En endret mal kan ha byttet synlighet; listen henter seg inn og viser den.
+  // Justert under rendringen, slik React anbefaler for tilstand som følger en
+  // annen: ingen ekstra runde gjennom en effekt.
+  const [shownSaved, setShownSaved] = useState(edit.saved)
+  if (edit.saved !== shownSaved) {
+    setShownSaved(edit.saved)
+    if (edit.saved) {
+      setTab(edit.saved.visibility)
+      setReloadToken((token) => token + 1)
+    }
+  }
+
+  const editingId = edit.editing?.template.id ?? null
+
   const shown = useMemo(
     () => (templates ?? []).filter((template) => template.visibility === tab),
     [templates, tab],
@@ -83,6 +101,16 @@ export function ThemeTemplates({ presentation }: { presentation: Presentation })
       if ((await applyThemeTemplateToOpenDeck(template)) === 'set') {
         notify.success(`Malen «${template.name}» er brukt.`)
       }
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const startEditing = async (template: ThemeTemplate): Promise<void> => {
+    setBusy(template.id)
+    setSaving(false)
+    try {
+      await edit.start(template)
     } finally {
       setBusy(null)
     }
@@ -124,13 +152,16 @@ export function ThemeTemplates({ presentation }: { presentation: Presentation })
           className="btn btn--sm"
           data-testid="theme-template-save"
           aria-expanded={saving}
+          disabled={editingId !== null}
           onClick={() => setSaving((open) => !open)}
         >
           Lagre som mal …
         </button>
       </div>
 
-      {saving && (
+      {edit.editing && <EditTemplateForm edit={edit} />}
+
+      {saving && !edit.editing && (
         <SaveTemplateForm
           presentation={presentation}
           canChooseDefault={settingsReady}
@@ -181,7 +212,10 @@ export function ThemeTemplates({ presentation }: { presentation: Presentation })
               canChooseDefault={settingsReady}
               busy={busy === template.id}
               disabled={busy !== null}
+              editing={template.id === editingId}
+              canEdit={editingId === null && !edit.pending}
               onApply={() => void apply(template)}
+              onEdit={() => void startEditing(template)}
               onToggleDefault={() => void toggleDefault(template)}
               onDelete={() => setDeleting(template)}
             />
@@ -191,7 +225,7 @@ export function ThemeTemplates({ presentation }: { presentation: Presentation })
       <p className="hint">
         En mal setter tema, forsidens farger og logo i ett steg, som kan angres. Senere endringer i
         malen endrer ikke presentasjoner som allerede har brukt den. Stjernen velger malen nye
-        presentasjoner starter i.
+        presentasjoner starter i. Blyanten endrer en av dine egne maler.
       </p>
 
       <ConfirmDialog
@@ -217,7 +251,10 @@ function TemplateItem({
   canChooseDefault,
   busy,
   disabled,
+  editing,
+  canEdit,
   onApply,
+  onEdit,
   onToggleDefault,
   onDelete,
 }: {
@@ -226,12 +263,22 @@ function TemplateItem({
   canChooseDefault: boolean
   busy: boolean
   disabled: boolean
+  /** Malen er den som endres nå. */
+  editing: boolean
+  /** Ingen mal endres nå, så en ny endring kan starte. */
+  canEdit: boolean
   onApply: () => void
+  onEdit: () => void
   onToggleDefault: () => void
   onDelete: () => void
 }) {
   return (
-    <li className="theme-template" data-testid="theme-template" data-template-id={template.id}>
+    <li
+      className="theme-template"
+      data-testid="theme-template"
+      data-template-id={template.id}
+      data-editing={editing || undefined}
+    >
       <button
         type="button"
         className="theme-template__apply"
@@ -269,9 +316,24 @@ function TemplateItem({
         <button
           type="button"
           className="btn btn--sm btn--icon"
+          data-testid="theme-template-edit"
+          aria-label={`Endre malen «${template.name}»`}
+          aria-pressed={editing}
+          title={editing ? 'Du endrer denne malen' : 'Endre malen'}
+          disabled={disabled || !canEdit}
+          onClick={onEdit}
+        >
+          <Icon name="edit" size={16} />
+        </button>
+      )}
+      {template.own && (
+        <button
+          type="button"
+          className="btn btn--sm btn--icon"
           data-testid="theme-template-delete"
           aria-label={`Slett malen «${template.name}»`}
           title="Slett malen"
+          disabled={editing}
           onClick={onDelete}
         >
           <Icon name="trash" size={16} />
@@ -301,27 +363,29 @@ function TemplateSwatch({ template }: { template: ThemeTemplate }) {
 }
 
 /**
- * Logoen i en mal som en adresse nettleseren kan vise. En mal endres aldri, så
- * filen hentes én gang per mal og huskes så lenge siden er åpen.
+ * Logoen i en mal som en adresse nettleseren kan vise. Filen hentes én gang
+ * per utgave av malen (`updatedAt`) og huskes så lenge siden er åpen, så en
+ * endret mal viser sin nye logo.
  */
 const logoUrls = new Map<string, Promise<string | null>>()
 
 function useTemplateLogoUrl(template: ThemeTemplate): string | null {
   const [url, setUrl] = useState<string | null>(null)
   const hasLogo = template.content.logo !== null
+  const key = `${template.id}@${template.updatedAt}`
   useEffect(() => {
     if (!hasLogo) return
     let cancelled = false
-    let pending = logoUrls.get(template.id)
+    let pending = logoUrls.get(key)
     if (!pending) {
       pending = themeTemplates
         .getThemeTemplateLogo(template.id)
         .then((blob) => (blob ? URL.createObjectURL(blob) : null))
         .catch(() => {
-          logoUrls.delete(template.id)
+          logoUrls.delete(key)
           return null
         })
-      logoUrls.set(template.id, pending)
+      logoUrls.set(key, pending)
     }
     void pending.then((next) => {
       if (!cancelled) setUrl(next)
@@ -329,7 +393,7 @@ function useTemplateLogoUrl(template: ThemeTemplate): string | null {
     return () => {
       cancelled = true
     }
-  }, [template.id, hasLogo])
+  }, [template.id, key, hasLogo])
   return hasLogo ? url : null
 }
 
@@ -375,30 +439,7 @@ function SaveTemplateForm({
 
   return (
     <form className="theme-templates__save" data-testid="theme-template-form" onSubmit={(event) => void submit(event)}>
-      <div className="field">
-        <label htmlFor="theme-template-name">Navn på malen</label>
-        <input
-          id="theme-template-name"
-          className="input"
-          data-testid="theme-template-name"
-          value={name}
-          maxLength={THEME_TEMPLATE_NAME_MAX}
-          autoFocus
-          onChange={(event) => setName(event.target.value)}
-        />
-      </div>
-      <div className="field">
-        <label id="theme-template-visibility-label">Hvem kan bruke den</label>
-        <RadioRow
-          label="Hvem kan bruke malen"
-          name="theme-template-visibility"
-          options={['private', 'shared'] as const}
-          labels={VISIBILITY_LABELS}
-          value={visibility}
-          testId="theme-template-visibility"
-          onChange={setVisibility}
-        />
-      </div>
+      <TemplateFields name={name} visibility={visibility} onName={setName} onVisibility={setVisibility} />
       <label className="user-settings-option">
         <input
           type="checkbox"
@@ -425,6 +466,86 @@ function SaveTemplateForm({
           {pending ? 'Lagrer …' : 'Lagre mal'}
         </button>
       </div>
+    </form>
+  )
+}
+
+/**
+ * Navnet og hvem som kan bruke malen. Det samme skjemaet når en mal lagres og
+ * når den endres; bare ett av dem vises om gangen.
+ */
+function TemplateFields({
+  name,
+  visibility,
+  onName,
+  onVisibility,
+}: {
+  name: string
+  visibility: ThemeTemplateVisibility
+  onName: (name: string) => void
+  onVisibility: (visibility: ThemeTemplateVisibility) => void
+}) {
+  return (
+    <>
+      <div className="field">
+        <label htmlFor="theme-template-name">Navn på malen</label>
+        <input
+          id="theme-template-name"
+          className="input"
+          data-testid="theme-template-name"
+          value={name}
+          maxLength={THEME_TEMPLATE_NAME_MAX}
+          autoFocus
+          onChange={(event) => onName(event.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label id="theme-template-visibility-label">Hvem kan bruke den</label>
+        <RadioRow
+          label="Hvem kan bruke malen"
+          name="theme-template-visibility"
+          options={['private', 'shared'] as const}
+          labels={VISIBILITY_LABELS}
+          value={visibility}
+          testId="theme-template-visibility"
+          onChange={onVisibility}
+        />
+      </div>
+    </>
+  )
+}
+
+/**
+ * Skjemaet mens en mal endres. Knappene «Avbryt» og «Lagre i malen» står i
+ * temaeditorens bunn, så de er synlige uansett hvor man har bladd.
+ */
+function EditTemplateForm({ edit }: { edit: ThemeTemplateEdit }) {
+  const editing = edit.editing
+  if (!editing) return null
+  return (
+    <form
+      className="theme-templates__save theme-templates__edit"
+      data-testid="theme-template-edit-form"
+      aria-label={`Endre malen «${editing.template.name}»`}
+      onSubmit={(event) => {
+        event.preventDefault()
+        void edit.save()
+      }}
+    >
+      <p className="theme-templates__edit-title">
+        Du endrer malen «{editing.template.name}»
+      </p>
+      <TemplateFields
+        name={editing.name}
+        visibility={editing.visibility}
+        onName={(name) => edit.change({ name })}
+        onVisibility={(visibility) => edit.change({ visibility })}
+      />
+      <p className="hint">
+        Malen er tatt i bruk i denne presentasjonen. Endre tema, farger og logo nedenfor, og trykk
+        «Lagre i malen» nederst. «Avbryt» setter presentasjonen tilbake slik den var. Presentasjoner
+        som har brukt malen før, endres ikke.
+      </p>
     </form>
   )
 }

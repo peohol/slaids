@@ -51,6 +51,7 @@ import {
   RepositoryNotFoundError,
   type FolderSharingRepository,
   type NewThemeTemplate,
+  type ThemeTemplateUpdate,
   type SaveGuard,
   type ShareState,
   type SharingRepository,
@@ -1259,18 +1260,90 @@ export class SupabaseSlaidsRepository
     fail('Kunne ikke lagre malen', error)
   }
 
+  /**
+   * Logoen har alltid den samme stien, så en ny logo skrives over den gamle.
+   * Filen skrives før raden, slik den lagres når malen lages; avvises raden,
+   * legges den gamle filen tilbake (eller den nye tas bort, når malen ikke
+   * hadde logo), så malen og filen aldri spriker. Tar endringen bort logoen,
+   * går filen etter raden, slik den gjør når malen slettes.
+   */
+  async updateThemeTemplate(template: ThemeTemplateUpdate, logo: Blob | null): Promise<void> {
+    const content = parseThemeTemplateContent(template.content)
+    if (!content || Boolean(content.logo) !== Boolean(logo)) {
+      throw new RepositoryError('Malen er ugyldig og kan ikke lagres.')
+    }
+    const ownerId = await this.ownerId()
+    const current = await this.client
+      .from(THEME_TEMPLATES_TABLE)
+      .select('logo_path')
+      .eq('id', template.id)
+      .eq('owner_id', ownerId)
+      .maybeSingle()
+    if (current.error) fail('Kunne ikke hente malen', current.error)
+    if (!current.data) throw new RepositoryError(`Malen «${template.name}» finnes ikke lenger, eller den er ikke din.`)
+    const previousPath = (current.data as { logo_path: string | null }).logo_path
+
+    const bucket = this.client.storage.from(THEME_TEMPLATES_BUCKET)
+    const logoPath = content.logo && logo ? themeTemplateLogoPath(ownerId, template.id) : null
+    // Den gamle filen, så den kan legges tilbake om raden avvises.
+    let previousLogo: Blob | null = null
+    if (logoPath && previousPath === logoPath) {
+      const download = await bucket.download(previousPath)
+      if (download.error || !download.data) fail('Kunne ikke lese logoen i malen', download.error)
+      previousLogo = download.data
+    }
+    const writeLogo = async (path: string, blob: Blob, mimeType: string) =>
+      bucket.upload(path, blob, { contentType: mimeType || 'application/octet-stream', upsert: true })
+    if (content.logo && logo && logoPath) {
+      const upload = await writeLogo(logoPath, logo, content.logo.file.mimeType)
+      if (upload.error) fail('Kunne ikke laste opp logoen til malen', upload.error)
+    }
+
+    const { data, error } = await this.client
+      .from(THEME_TEMPLATES_TABLE)
+      .update({
+        name: template.name,
+        visibility: template.visibility,
+        template: content,
+        logo_path: logoPath,
+        updated_at: template.updatedAt,
+      })
+      .eq('id', template.id)
+      .eq('owner_id', ownerId)
+      .select('id')
+    if (!error && (data ?? []).length > 0) {
+      // Stien er i bruk; en eldre, mislykket opprydding skal ikke ta den.
+      if (logoPath) this.pendingTemplateLogoRemovals.delete(logoPath)
+      if (previousPath && previousPath !== logoPath) await this.removeThemeTemplateLogos([previousPath])
+      return
+    }
+    if (logoPath) {
+      if (previousLogo) await writeLogo(logoPath, previousLogo, previousLogo.type)
+      else await this.removeThemeTemplateLogos([logoPath])
+    }
+    if (error) fail('Kunne ikke lagre endringene i malen', error)
+    throw new RepositoryError(`Malen «${template.name}» finnes ikke lenger, eller den er ikke din.`)
+  }
+
+  /**
+   * `updated_at` følger med som `cacheNonce`: logoen har alltid den samme
+   * stien, så uten den kunne nettleseren svare med en logo fra før malen ble
+   * endret.
+   */
   async getThemeTemplateLogo(id: string): Promise<Blob | null> {
     const ownerId = await this.ownerId()
     const { data, error } = await this.client
       .from(THEME_TEMPLATES_TABLE)
-      .select('logo_path')
+      .select('logo_path, updated_at')
       .eq('id', id)
       .or(`owner_id.eq.${ownerId},visibility.eq.shared`)
       .maybeSingle()
     if (error) fail('Kunne ikke hente malen', error)
-    const path = (data as { logo_path: string | null } | null)?.logo_path
-    if (!path) return null
-    const download = await this.client.storage.from(THEME_TEMPLATES_BUCKET).download(path)
+    const row = data as { logo_path: string | null; updated_at: string } | null
+    if (!row?.logo_path) return null
+    const download = await this.client.storage
+      .from(THEME_TEMPLATES_BUCKET)
+      .download(row.logo_path, { cacheNonce: row.updated_at })
     if (download.error || !download.data) fail('Kunne ikke laste ned logoen i malen', download.error)
     return download.data
   }

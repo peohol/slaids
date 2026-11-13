@@ -1,7 +1,8 @@
 /**
  * Temamaler (§ 15.4): gjeldende tema lagres som mal med logo og farger, en mal
  * brukes på et annet dekk i ett angrebart steg med sin egen kopi av logoen,
- * en mal kan være standard for nye presentasjoner, og egne maler kan slettes.
+ * en mal kan være standard for nye presentasjoner, og egne maler kan endres
+ * og slettes.
  */
 
 import { expect, test, type Locator, type Page } from './fixtures'
@@ -173,6 +174,110 @@ test.describe('temamaler', () => {
     await createFromLibrary(page, 'Uten mal')
     await expect(stage(page).getByTestId('slide-logo')).toHaveCount(0)
     await expect.poll(() => backgroundOf(frontThumb(page))).not.toBe(rgb(BACKGROUND))
+  })
+
+  test.describe('endre en egen mal', () => {
+    const shadows = (page: Page) => page.getByTestId('theme-shadows')
+
+    /** Malen «Firma» med logo og skygger av, og et nytt dekk med skygger på. */
+    async function templateAndFreshDeck(page: Page): Promise<void> {
+      await page.goto('/')
+      await newDeck(page, 'Kilde')
+      await styleDeck(page)
+      await saveAsTemplate(page, 'Firma')
+      await closeTheme(page)
+      await backToLibrary(page)
+      await newDeck(page, 'Mål')
+      await expect(shadows(page)).toHaveAttribute('aria-checked', 'true')
+    }
+
+    test(
+      'tar malen i bruk, og lagrer nytt navn, ny synlighet og nytt tema over den',
+      { tag: '@pr' },
+      async ({ page }) => {
+        const guard = watchForErrors(page)
+        await templateAndFreshDeck(page)
+
+        await templateNamed(page, 'Firma').getByTestId('theme-template-edit').click()
+        await expect(page.getByTestId('theme-template-edit-form')).toBeVisible()
+        await expect(templateNamed(page, 'Firma')).toHaveAttribute('data-editing', 'true')
+        // Malen er tatt i bruk, så temaeditoren viser den.
+        await expect(shadows(page)).toHaveAttribute('aria-checked', 'false')
+        await expect(page.getByTestId('theme-logo-thumb').locator('img')).toBeVisible()
+        await expect(page.getByTestId('theme-template-save')).toBeDisabled()
+        await expect(page.getByTestId('theme-done')).toHaveCount(0)
+
+        await page.getByTestId('theme-template-name').fill('Firma 2')
+        await page.getByTestId('theme-template-visibility-shared').click()
+        await shadows(page).click()
+        await page.getByTestId('theme-logo-remove').click()
+        await page.getByTestId('theme-template-edit-save').click()
+        await expect(page.getByTestId('theme-template-edit-form')).toHaveCount(0)
+        await expect(page.getByTestId('theme-done')).toBeVisible()
+
+        // Malen står nå under Delte maler, med nytt navn og uten logo – fortsatt bare én.
+        await expect(page.getByTestId('theme-templates-shared')).toHaveAttribute('aria-pressed', 'true')
+        await expect(page.getByTestId('theme-template')).toHaveCount(1)
+        const edited = templateNamed(page, 'Firma 2')
+        await expect(edited).toBeVisible()
+        await expect(edited.locator('.theme-template__logo')).toHaveCount(0)
+        await closeTheme(page)
+
+        // Et nytt dekk som bruker malen, får det nye temaet.
+        await backToLibrary(page)
+        await newDeck(page, 'Tredje')
+        await shadows(page).click()
+        await expect(shadows(page)).toHaveAttribute('aria-checked', 'false')
+        await page.getByTestId('theme-templates-shared').click()
+        await templateNamed(page, 'Firma 2').getByTestId('theme-template-apply').click()
+        await expect(shadows(page)).toHaveAttribute('aria-checked', 'true')
+        await expect(page.getByTestId('theme-logo-thumb')).toHaveCount(0)
+        await expect.poll(() => backgroundOf(page.locator('.theme-template__swatch').first())).toBe(rgb(BACKGROUND))
+        expect(guard.errors).toEqual([])
+      },
+    )
+
+    test('«Avbryt» setter presentasjonen tilbake og lar malen være', async ({ page }) => {
+      await templateAndFreshDeck(page)
+      await templateNamed(page, 'Firma').getByTestId('theme-template-edit').click()
+      await expect(shadows(page)).toHaveAttribute('aria-checked', 'false')
+      await page.getByTestId('theme-template-name').fill('Glemt')
+      await page.getByTestId('theme-template-edit-cancel').click()
+
+      await expect(page.getByTestId('theme-template-edit-form')).toHaveCount(0)
+      await expect(shadows(page)).toHaveAttribute('aria-checked', 'true')
+      await expect(page.getByTestId('theme-logo-thumb')).toHaveCount(0)
+      await expect(templateNamed(page, 'Firma')).toBeVisible()
+      await expect(templateNamed(page, 'Glemt')).toHaveCount(0)
+      await closeTheme(page)
+      await expect(stage(page).getByTestId('slide-logo')).toHaveCount(0)
+    })
+
+    test('spør før temaeditoren lukkes midt i en endring', async ({ page }) => {
+      await templateAndFreshDeck(page)
+      await templateNamed(page, 'Firma').getByTestId('theme-template-edit').click()
+      await expect(page.getByTestId('theme-template-edit-form')).toBeVisible()
+      await shadows(page).click()
+
+      await page.keyboard.press('Escape')
+      const dialog = page.getByTestId('confirm-dialog')
+      await expect(dialog).toBeVisible()
+      await dialog.getByRole('button', { name: 'Fortsett å endre' }).click()
+      await expect(dialog).toHaveCount(0)
+      await expect(page.getByTestId('theme-template-edit-form')).toBeVisible()
+
+      await page.keyboard.press('Escape')
+      await dialog.getByRole('button', { name: 'Lagre i malen' }).click()
+      await expect(page.getByTestId('theme-modal')).toHaveCount(0)
+
+      // Lagret: et nytt dekk i malen får skyggene som ble slått på.
+      await backToLibrary(page)
+      await newDeck(page, 'Sjekk')
+      await shadows(page).click()
+      await templateNamed(page, 'Firma').getByTestId('theme-template-apply').click()
+      await expect(shadows(page)).toHaveAttribute('aria-checked', 'true')
+      await expect(page.getByTestId('theme-logo-thumb').locator('img')).toBeVisible()
+    })
   })
 
   test.describe('på telefon', () => {

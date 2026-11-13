@@ -415,6 +415,10 @@ describe('temamaler', () => {
       expect(await affectedAs(db, anna, `delete from public.slaids_theme_templates where id = $1`, [id])).toBe(0)
     }
     expect(await affectedAs(db, peder, `update public.slaids_theme_templates set name = 'Ny' where id = 'tt_shared'`)).toBe(1)
+    // En endret mal skriver den nye logoen over den gamle, på samme sti.
+    expect(
+      await affectedAs(db, peder, `update storage.objects set name = name where bucket_id = $1 and name = $2`, [BUCKET, logo(PEDER, 'tt_shared')]),
+    ).toBe(1)
   })
 
   it('alle aktive brukere kan lage delte maler, men bare i sitt eget navn', async () => {

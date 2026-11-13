@@ -1397,6 +1397,32 @@ describe('DexieSlaidsRepository – temamaler', () => {
     expect(await repository.listThemeTemplates()).toHaveLength(1)
   })
 
+  it('endrer navn, synlighet, innhold og logo, og beholder når malen ble laget', async () => {
+    const repository = freshRepository()
+    const template = sample('tt_1', true)
+    await repository.createThemeTemplate(template, new Blob(['png!']))
+    const { createdAt: _createdAt, ...rest } = sample('tt_1', false)
+    const changed = { ...rest, name: 'Nytt navn', visibility: 'shared' as const, updatedAt: '2030-01-01T00:00:00.000Z' }
+
+    await repository.updateThemeTemplate(changed, null)
+    expect(await repository.listThemeTemplates()).toEqual([{ ...changed, createdAt: template.createdAt, own: true }])
+    expect(await repository.getThemeTemplateLogo('tt_1')).toBeNull()
+
+    const withLogo = { ...changed, content: sample('tt_1', true).content }
+    await repository.updateThemeTemplate(withLogo, new Blob(['ny!']))
+    expect(await (await repository.getThemeTemplateLogo('tt_1'))?.text()).toBe('ny!')
+  })
+
+  it('endrer ingenting i en mal som ikke finnes, eller med en logo som ikke stemmer', async () => {
+    const repository = freshRepository()
+    const { createdAt: _createdAt, ...missing } = sample('tt_9', false)
+    await expect(repository.updateThemeTemplate(missing, null)).rejects.toThrow(/finnes ikke/)
+    await repository.createThemeTemplate(sample('tt_1', false), null)
+    const { createdAt: _c, ...withLogo } = sample('tt_1', true)
+    await expect(repository.updateThemeTemplate(withLogo, null)).rejects.toThrow(/ugyldig/)
+    expect(await repository.listThemeTemplates()).toEqual([expect.objectContaining({ content: sample('tt_1', false).content })])
+  })
+
   it('sletter malen og logoen, og tømmer standardvalget som pekte på den', async () => {
     const repository = freshRepository()
     await repository.createThemeTemplate(sample('tt_1', true), new Blob(['png!']))
