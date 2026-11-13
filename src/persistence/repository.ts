@@ -267,6 +267,9 @@ export interface SlaidsRepository {
 /** En ny temamal slik den lagres. Om den er brukerens egen, avgjør lageret. */
 export type NewThemeTemplate = Omit<ThemeTemplate, 'own'>
 
+/** En endret temamal: alt unntatt når den ble laget, som aldri endres. */
+export type ThemeTemplateUpdate = Omit<ThemeTemplate, 'own' | 'createdAt'>
+
 /**
  * Temamalene (§ 15.4): brukerens egne og de delte.
  *
@@ -290,6 +293,13 @@ export interface ThemeTemplateRepository {
    * tilbake.
    */
   createThemeTemplate(template: NewThemeTemplate, logo: Blob | null): Promise<void>
+  /**
+   * Erstatt navnet, synligheten og hele innholdet i en egen mal, med logofilen
+   * når innholdet har en logo. Har det ingen, tas malens logo bort. Malen og
+   * filen endres sammen eller ikke i det hele tatt. En mal brukeren ikke eier,
+   * eller som ikke finnes lenger, berøres ikke, og kallet feiler.
+   */
+  updateThemeTemplate(template: ThemeTemplateUpdate, logo: Blob | null): Promise<void>
   /** Logofilen til en mal brukeren kan se, eller `null` når malen ikke har noen. */
   getThemeTemplateLogo(id: string): Promise<Blob | null>
   /**

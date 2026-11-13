@@ -2900,7 +2900,7 @@ andre appers objekter i det delte Supabase-prosjektet berøres.
 
 **Bruk av mal.** Temaeditoren viser Mine maler og Delte maler med en enkel
 forhåndsvisning, lar brukeren bruke en mal, lagre gjeldende tema som ny mal (navn
-og synlighet) og slette egne maler – uten et stort kontrollpanel.
+og synlighet), endre og slette egne maler – uten et stort kontrollpanel.
 
 - Å bruke en mal er én angrebar operasjon som setter temaet, forsidens to farger
   og logoen.
@@ -2957,6 +2957,30 @@ samtidig.
 - *I temaeditoren* (`ThemeTemplates.tsx`) står Mine maler (private) og Delte
   maler (alle delte, egne merket «Din») med en liten forhåndsvisning: forsidens
   farger, «Aa» i titlenes font og logoen.
+- *Å endre en mal* skjer der temaer endres, ikke i et eget malredigeringsvindu.
+  Blyanten på en egen mal bruker malen på den åpne presentasjonen (ett
+  angrebart steg) og åpner et lite skjema for navn og synlighet; resten av
+  temaeditoren endrer temaet som ellers, og forhåndsvisningen viser det.
+  «Lagre i malen» (i dialogens bunn, alltid synlig) skriver øyeblikksbildet av
+  presentasjonens tema over malen med samme id, så standardvalget og de delte
+  brukerne følger med. «Avbryt» setter presentasjonens tema, forsidens farger
+  og logo tilbake slik de var (`restoreTheme`, ett angrebart steg; logofilen
+  ligger fortsatt i fillageret). Lukkes dialogen midt i en endring, spørres
+  det om endringene skal lagres i malen. Presentasjoner som har brukt malen
+  før, endres ikke. Tilstanden står i `ui/editor/useThemeTemplateEdit.ts`;
+  reglene i `ui/editor/themeTemplates.ts` (`updateThemeTemplateFromDeck`).
+  Mens en logo lastes opp, en font lastes eller en annen mal tas i bruk,
+  venter «Lagre i malen» og «Avbryt», så malen aldri lagres uten det som var
+  på vei. Lageret har `updateThemeTemplate`: i Supabase får en ny logo sin egen
+  sti (`<eier>/<mal>/logo-<utgave>`), raden pekes dit i én oppdatering, og den
+  gamle filen slettes etterpå; avvises raden, slettes bare den nye. En gammel
+  fil skrives aldri over, så raden og filen kan ikke sprike, heller ikke ved
+  to lagringer samtidig. Oppdateringen gjelder bare raden slik den nettopp ble
+  lest (`updated_at`); er malen lagret et annet sted i mellomtiden, er det en
+  konflikt. Migrasjonen `20261113090000_slaids_theme_template_logo_versions.sql`
+  lar `logo_path` ha en utgave, fortsatt bare i eierens mappe for malen. I
+  Dexie er det én transaksjon. Agentene kan ikke lagre eller endre maler; de
+  ser den endrede malen i `list_theme_templates`.
 - *Migrasjonen* er `20261111120000_slaids_theme_templates.sql`, med
   tilbakerulling i `supabase/rollback/` og tilgangstester i
   `supabase/tests/access.test.ts`.

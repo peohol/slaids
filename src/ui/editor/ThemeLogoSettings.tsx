@@ -76,7 +76,14 @@ type Group = 'sections' | 'slides'
  */
 const sizeLabel = (group: Group) => `typing:theme-logo-size:${group}`
 
-export function ThemeLogoSettings({ presentation }: { presentation: Presentation }) {
+export function ThemeLogoSettings({
+  presentation,
+  onBusyChange,
+}: {
+  presentation: Presentation
+  /** Sier fra mens en logo lastes opp, så det som venter på den, kan vente. */
+  onBusyChange?: (busy: boolean) => void
+}) {
   const run = useEditorStore((state) => state.run)
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -84,10 +91,12 @@ export function ThemeLogoSettings({ presentation }: { presentation: Presentation
 
   const upload = async (file: File): Promise<void> => {
     setBusy(true)
+    onBusyChange?.(true)
     try {
       await uploadThemeLogo(file)
     } finally {
       setBusy(false)
+      onBusyChange?.(false)
     }
   }
 

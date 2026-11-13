@@ -30,6 +30,7 @@ import {
   RepositoryError,
   RepositoryNotFoundError,
   type NewThemeTemplate,
+  type ThemeTemplateUpdate,
   type SaveGuard,
   type SlaidsRepository,
   type StoredAsset,
@@ -484,6 +485,32 @@ export class DexieSlaidsRepository implements SlaidsRepository, ThemeTemplateRep
           updatedAt: template.updatedAt,
         })
         if (logo) await this.database.themeTemplateLogos.put({ templateId: template.id, blob: logo })
+      },
+    )
+  }
+
+  async updateThemeTemplate(template: ThemeTemplateUpdate, logo: Blob | null): Promise<void> {
+    const content = parseThemeTemplateContent(template.content)
+    if (!content || Boolean(content.logo) !== Boolean(logo)) {
+      throw new RepositoryError('Malen er ugyldig og kan ikke lagres.')
+    }
+    // Én transaksjon: malen og logoen endres sammen eller ikke i det hele tatt.
+    await this.database.transaction(
+      'rw',
+      this.database.themeTemplates,
+      this.database.themeTemplateLogos,
+      async () => {
+        const existing = await this.database.themeTemplates.get(template.id)
+        if (!existing) throw new RepositoryError(`Malen «${template.name}» finnes ikke lenger.`)
+        await this.database.themeTemplates.put({
+          ...existing,
+          name: template.name,
+          visibility: template.visibility,
+          content: JSON.parse(JSON.stringify(content)) as typeof content,
+          updatedAt: template.updatedAt,
+        })
+        if (logo) await this.database.themeTemplateLogos.put({ templateId: template.id, blob: logo })
+        else await this.database.themeTemplateLogos.delete(template.id)
       },
     )
   }

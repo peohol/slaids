@@ -8,7 +8,7 @@
  * opprettet (§ 15.1), og hver endring i den er en vanlig, angrebar endring.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { setSectionAccentColor, setSectionBackgroundColor, setTheme } from '../../domain/commands'
 import { HUMAN_EDIT } from '../../domain/commands/manualLayout'
 import { TITLED_CARD_STYLES, type TitledCardStyle } from '../../domain/constants'
@@ -24,7 +24,9 @@ import { ColorPickerButton } from '../components/ColorPicker'
 import { ThemePreview } from './ThemePreview'
 import { ThemeLogoSettings } from './ThemeLogoSettings'
 import { ThemeTemplates } from './ThemeTemplates'
+import { useThemeTemplateEdit } from './useThemeTemplateEdit'
 import { deckLogoLayout } from '../../domain/logo'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 /**
  * Which of the named settings is in force.
@@ -100,6 +102,12 @@ export function ThemeModal({
   const run = useEditorStore((state) => state.run)
   /** Which field is waiting for its font to become measurable. */
   const [loading, setLoading] = useState<'heading' | 'body' | null>(null)
+  const edit = useThemeTemplateEdit()
+  /** Dialogen ble bedt om å lukkes midt i en endring av en mal. */
+  const [closing, setClosing] = useState(false)
+  // En font som lastes, er en endring på vei: malen venter på den.
+  const { busyWith } = edit
+  useEffect(() => busyWith('font', loading !== null), [busyWith, loading])
   if (!presentation) return null
   const theme = presentation.theme
   // Dekket har ikke én bakgrunn, så forhåndsvisningene står på den leseren møter
@@ -141,23 +149,61 @@ export function ThemeModal({
     }
   }
 
+  /**
+   * Lukkes dialogen mens en mal endres, spørres det først: ellers ville
+   * endringene stå i presentasjonen og ikke i malen, uten at noen sa det.
+   */
+  const requestOpenChange = (next: boolean): void => {
+    if (!next && edit.editing) setClosing(true)
+    else onOpenChange(next)
+  }
+
+  const finishEditing = async (keep: boolean): Promise<void> => {
+    setClosing(false)
+    if (!(keep ? await edit.save() : edit.cancel())) return
+    onOpenChange(false)
+  }
+
   return (
     <Modal
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={requestOpenChange}
       title="Tema"
       description="Maler, logo, fonter, luft, skriftstørrelse og kortenes utseende gjelder hele presentasjonen. Fargene her er forsidens, og arves fram til neste inndeling."
       testId="theme-modal"
       width={600}
       footer={
-        <button
-          type="button"
-          className="btn btn--primary"
-          data-testid="theme-done"
-          onClick={() => onOpenChange(false)}
-        >
-          Ferdig
-        </button>
+        edit.editing ? (
+          <>
+            <button
+              type="button"
+              className="btn"
+              data-testid="theme-template-edit-cancel"
+              disabled={edit.pending || edit.busy}
+              onClick={() => void edit.cancel()}
+            >
+              Avbryt
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              data-testid="theme-template-edit-save"
+              disabled={edit.pending || edit.busy || !edit.editing.name.trim()}
+              onClick={() => void edit.save()}
+            >
+              {edit.pending ? 'Lagrer …' : 'Lagre i malen'}
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="btn btn--primary"
+            data-testid="theme-done"
+            onClick={() => onOpenChange(false)}
+          >
+            Ferdig
+          </button>
+        )
       }
     >
       <div className="theme-modal__preview">
@@ -169,7 +215,7 @@ export function ThemeModal({
         />
       </div>
 
-      <ThemeTemplates presentation={presentation} />
+      <ThemeTemplates presentation={presentation} edit={edit} />
 
       <div className="field">
         <label id="theme-front-colors-label">Forsidens farger</label>
@@ -201,7 +247,7 @@ export function ThemeModal({
         </p>
       </div>
 
-      <ThemeLogoSettings presentation={presentation} />
+      <ThemeLogoSettings presentation={presentation} onBusyChange={(busy) => busyWith('logo', busy)} />
 
       <div className="theme-modal__fonts" data-font-loading={loading ?? 'none'}>
         <div className="field">
@@ -365,6 +411,22 @@ export function ThemeModal({
         </p>
       </div>
 
+      <ConfirmDialog
+        open={closing}
+        title="Lagre endringene i malen?"
+        message={
+          edit.editing
+            ? `Du har endret malen «${edit.editing.template.name}». «Ikke lagre» setter presentasjonen tilbake slik den var.`
+            : ''
+        }
+        confirmLabel="Lagre i malen"
+        confirmTone="primary"
+        alternativeLabel="Ikke lagre"
+        cancelLabel="Fortsett å endre"
+        onConfirm={() => void finishEditing(true)}
+        onAlternative={() => void finishEditing(false)}
+        onCancel={() => setClosing(false)}
+      />
     </Modal>
   )
 }

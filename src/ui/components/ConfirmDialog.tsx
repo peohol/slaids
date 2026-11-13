@@ -12,6 +12,8 @@ export interface ConfirmDialogProps {
   title: string
   message: string
   confirmLabel?: string
+  /** Rød for det som ikke kan gjøres om, ellers vanlig hovedknapp. */
+  confirmTone?: 'danger' | 'primary'
   cancelLabel?: string
   /** Optional non-destructive alternative, e.g. rescuing content. */
   alternativeLabel?: string
@@ -25,6 +27,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel = 'Slett',
+  confirmTone = 'danger',
   cancelLabel = 'Avbryt',
   alternativeLabel,
   onConfirm,
@@ -50,7 +53,7 @@ export function ConfirmDialog({
               {alternativeLabel}
             </button>
           )}
-          <button type="button" className="btn btn--danger" onClick={onConfirm} data-testid="confirm-accept">
+          <button type="button" className={`btn btn--${confirmTone}`} onClick={onConfirm} data-testid="confirm-accept">
             {confirmLabel}
           </button>
         </>

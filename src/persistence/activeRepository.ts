@@ -249,6 +249,7 @@ export const folderSharing: FolderSharingRepository = {
 export const themeTemplates: ThemeTemplateRepository = {
   listThemeTemplates: () => onThemeTemplates((repo) => repo.listThemeTemplates()),
   createThemeTemplate: (template, logo) => onThemeTemplates((repo) => repo.createThemeTemplate(template, logo)),
+  updateThemeTemplate: (template, logo) => onThemeTemplates((repo) => repo.updateThemeTemplate(template, logo)),
   getThemeTemplateLogo: (id) => onThemeTemplates((repo) => repo.getThemeTemplateLogo(id)),
   deleteThemeTemplate: (id) => onThemeTemplates((repo) => repo.deleteThemeTemplate(id)),
 }
