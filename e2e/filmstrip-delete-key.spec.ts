@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './fixtures'
-import { createPresentation, stage, toast, watchForErrors } from './helpers'
+import { createPresentation, setUserSetting, stage, toast, watchForErrors } from './helpers'
 
 /** Legger til `count` slides uten tittel etter den gjeldende. */
 async function addSlides(page: Page, count: number): Promise<void> {
@@ -18,9 +18,7 @@ async function stripOrder(page: Page): Promise<string[]> {
 
 async function turnOnFewerDialogs(page: Page): Promise<void> {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
-  await page.getByRole('checkbox', { name: 'Færre popuper' }).click()
-  await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+  await setUserSetting(page, 'Færre popuper', true)
 }
 
 test('Delete og Backspace på en valgt slide i stripen sletter den, og kan angres', async ({ page }) => {

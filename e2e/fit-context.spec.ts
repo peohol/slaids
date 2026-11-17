@@ -17,6 +17,7 @@ import { expect, familiesFrom, localFaceCss, test, type Locator, type Page } fro
 import {
   addContentToZone,
   caretInto,
+  closeReferenceModal,
   createPresentation,
   fillZoneToCapacity,
   renderedBodyFont,
@@ -320,7 +321,7 @@ test.describe('citation numbering and fit', () => {
    * modal twice in a row finds out about and one that does not never does.
    */
   async function closeReferences(page: Page): Promise<void> {
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
     await expect(page.getByTestId('reference-modal')).toHaveCount(0)
     // The overlay outlives the dialog it dims, and it is the overlay that eats
     // the next click.
@@ -473,7 +474,7 @@ test.describe('citation numbering and fit', () => {
     await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Kilden på slide 1')
     await page.getByTestId('save-reference').click()
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
     await expect(stage(page).locator('.rd-citation')).toHaveText('1')
 
     // A second slide, cited before the first one once it is moved in front.
@@ -485,7 +486,7 @@ test.describe('citation numbering and fit', () => {
     await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Kilden på slide 2')
     await page.getByTestId('save-reference').click()
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
     await expect(stage(page).locator('.rd-citation')).toHaveText('2')
 
     // Drag slide 2 above slide 1, by its grip — the handle that drags on the

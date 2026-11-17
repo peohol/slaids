@@ -8,7 +8,7 @@
  */
 
 import { expect, type Page } from './fixtures'
-import { slidePoint } from './helpers'
+import { slidePoint, stageSettled } from './helpers'
 
 export type CompactPanel = 'slides' | 'content' | 'zone' | 'tools'
 
@@ -17,6 +17,8 @@ export async function openPanel(page: Page, panel: CompactPanel): Promise<void> 
   const tab = page.getByTestId(`compact-tab-${panel}`)
   if ((await tab.getAttribute('aria-pressed')) !== 'true') await tab.click()
   await expect(page.getByTestId('compact-panel')).toHaveAttribute('data-panel', panel)
+  // Panelet tar plass fra scenen, som skaleres om litt etterpå.
+  await stageSettled(page)
 }
 
 /** Close whichever panel is open, so the slide has the whole screen. */
@@ -25,6 +27,9 @@ export async function closePanel(page: Page): Promise<void> {
     await page.getByTestId('compact-panel-close').click()
   }
   await expect(page.getByTestId('compact-panel')).toBeHidden()
+  // Scenen får plassen tilbake først når den har målt seg på nytt, og et trykk
+  // på et slidepunkt før det treffer der sliden var med panelet oppe.
+  await stageSettled(page)
 }
 
 /** Whether this run is on a compact workspace at all. */

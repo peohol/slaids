@@ -30,6 +30,12 @@ import { googleFontsHref, webFontFaces, webFontsFor } from '../domain/fonts'
  */
 const FONT_TIMEOUT_MS = 8000
 
+/**
+ * Hvor mange ganger en familie lastes og kontrolleres før den regnes som
+ * utilgjengelig. Se `loadFamily`.
+ */
+const LOAD_ROUNDS = 5
+
 export interface FontLoadOutcome {
   /** Families that are downloaded and usable for measurement. */
   ready: string[]
@@ -89,8 +95,23 @@ async function loadFamily(family: string): Promise<boolean> {
   const specs = webFontFaces(family).flatMap(({ family: face, weights }) =>
     weights.map((weight) => `${weight} 16px "${face}"`),
   )
-  await Promise.all(specs.map((spec) => fonts.load(spec)))
-  return specs.every((spec) => fonts.check(spec))
+  /*
+   * Lastet og kontrollert, og lastet på nytt så lenge kontrollen sier nei.
+   *
+   * Hver families stilark har sin egen kopi av den delte symbolfonten. Kommer
+   * stilarket for en annen familie mens denne lastes, legger det til flater for
+   * symbolfonten som ennå ikke er ferdige, og `check()` svarer nei for dem –
+   * selv om alt denne familien ba om, er lastet og kan brukes. Da ble fonten
+   * meldt som utilgjengelig uten grunn. Et nytt `load()` venter også på de nye
+   * flatene. En flate som ikke kan lastes, avviser `load()`, og fristen over
+   * gjelder hele løkken; rundene er begrenset bare så et `check()` som aldri
+   * sier ja, ikke kan gå i ring.
+   */
+  for (let round = 0; round < LOAD_ROUNDS; round += 1) {
+    await Promise.all(specs.map((spec) => fonts.load(spec)))
+    if (specs.every((spec) => fonts.check(spec))) return true
+  }
+  return false
 }
 
 function withTimeout(work: Promise<boolean>, ms: number): Promise<boolean> {

@@ -17,6 +17,7 @@ import {
   dismissImageModal,
   enterContentMode,
   enterZoneMode,
+  setUserSetting,
   splitSelected,
   stage,
   waitForSaved,
@@ -190,11 +191,7 @@ test.describe('pictures', () => {
   for (const fewerDialogs of [false, true]) {
     test(`bevarer tekstsonen ved bildepaste i tekstfelt med færre popuper ${fewerDialogs ? 'på' : 'av'}`, async ({ page }) => {
       await page.goto('/')
-      await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
-      const option = page.getByRole('checkbox', { name: 'Færre popuper' })
-      await option.setChecked(fewerDialogs)
-      await expect(option).toBeChecked({ checked: fewerDialogs })
-      await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+      await setUserSetting(page, 'Færre popuper', fewerDialogs)
 
       await createPresentation(page, 'Bilde i tekstfelt')
       const [zone] = await zoneRects(page)
@@ -223,11 +220,7 @@ test.describe('pictures', () => {
 
   test('erstatter soneinnhold direkte med færre popuper', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
-    const option = page.getByRole('checkbox', { name: 'Færre popuper' })
-    await option.check()
-    await expect(option).toBeChecked()
-    await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+    await setUserSetting(page, 'Færre popuper', true)
 
     await createPresentation(page, 'Slipp bilde med færre popuper')
     const [zone] = await zoneRects(page)

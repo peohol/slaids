@@ -11,19 +11,30 @@ export function UserSettingsModal({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { citationStyle, includeReferencesInProgress, fewerDialogs, ownerId, status } = useUserSettings()
+  const stored = useUserSettings()
+  const { ownerId, status } = stored
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(false)
+  /*
+   * Valget som lagres nå. Kontrollene viser det med en gang: storen får den nye
+   * verdien først når lagringen er ferdig, og fram til da ville en avkrysning
+   * hoppet tilbake – klikket så ut til å bli oversett så lenge lagringen varte.
+   * Feiler lagringen, viser kontrollene igjen det som faktisk er lagret.
+   */
+  const [pending, setPending] = useState<Partial<UserSettings>>({})
+  const { citationStyle, includeReferencesInProgress, fewerDialogs } = { ...stored, ...pending }
 
   async function changeSettings(patch: Partial<UserSettings>): Promise<void> {
     setSaving(true)
     setSaveError(false)
+    setPending(patch)
     try {
       await saveUserSettings(repository, patch)
     } catch {
       setSaveError(true)
     } finally {
       setSaving(false)
+      setPending({})
     }
   }
 
