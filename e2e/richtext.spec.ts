@@ -3,6 +3,7 @@ import {
   addContentToZone,
   chooseFromTextMenu,
   chooseFromToolbarMenu,
+  closeReferenceModal,
   createPresentation,
   stage,
   watchForErrors,
@@ -174,7 +175,7 @@ test.describe('rich text', () => {
     await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Tittelkilde')
     await page.getByTestId('save-reference').click()
-    await page.getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
 
     await expect(stage(page).locator('.card-header .rd-citation')).toHaveCount(1)
     await expect(stage(page).locator('.card-header .rd-citation')).toHaveText('1')

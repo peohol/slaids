@@ -3,6 +3,7 @@ import {
   addContentToZone,
   addPage,
   chooseSlideAction,
+  closeReferenceModal,
   createPresentation,
   motionSettled,
   openSlideMenu,
@@ -28,7 +29,7 @@ async function addReference(page: Page, title: string): Promise<void> {
   await page.getByTestId('insert-reference').click()
   await page.getByTestId('reference-title').fill(title)
   await page.getByTestId('save-reference').click()
-  await page.getByRole('button', { name: 'Lukk' }).click()
+  await closeReferenceModal(page)
 }
 
 /** The gap above the strip entry at `index`. */

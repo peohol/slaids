@@ -2,6 +2,7 @@ import { expect, test } from './fixtures'
 import {
   addContentToZone,
   clickZone,
+  closeReferenceModal,
   createPresentation,
   enterZoneMode,
   splitSelected,
@@ -214,7 +215,7 @@ test.describe('keyboard shortcuts', () => {
     await expect(page.getByTestId('reference-modal')).toBeVisible()
     await page.getByTestId('reference-title').fill('Kilden')
     await page.getByTestId('save-reference').click()
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk', exact: true }).click()
+    await closeReferenceModal(page)
     await expect(title.locator('.rd-citation')).toHaveText('1')
   })
 

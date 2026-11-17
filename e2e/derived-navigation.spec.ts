@@ -3,6 +3,7 @@ import {
   addContentToZone,
   backToLibrary,
   chooseFromToolbarMenu,
+  closeReferenceModal,
   createPresentation,
   drawnSmaller,
   fillZoneToCapacity,
@@ -23,7 +24,7 @@ test('scrolling reaches generated reference pages from the editor', async ({ pag
   await expect(page.getByTestId('reference-modal')).toBeVisible()
   await page.getByTestId('reference-title').fill('En viktig kilde')
   await page.getByTestId('save-reference').click()
-  await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk', exact: true }).click()
+  await closeReferenceModal(page)
   await expect(page.getByTestId('filmstrip-derived')).toHaveCount(1)
 
   // The current authored slide is the last authored page in a new deck. A
@@ -64,6 +65,8 @@ test('bruker forfatter og år i eksisterende titler, referanseslides og visning'
   const format = settings.getByRole('combobox', { name: 'Henvisninger på slides' })
   await expect(format).toHaveValue('numbered')
   await format.selectOption('author-year')
+  // Lagret når valget er tilgjengelig igjen; først da gjelder det.
+  await expect(format).toBeEnabled()
   await expect(format).toHaveValue('author-year')
   await settings.getByRole('button', { name: 'Lukk' }).click()
   await page.getByTestId('open-presentation').filter({ hasText: 'Henvisningsformat' }).click()
@@ -98,7 +101,10 @@ test('tillater lengre referansefelter i en full sone og viser hele innholdet for
   await backToLibrary(page)
   await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
   const settings = page.getByTestId('user-settings-modal')
-  await settings.getByRole('combobox', { name: 'Henvisninger på slides' }).selectOption('author-year')
+  const format = settings.getByRole('combobox', { name: 'Henvisninger på slides' })
+  await format.selectOption('author-year')
+  // Lagret når valget er tilgjengelig igjen; først da gjelder det.
+  await expect(format).toBeEnabled()
   await settings.getByRole('button', { name: 'Lukk' }).click()
   await page.getByTestId('open-presentation').filter({ hasText: 'Rette henvisningen' }).click()
   await expect(field.locator('.rd-citation')).toHaveText('Hansen, 2024')

@@ -3,6 +3,7 @@ import {
   PROGRESS_HEIGHT,
   SLIDE_WIDTH,
   addContentToZone,
+  closeReferenceModal,
   createPresentation,
   presentedPage,
   stage,
@@ -171,7 +172,7 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('reference-modal')).toBeVisible()
     await page.getByTestId('reference-title').fill('En viktig kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
 
     await expect(stage(page).locator('.rd-citation')).toHaveCount(1)
 
@@ -199,6 +200,8 @@ test.describe('presentation mode', () => {
     const includeReferences = settings.getByRole('checkbox', { name: 'Tell med referanseslides i fremdriftslinjen' })
     await expect(includeReferences).not.toBeChecked()
     await includeReferences.click()
+    // Lagret når avkrysningen er tilgjengelig igjen; først da gjelder valget.
+    await expect(includeReferences).toBeEnabled()
     await expect(includeReferences).toBeChecked()
     await settings.getByRole('button', { name: 'Lukk' }).click()
     await page.getByTestId('open-presentation').filter({ hasText: 'Referanser' }).click()
@@ -225,7 +228,7 @@ test.describe('presentation mode', () => {
     await page.getByTestId('insert-reference').click()
     await page.getByTestId('reference-title').fill('Kilde')
     await page.getByTestId('save-reference').click()
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
 
     await page.getByTestId('add-slide').click()
     await page.getByTestId('new-slide-with-title').click()
@@ -295,7 +298,7 @@ test.describe('presentation mode', () => {
       await page.getByTestId('save-reference').click()
       await page.waitForTimeout(120)
     }
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
 
     // Three references, one pill, one compressed label.
     await expect(stage(page).locator('.rd-citation')).toHaveCount(1)
@@ -313,7 +316,7 @@ test.describe('presentation mode', () => {
     await chooseFromToolbarMenu(page, 'presentation', 'open-references')
     await page.getByTestId('reference-title').fill('Kilden bak påstanden')
     await page.getByTestId('save-reference').click()
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
     await expect(page.getByTestId('reference-modal')).toBeHidden()
 
     await stage(page).locator('.rd-citation').first().click()
@@ -338,7 +341,7 @@ test.describe('presentation mode', () => {
     await expect(page.getByTestId('reference-row')).toHaveCount(1)
     await page.getByTestId('delete-reference').click()
     await page.getByTestId('confirm-accept').click()
-    await page.getByTestId('reference-modal').getByRole('button', { name: 'Lukk' }).click()
+    await closeReferenceModal(page)
 
     await expect(stage(page).locator('.rd-citation')).toHaveCount(0)
     await expect(page.getByTestId('filmstrip-derived')).toHaveCount(0)
