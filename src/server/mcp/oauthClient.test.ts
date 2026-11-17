@@ -418,7 +418,10 @@ async function browse(authorizationUrl: string): Promise<void> {
   expect(answer.status).toBe(302)
   const home = answer.headers.get('location')
   expect(home).not.toBeNull()
-  const back = await fetch(home!)
+  // Tilkoblingen lukkes etter svaret. Ellers holder testprosessens keep-alive
+  // skriptets lytter åpen i flere sekunder etter at flyten er ferdig, og hver
+  // test venter på det før skriptet kan avslutte.
+  const back = await fetch(home!, { headers: { Connection: 'close' } })
   expect(back.status).toBe(200)
 }
 

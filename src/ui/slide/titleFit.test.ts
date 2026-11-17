@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Tittellinjer som ikke får plass, settes i mindre skrift.
  *

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * The line below a picture, in the editor.
  *

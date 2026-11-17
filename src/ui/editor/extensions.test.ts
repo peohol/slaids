@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import { Editor, getSchema, type Extensions } from '@tiptap/core'
 import { acceptsInlineImage } from './SlaidsImageExtension'
