@@ -9,6 +9,7 @@ import {
   createPresentation,
   drawnSmaller,
   enterZoneMode,
+  setUserSetting,
   stage,
   zoneRects,
 } from './helpers'
@@ -19,8 +20,10 @@ test('færre popuper for angrebare handlinger, med bekreftelse for permanent sle
   const option = page.getByRole('checkbox', { name: 'Færre popuper' })
   await expect(option).not.toBeChecked()
   await option.click()
+  // Lagret når avkrysningen er tilgjengelig igjen; først da gjelder valget.
+  await expect(option).toBeEnabled()
   await expect(option).toBeChecked()
-  await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+  await page.getByTestId('user-settings-modal').getByRole('button', { name: 'Lukk', exact: true }).click()
 
   await createPresentation(page, 'Færre popuper')
   await page.getByTestId('add-slide').click()
@@ -64,11 +67,7 @@ test('færre popuper for angrebare handlinger, med bekreftelse for permanent sle
 
 test('hurtigdeling beholder tekst i sliden når første barn krever forminskning', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
-  const option = page.getByRole('checkbox', { name: 'Færre popuper' })
-  await option.click()
-  await expect(option).toBeChecked()
-  await page.getByRole('button', { name: 'Lukk', exact: true }).click()
+  await setUserSetting(page, 'Færre popuper', true)
 
   await createPresentation(page, 'Behold tekst ved hurtigdeling')
   const [root] = await zoneRects(page)

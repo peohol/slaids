@@ -13,7 +13,7 @@ import { ensureWebFonts, resetWebFontsForTest, webFontsReady } from './fonts'
 const SYSTEM = FONT_OPTIONS.find((font) => font.id === 'system')?.stack ?? ''
 const INTER = FONT_OPTIONS.find((font) => font.webFont === 'Inter')?.stack ?? ''
 
-function stubFontFaceSet(check = true): { loaded: string[] } {
+function stubFontFaceSet(check: boolean | (() => boolean) = true): { loaded: string[] } {
   const loaded: string[] = []
   Object.defineProperty(document, 'fonts', {
     configurable: true,
@@ -22,7 +22,7 @@ function stubFontFaceSet(check = true): { loaded: string[] } {
         loaded.push(spec)
         return Promise.resolve([])
       },
-      check: () => check,
+      check: typeof check === 'function' ? check : () => check,
     },
   })
   return { loaded }
@@ -89,6 +89,19 @@ describe('ensureWebFonts', () => {
     const promise = ensureWebFonts([INTER])
     linkFor('Inter').dispatchEvent(new Event('load'))
     expect(await promise).toEqual({ ready: [], failed: ['Inter'] })
+  })
+
+  it('waits for faces another family\'s stylesheet adds while this one loads', async () => {
+    // Den delte symbolfonten står i begge familienes stilark. Kommer det andre
+    // mens det første lastes, er de nye flatene ikke lastet ennå når den første
+    // familien kontrollerer seg selv – det er ikke en font som mangler. Her er
+    // de lastet først når det spørres etter dem igjen.
+    const stub = stubFontFaceSet(() => stub.loaded.length > 4)
+    const promise = ensureWebFonts([INTER])
+    linkFor('Inter').dispatchEvent(new Event('load'))
+    expect(await promise).toEqual({ ready: ['Inter'], failed: [] })
+    // Fire flater, lastet to ganger: den andre runden er den som ventet.
+    expect(stub.loaded).toHaveLength(8)
   })
 
   it('gives up on a request that never answers', async () => {

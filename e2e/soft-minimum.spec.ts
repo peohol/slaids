@@ -38,6 +38,13 @@ const HARD_MIN_WIDTH = minimumSizeFor(createLeaf(createContainer()), geometryFor
 
 const TEXT = 'Dette er en setning med noen helt vanlige ord i seg. '.repeat(9)
 
+/**
+ * Lenger enn pausen som avslutter et skriveløp i angrehistorikken
+ * (`COALESCE_IDLE_MS` i `state/store.ts`), med god margin: endringer etter en
+ * slik pause blir et nytt angresteg.
+ */
+const TYPING_RUN_IDLE_MS = 900
+
 /** Screen pixels per step of a slow drag: fine enough to see the magnet hold. */
 const STEP_PX = 2
 
@@ -265,6 +272,14 @@ test.describe('myk minstegrense', () => {
     const text = () => field.evaluate((element) => element.textContent ?? '')
     const before = await text()
     expect(await fitScale(page, left)).toBe(1)
+
+    // Teksten over må være et eget angresteg, ellers finnes det ikke noe steg
+    // som angres tilbake til `before`: skriving i samme felt slås sammen til ett
+    // steg så lenge det går under COALESCE_IDLE_MS (700 ms, `state/store.ts`)
+    // mellom endringene. Oppsettet over er ofte raskere enn det, og da tar
+    // ett angresteg både teksten fra `rowWithText` og skrivingen under, og
+    // neste steg fjerner hele innholdet i sonen. Derfor ventes pausen ut her.
+    await page.waitForTimeout(TYPING_RUN_IDLE_MS)
 
     // Typed key by key, on past what fits at normal size: every letter is
     // taken, and the zone draws the text smaller instead of refusing it.

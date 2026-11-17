@@ -90,6 +90,39 @@ export async function scrollSettled(box: Locator): Promise<void> {
     .toBe(true)
 }
 
+/**
+ * Vent til sliden står stille på skjermen: samme plass, størrelse og skala i
+ * noen bilder på rad.
+ *
+ * Når plassen rundt scenen endres – et kompakt panel åpnes eller lukkes – får
+ * scenen ny skala først når appen har målt den nye boksen, et bilde eller to
+ * etter at panelet er borte. Et slidepunkt regnet om til skjermpunkt før det
+ * treffer der sliden *var*, og et trykk der kan velge en helt annen sone.
+ */
+export async function stageSettled(page: Page): Promise<void> {
+  // Uten scene (et bibliotek, en dialog over alt) er det ingenting å vente på.
+  if ((await stage(page).count()) === 0) return
+  await stage(page).evaluate(async (element) => {
+    const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const shape = () => {
+      const rect = element.getBoundingClientRect()
+      return `${rect.left},${rect.top},${rect.width},${rect.height},${(element as HTMLElement).dataset.scale}`
+    }
+    let last = shape()
+    let still = 0
+    // Tre like bilder på rad: målingen, ny skala og tegningen av den har da
+    // fått hvert sitt bilde.
+    for (let round = 0; round < 120; round += 1) {
+      await frame()
+      const now = shape()
+      still = now === last ? still + 1 : 0
+      last = now
+      if (still >= 3) return
+    }
+    throw new Error(`Sliden ble ikke stående stille: ${last}`)
+  })
+}
+
 /** The slide stage. Scope stage assertions to this — filmstrip thumbnails render the same markup. */
 export function stage(page: Page) {
   return page.getByTestId('stage-slide')
@@ -120,6 +153,40 @@ export async function createFromLibrary(page: Page, title: string): Promise<void
   await expect(page.getByTestId('theme-modal')).toBeVisible()
   await page.getByTestId('theme-done').click()
   await expect(page.getByTestId('theme-modal')).toHaveCount(0)
+}
+
+/**
+ * Slå en avkrysningsinnstilling i Brukerinnstillinger av eller på, vent til den
+ * er lagret, og lukk dialogen. Siden må vise biblioteket.
+ *
+ * Avkrysningen viser valget med en gang, men er sperret mens innstillingen
+ * lagres, og først når den er lagret gjelder den i resten av appen. Derfor
+ * ventes det på at den er tilgjengelig igjen før dialogen lukkes.
+ */
+export async function setUserSetting(page: Page, name: string, checked: boolean): Promise<void> {
+  await page.getByRole('button', { name: 'Brukerinnstillinger' }).click()
+  const settings = page.getByTestId('user-settings-modal')
+  const option = settings.getByRole('checkbox', { name })
+  await option.setChecked(checked)
+  await expect(option).toBeEnabled()
+  await expect(option).toBeChecked({ checked })
+  await settings.getByRole('button', { name: 'Lukk', exact: true }).click()
+  await expect(settings).toBeHidden()
+}
+
+/**
+ * Lukk referansedialogen med dens egen «Lukk»-knapp, og vent til den og
+ * bakgrunnen dens er borte.
+ *
+ * Knappen må søkes i dialogen: et varsel som vises samtidig, har en
+ * lukkeknapp med det samme navnet, og et søk i hele siden treffer da begge.
+ * Bakgrunnen blir liggende gjennom lukkeanimasjonen og tar imot neste klikk.
+ */
+export async function closeReferenceModal(page: Page): Promise<void> {
+  const modal = page.getByTestId('reference-modal')
+  await modal.getByRole('button', { name: 'Lukk', exact: true }).click()
+  await expect(modal).toHaveCount(0)
+  await expect(page.locator('.dialog-overlay')).toHaveCount(0)
 }
 
 export async function createPresentation(page: Page, title: string): Promise<void> {
