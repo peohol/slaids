@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * The data and the insertion command, headlessly: no popover, no localStorage
  * mocking beyond what jsdom already provides. The picking UI itself is a thin

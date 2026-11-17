@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import { appearanceEntries } from '../ui/components/appearanceMenu'
 import { APPEARANCES, DEFAULT_APPEARANCE, applyAppearance, readAppearance, useAppearance } from './appearance'

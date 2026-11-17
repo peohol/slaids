@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { createPresentation } from '../../domain/presentation'
 import { createUntitledCard } from '../../domain/content'
