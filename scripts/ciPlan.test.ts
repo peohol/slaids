@@ -149,8 +149,15 @@ describe('skriptet på en PR', () => {
     writeFileSync(join(repo, path), content)
   }
 
-  /** Lager `main` med `base`, og en PR som endrer `change`. Svarer `kjor`. */
-  function plan(base: Record<string, string>, change: Record<string, string>): string {
+  /**
+   * Lager `main` med `base`, og en PR som endrer `change` og omdøper filene i
+   * `renames`. Svarer `kjor`.
+   */
+  function plan(
+    base: Record<string, string>,
+    change: Record<string, string>,
+    renames: Record<string, string> = {},
+  ): string {
     repo = mkdtempSync(join(tmpdir(), 'slaids-ci-plan-'))
     git('init', '-q', '-b', 'main')
     for (const [path, content] of Object.entries(base)) write(path, content)
@@ -158,6 +165,7 @@ describe('skriptet på en PR', () => {
     git('commit', '-q', '-m', 'main')
     git('checkout', '-q', '-b', 'pr')
     for (const [path, content] of Object.entries(change)) write(path, content)
+    for (const [from, to] of Object.entries(renames)) git('mv', from, to)
     git('add', '-A')
     git('commit', '-q', '-m', 'pr')
     git('checkout', '-q', 'main')
@@ -179,6 +187,10 @@ describe('skriptet på en PR', () => {
 
   it('kjører når kode er endret', () => {
     expect(plan(BASE, { 'README.md': '# Ny\n', 'src/app.ts': 'export const app = 2\n' })).toBe('true')
+  })
+
+  it('kjører når en kodefil omdøpes til Markdown', () => {
+    expect(plan(BASE, {}, { 'src/app.ts': 'src/app.md' })).toBe('true')
   })
 
   it('kjører når kode importerer Markdown, også bare for å lese den som tekst', () => {

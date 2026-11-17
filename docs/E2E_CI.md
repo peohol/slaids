@@ -11,8 +11,18 @@ Playwright-suiten (`e2e/`, `playwright.config.ts`) kjøres av GitHub Actions i t
 ## Regler som gjelder begge
 
 - **Ingen nye forsøk.** `retries: 0`. En test som bare består av og til, er rød og skal synes som rød. Det finnes ingen karantene, og ingen test hoppes over for å få grønn CI. De eneste `test.skip` i suiten er betingelser om miljøet testen gjelder (berøring mot mus, én kolonne mot flere) og de opt-in visuelle testene, som den nattlige kjøringen slår på.
-- **Samme konfigurasjon som lokalt.** CI bruker `playwright.config.ts` uendret, med nettleseren Playwright-versjonen i låsefilen hører til. Appen bygges på nytt for hver kjøring – to ganger: i lokal modus for nesten hele suiten, og i Supabase-modus for innloggingstestene (`supabase-auth`), der en stubbet Supabase (`e2e/supabaseStub.ts`) svarer på alle kall. Ingen kjøring når et ekte Supabase-prosjekt eller sender e-post.
+- **Samme konfigurasjon som lokalt.** CI bruker `playwright.config.ts` uendret, med nettleseren Playwright-versjonen i låsefilen hører til, og med to arbeidere (to testfiler om gangen, hver i sin egen nettleserkontekst). Appen bygges på nytt for hver kjøring (bare appbundelen; typesjekken og agent-API-bundelen kontrolleres av «Tester») – to ganger: i lokal modus for nesten hele suiten, og i Supabase-modus for innloggingstestene (`supabase-auth`), der en stubbet Supabase (`e2e/supabaseStub.ts`) svarer på alle kall. Ingen kjøring når et ekte Supabase-prosjekt eller sender e-post.
 - **Lesbare feil.** Med `CI` satt rapporterer Playwright også som `github` (feilmeldingen står som merknad på linjen i testfilen) og som HTML. Ved feil lastes artefaktet `playwright-rapport-pr` eller `playwright-rapport-full` opp i 14 dager: HTML-rapporten (`index.html`) med skjermbilde, konsoll og Playwright-spor (trace) for hver feilet test, og `test-results/` med de rå filene, også bildeforskjellene fra en visuell test. Jobbsammendraget forklarer hvor de ligger. Et spor åpnes med `npx playwright show-trace trace.zip` eller på <https://trace.playwright.dev>.
+
+## Når en kjøring ikke har noe nytt å teste
+
+Jobbene kjører alltid og gir alltid et svar, så de påkrevde sjekkene står på hver PR. Men de tunge stegene hoppes over når det som skulle kontrolleres, allerede er kontrollert, og jobbsammendraget sier hvorfor. Regelen står i `scripts/ci-plan.mjs` og testes i `scripts/ciPlan.test.ts`:
+
+- **Natten** hopper over en commit der hele suiten allerede har bestått en tidligere natt. En natt som feilet, kjøres alltid igjen.
+- **En PR som bare endrer Markdown** bygger ikke en annen app (ingen kode importerer Markdown; det sjekkes hver gang), så nettlesertestene hoppes over. Enhetstestene i «Tester» kjøres som vanlig, fordi noen av dem leser dokumentene.
+- **«Tester» ved push til `main`** hopper over et Git-tre som allerede besto i PR-kjøringen. Har `main` flyttet seg siden PR-kjøringen, er treet nytt og alt kjøres.
+
+En kjøring startet for hånd kjører alltid.
 
 ## Hva PR-utvalget dekker
 

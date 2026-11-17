@@ -111,9 +111,14 @@ function lines(text) {
   return text.split('\n').filter(Boolean)
 }
 
-/** Filene en PR endrer: flettecommiten mot sin første forelder, `main`. */
+/**
+ * Filene en PR endrer: flettecommiten mot sin første forelder, `main`.
+ *
+ * Uten gjenkjenning av omdøping: ellers ville en kodefil omdøpt til `.md` bare
+ * vises med det nye navnet, og PR-en se ut som ren dokumentasjon.
+ */
 function changedFiles() {
-  return lines(git('diff', '--name-only', 'HEAD^1', 'HEAD'))
+  return lines(git('diff', '--name-only', '--no-renames', 'HEAD^1', 'HEAD'))
 }
 
 /** Kodefiler som importerer en Markdown-fil (også `?raw` og lignende). */
