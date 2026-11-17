@@ -83,6 +83,25 @@ export interface AuthUser {
   email: string
 }
 
+let stubbed: Promise<Blob> | undefined
+
+/**
+ * Datakatalogen til en ny database med bare Supabase-stubben, laget én gang per
+ * testfil. Å starte PGlite fra bunnen (initdb) tar over et sekund; å laste en
+ * kopi av en ferdig katalog tar en brøkdel. Hver database starter likevel fra
+ * nøyaktig samme tilstand som før, og ingen deler noe med en annen.
+ */
+function stubbedDataDir(): Promise<Blob> {
+  stubbed ??= (async () => {
+    const template = new PGlite()
+    await template.exec(SUPABASE_STUB)
+    const dump = await template.dumpDataDir('none')
+    await template.close()
+    return dump
+  })()
+  return stubbed
+}
+
 /**
  * A fresh database: the Supabase stub, then `beforeMigrations` (the Auth users
  * and any other app's objects that exist before Slaids' migrations run, exactly
@@ -93,8 +112,7 @@ export async function migratedDatabase(
   beforeMigrations = '',
   options: { migrations?: readonly string[] } = {},
 ): Promise<PGlite> {
-  const db = new PGlite()
-  await db.exec(SUPABASE_STUB)
+  const db = new PGlite({ loadDataDir: await stubbedDataDir() })
   if (beforeMigrations) await db.exec(beforeMigrations)
   for (const file of options.migrations ?? migrationFiles()) {
     try {

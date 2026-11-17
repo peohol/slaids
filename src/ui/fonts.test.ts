@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Web fonts decide how much text fits, so "loaded" has to mean the browser can
  * actually draw the font — not that a request went out. These cases pin that

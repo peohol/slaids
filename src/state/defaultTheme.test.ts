@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Temaet en ny presentasjon starter med, slik denne nettleseren husker det.
  */
