@@ -75,7 +75,14 @@ const PHONE_LANDSCAPE = { width: 892, height: 412 }
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
-  workers: 1,
+  /*
+   * To nettlesere samtidig, hver med sin testfil. Hver test har sin egen
+   * nettleserkontekst (egen IndexedDB, egen stubbet Supabase), og appen
+   * serveres som statiske filer, så testene deler ingen tilstand. Runneren har
+   * fire kjerner; med én arbeider sto tre av dem stort sett ledige, og hele
+   * suiten tok rundt en halvtime.
+   */
+  workers: 2,
   forbidOnly: !!process.env.CI,
   /*
    * Never retried, locally or in CI: a test that passes on its second attempt
@@ -177,15 +184,19 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `npm run build && npm run preview -- --host ${HOST} --port ${PORT}`,
+      /*
+       * Bare appbundelen, som er det nettleseren laster. Typesjekken og
+       * agent-API-bundelen som `npm run build` i tillegg lager, kontrolleres av
+       * arbeidsflyten «Tester», og ingen av dem serveres her.
+       */
+      command: `npx vite build && npx vite preview --host ${HOST} --port ${PORT}`,
       url: APP_URL,
       // Always build: reusing a server would silently test a stale bundle.
       reuseExistingServer: false,
       timeout: 180_000,
     },
     {
-      // Only the app bundle: the type check and the agent bundle are the first
-      // server's, and they do not depend on these variables.
+      // Den samme appbundelen, bygget med Supabase-variablene satt.
       command: `npx vite build --outDir ${SUPABASE_OUT_DIR} && npx vite preview --outDir ${SUPABASE_OUT_DIR} --host ${HOST} --port ${SUPABASE_PORT}`,
       url: SUPABASE_APP_URL,
       env: { VITE_SUPABASE_URL: SUPABASE_E2E_URL, VITE_SUPABASE_PUBLISHABLE_KEY: SUPABASE_E2E_KEY },

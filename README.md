@@ -522,6 +522,7 @@ npm run dev          # http://localhost:5173
 | ------------------- | --------------------------------------------- |
 | `npm run dev`       | Vite dev-server                               |
 | `npm run build`     | Typecheck + produksjonsbuild                  |
+| `npm run build:app` | Produksjonsbuild uten typecheck (CI har typesjekket allerede) |
 | `npm run preview`   | Serverer produksjonsbuilden på port 4173      |
 | `npm run typecheck` | `tsc --noEmit`                                |
 | `npm run lint`      | ESLint                                        |
