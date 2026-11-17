@@ -16,6 +16,14 @@
 # utvalget er taggene i testfilene; `npx playwright test --list --grep @pr`
 # skriver det ut.
 #
+# Kjøringer som ikke har noe nytt å kontrollere, gjør ingenting og sier
+# hvorfor i jobbsammendraget (regelen står i `scripts/ci-plan.mjs`):
+# - natten hopper over en commit der hele suiten allerede har bestått en
+#   tidligere natt; en natt som feilet, kjøres alltid igjen;
+# - en PR som bare endrer Markdown, bygger ikke en annen app, så nettleser-
+#   testene hoppes over. Jobben `E2E (pr)` svarer likevel, så den påkrevde
+#   sjekken er der.
+#
 # Ingen av kjøringene prøver en feilet test på nytt, og ingen test hoppes over
 # for at CI skal bli grønn: en test som bare består annenhver gang er en rød
 # test, og den skal synes som det (`retries: 0` i `playwright.config.ts`).
@@ -40,8 +48,10 @@ on:
         options: [full, pr, referansebilder]
         default: full
 
+# `actions: read`: for å slå opp tidligere nattkjøringer (se over).
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: nettlesertester-${{ github.ref }}-${{ github.event_name }}
@@ -56,15 +66,21 @@ jobs:
     env:
       SUITE: ${{ github.event_name == 'pull_request' && 'pr' || inputs.suite || 'full' }}
     steps:
+      # To commits: på en PR er HEAD flettecommiten, og forelderen er `main`,
+      # så forskjellen mellom dem er det PR-en endrer.
       - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
         with:
-          node-version: '24'
-          cache: npm
+          fetch-depth: 2
+
+      - name: Er det noe nytt å teste?
+        id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci-plan.mjs nettlesertester
 
       - name: Installer avhengigheter
-        run: npm ci
+        if: steps.plan.outputs.kjor == 'true'
+        uses: ./.github/actions/installer-avhengigheter
 
       # Nettleseren hentes for den Playwright-versjonen låsefilen sier, så
       # cachen er nøklet på den versjonen og byttes ut av seg selv ved en
@@ -72,23 +88,27 @@ jobs:
       # som lokal webfont) installeres hver gang; de ligger ikke i cachen.
       - name: Finn Playwright-versjonen
         id: playwright
+        if: steps.plan.outputs.kjor == 'true'
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - uses: actions/cache@v4
         id: browsers
+        if: steps.plan.outputs.kjor == 'true'
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       - name: Installer Chromium
-        if: steps.browsers.outputs.cache-hit != 'true'
+        if: steps.plan.outputs.kjor == 'true' && steps.browsers.outputs.cache-hit != 'true'
         run: npx playwright install chromium
 
       - name: Installer systembiblioteker for Chromium
+        if: steps.plan.outputs.kjor == 'true'
         run: npx playwright install-deps chromium
 
       # `playwright.config.ts` bygger appen og starter forhåndsvisningen selv.
       - name: Kjør nettlesertestene (${{ env.SUITE }})
+        if: steps.plan.outputs.kjor == 'true'
         env:
           SLAIDS_VISUAL: ${{ env.SUITE != 'pr' && '1' || '' }}
         run: |

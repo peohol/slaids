@@ -1,0 +1,44 @@
+# Node og `node_modules`, likt for alle arbeidsflytene.
+#
+# `npm ci` brukte 15–65 sekunder i hver jobb, også når npm-cachen traff: den
+# pakker fortsatt ut og skriver hele `node_modules` (rundt 450 MB) på nytt.
+# Her caches selve `node_modules`, nøklet på operativsystem, Node-versjon,
+# `package.json` og `package-lock.json`. Er nøkkelen lik, er innholdet det
+# `npm ci` ville laget, så det gjenopprettes på noen sekunder. Endres en av
+# filene eller Node-versjonen, kjøres `npm ci` som før (og sjekker at de to
+# filene er i takt), og resultatet lagres med en gang, så også en jobb
+# som senere feiler, gir neste kjøring en cache å bruke.
+name: Installer avhengigheter
+description: Setter opp Node og gjenoppretter eller installerer node_modules.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v5
+      with:
+        # Samme Node som resten av repoets automatikk.
+        node-version: '24'
+
+    - name: Finn Node-versjonen
+      id: node
+      shell: bash
+      run: echo "version=$(node --version)" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache/restore@v4
+      id: modules
+      with:
+        path: node_modules
+        key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.version }}-${{ hashFiles('package.json', 'package-lock.json') }}
+
+    # `npm ci` og ikke `npm install`: den installerer nøyaktig det låsefilen
+    # sier og feiler hvis den og `package.json` har kommet ut av takt.
+    - name: Installer avhengigheter
+      if: steps.modules.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm ci
+
+    - uses: actions/cache/save@v4
+      if: steps.modules.outputs.cache-hit != 'true'
+      with:
+        path: node_modules
+        key: ${{ steps.modules.outputs.cache-primary-key }}
