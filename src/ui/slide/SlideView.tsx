@@ -78,6 +78,7 @@ export function slideTokenStyle(
     '--slaids-reference-gap': `${tokens.referenceEntryGap}px`,
     '--slaids-heading-spacing': `${tokens.headingSpacing}px`,
     '--slaids-list-indent': `${tokens.listIndent}px`,
+    '--slaids-quote-indent': `${tokens.quoteIndent}px`,
     '--slaids-heading-font-family': theme.headingFontFamily,
   } as React.CSSProperties
 }

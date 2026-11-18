@@ -601,42 +601,51 @@
 }
 
 /*
- * The quote marks are absolutely positioned, so they have to be positioned
- * *inside* the block: a zone clips anything that reaches past its edge, and a
- * quote at the bottom of a field had its closing mark cut in half.
+ * Et sitat er rykket inn til venstre, og alle linjene i det står mot den samme
+ * kanten. Innrykket er bare på venstre side: det er der sitattegnet henger, og
+ * til høyre er det ingenting som trenger plass. `estimateNodeHeight` trekker
+ * fra det samme innrykket.
  */
 .rich-doc :is(blockquote, .rd-quote) {
   position: relative;
   margin: var(--slaids-block-spacing, 6px) 0;
-  padding: 6px 32px 10px;
+  padding: 0 0 0 var(--slaids-quote-indent, 2em);
   font-style: italic;
 }
 
 /*
- * The quotation marks sit inside the padding rather than against the box edge.
- * A blockquote is as wide as the field, so a mark flush with the edge has its
- * outer half cut off by the zone's clipping — which is exactly what the
- * containment rule is supposed to guarantee never happens to visible content.
+ * Ett stort innledende gåseøye, til venstre for sitatets første linje – og
+ * ikke noe avsluttende tegn til høyre.
+ *
+ * Tegnet henger mot starten av første linje, ikke mot sitatets kant: uten
+ * `left` og `top` står en absolutt plassert boks der den ville stått i linjen,
+ * og forskyvningen løfter den ut til venstre for første ord. Er sitatet
+ * venstrestilt, er det innrykket det havner i; er det midtstilt, følger tegnet
+ * første linje inn mot midten i stedet for å bli stående igjen ved kanten.
+ *
+ * Boksen er nøyaktig én brødtekstlinje høy og klipper det som stikker ut.
+ * Tegnet er mye større enn teksten, og uten det ville skriftens egen høyde
+ * nådd langt under første linje: et sitat på én linje nederst i et felt ville
+ * da sett ut til å flyte over, og feltet blitt tegnet mindre uten grunn.
+ * Blekket i et gåseøye sitter høyt i tegnet, så det klippes aldri bort; med
+ * `line-height: 1` havner toppen av det omtrent på høyde med toppen av
+ * bokstavene ved siden av.
  */
-.rich-doc :is(blockquote, .rd-quote)::before,
-.rich-doc :is(blockquote, .rd-quote)::after {
-  position: absolute;
-  font-size: 2.2em;
-  line-height: 1;
-  color: rgba(128, 128, 128, 0.45);
-  font-family: Georgia, serif;
-}
-
-.rich-doc :is(blockquote, .rd-quote)::before {
+.rich-doc :is(blockquote, .rd-quote) > :first-child::before {
+  --slaids-quote-mark-size: 3.4;
   content: '\201C';
-  left: 4px;
-  top: 0;
-}
-
-.rich-doc :is(blockquote, .rd-quote)::after {
-  content: '\201D';
-  right: 6px;
-  bottom: 0;
+  position: absolute;
+  height: calc(var(--slaids-body-line-height, 1.45) * 1em / var(--slaids-quote-mark-size));
+  overflow: hidden;
+  transform: translateX(calc(-100% - 0.08em));
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: calc(var(--slaids-quote-mark-size) * 1em);
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
+  /* Tegnet viser at dette er et sitat; det er ikke en del av ordlyden. */
+  color: color-mix(in srgb, currentColor 40%, transparent);
+  pointer-events: none;
 }
 
 .rich-doc :is(pre, .rd-pre) {
