@@ -627,9 +627,11 @@
  * Tegnet er mye større enn teksten, og uten det ville skriftens egen høyde
  * nådd langt under første linje: et sitat på én linje nederst i et felt ville
  * da sett ut til å flyte over, og feltet blitt tegnet mindre uten grunn.
- * Blekket i et gåseøye sitter høyt i tegnet, så det klippes aldri bort; med
- * `line-height: 1` havner toppen av det omtrent på høyde med toppen av
- * bokstavene ved siden av.
+ * Blekket i et gåseøye sitter høyt i tegnet, så det klippes aldri bort.
+ *
+ * `line-height` bestemmer hvor høyt i boksen tegnet står, og 0.8 setter det i
+ * vater med første linje: midten av tegnet står på høyde med midten av de
+ * store bokstavene, og tegnet rekker like langt over dem som under.
  */
 .rich-doc :is(blockquote, .rd-quote) > :first-child::before {
   --slaids-quote-mark-size: 3.4;
@@ -642,7 +644,7 @@
   font-size: calc(var(--slaids-quote-mark-size) * 1em);
   font-style: normal;
   font-weight: 400;
-  line-height: 1;
+  line-height: 0.8;
   /* Tegnet viser at dette er et sitat; det er ikke en del av ordlyden. */
   color: color-mix(in srgb, currentColor 40%, transparent);
   pointer-events: none;

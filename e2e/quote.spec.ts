@@ -8,6 +8,7 @@ import {
   zoneRects,
 } from './helpers'
 import { FONT_SCALE_PRESETS } from '../src/domain/metrics'
+import { decodePng } from './png'
 
 const QUOTE =
   'Et mønster av gjentatt eller kontinuerlig stoffbruk der evnen til å regulere bruken er svekket, slik at bruken fortsetter tross skade og gjentatte forsøk på å slutte.'
@@ -58,6 +59,30 @@ async function quoteLayout(field: Locator) {
   })
 }
 
+/**
+ * Øverste og nederste rad med blekk i et skjermbilde, i bildets piksler.
+ *
+ * Tegnet er et pseudoelement, og hvor blekket i et gåseøye sitter i skriftens
+ * høyde, varierer fra skrift til skrift – det er bare bildet som kan si om
+ * tegnet og bokstavene står i vater. Øverste venstre hjørne regnes som bakgrunn.
+ */
+function inkRows(png: Buffer): { top: number; bottom: number } {
+  const bitmap = decodePng(png)
+  const background = bitmap.at(0, 0)
+  let top = bitmap.height
+  let bottom = -1
+  for (let y = 0; y < bitmap.height; y += 1) {
+    for (let x = 0; x < bitmap.width; x += 1) {
+      const pixel = bitmap.at(x, y)
+      if (!pixel.some((value, index) => Math.abs(value - background[index]) > 40)) continue
+      top = Math.min(top, y)
+      bottom = Math.max(bottom, y)
+      break
+    }
+  }
+  return { top, bottom }
+}
+
 test.describe('sitat', () => {
   test('har ett stort innledende gåseøye til venstre, felles innrykk og ingen avsluttende gåseøyne', { tag: '@pr' }, async ({ page }) => {
     const guard = watchForErrors(page)
@@ -91,6 +116,60 @@ test.describe('sitat', () => {
         expect(Math.abs(left - (layout.quoteLeft + layout.indent * slideScale))).toBeLessThan(1.5)
       }
     }
+    expect(guard.errors).toEqual([])
+  })
+
+  test('sitattegnet står i vater med bokstavene i første linje', { tag: '@pr' }, async ({ page }) => {
+    // «I vater»: midten av tegnet står på høyde med midten av de store
+    // bokstavene ved siden av det. Tegnet er høyere enn en stor bokstav, så det
+    // rekker like langt over dem som under. Det måles i presentasjonen, der
+    // verken markør eller stavekontroll tegner noe ved siden av teksten.
+    const guard = watchForErrors(page)
+    await quoteCard(page, 'Sitat i vater')
+    await page.getByTestId('present').click()
+    const quote = page.getByTestId('present-view').locator('.rd-quote')
+    await expect(quote).toHaveCount(1)
+    await page.waitForTimeout(300)
+
+    // Første linjes linjeboks: avsnittets overkant og én linjehøyde ned,
+    // regnet om til skjermpiksler. Tegnets boks er nøyaktig så høy.
+    const { box, line } = await quote.evaluate((element: HTMLElement) => {
+      const first = element.firstElementChild as HTMLElement
+      const range = document.createRange()
+      range.selectNodeContents(first)
+      const text = [...range.getClientRects()].find((candidate) => candidate.width > 1) as DOMRect
+      const outer = element.getBoundingClientRect()
+      const scale = outer.width / element.offsetWidth
+      return {
+        box: { left: outer.left },
+        line: {
+          left: text.left,
+          top: first.getBoundingClientRect().top,
+          height: Number.parseFloat(getComputedStyle(first).lineHeight) * scale,
+          em: Number.parseFloat(getComputedStyle(first).fontSize) * scale,
+        },
+      }
+    })
+    // Tegnet henger i innrykket, til venstre for linjen; «E» i «Et» er linjens
+    // første bokstav, og den er stor.
+    const markShot = await page.screenshot({
+      clip: { x: box.left, y: line.top, width: line.left - box.left - 1, height: line.height },
+    })
+    const capitalShot = await page.screenshot({
+      clip: { x: line.left, y: line.top, width: line.em * 0.5, height: line.height },
+    })
+    const mark = inkRows(markShot)
+    const capital = inkRows(capitalShot)
+    expect(mark.bottom).toBeGreaterThan(mark.top)
+    // Hele tegnet er med: boksen klipper ved linjens kanter, og blekket når
+    // ingen av dem.
+    expect(mark.top).toBeGreaterThan(0)
+    expect(mark.bottom).toBeLessThan(Math.floor(line.height) - 1)
+    expect(capital.bottom).toBeGreaterThan(capital.top)
+    // Tegnet er stort: høyere enn bokstaven det står ved.
+    expect(mark.bottom - mark.top).toBeGreaterThan(capital.bottom - capital.top)
+    const centre = (rows: { top: number; bottom: number }) => (rows.top + rows.bottom) / 2
+    expect(Math.abs(centre(mark) - centre(capital))).toBeLessThanOrEqual(1.5)
     expect(guard.errors).toEqual([])
   })
 
