@@ -34,6 +34,7 @@ import {
   HEADING_SPACING,
   LIST_INDENT,
   PARAGRAPH_SPACING,
+  QUOTE_INDENT_EM,
   REFERENCE_ENTRY_GAP,
   SUBFIELD_GAP,
   TITLE_FONT_SIZE,
@@ -56,6 +57,8 @@ export interface ThemeMetrics {
   /** Space below a heading — the distance from a heading to the text it heads. */
   headingSpacing: number
   listIndent: number
+  /** Et sitats innrykk til venstre, der sitattegnet henger – se `QUOTE_INDENT_EM`. */
+  quoteIndent: number
   bodyFontSize: number
   headingFontSize: number
   titleFontSize: number
@@ -163,6 +166,7 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
   const spacing = clamp(theme?.spacing ?? DEFAULT_SPACING, SPACING_RANGE, DEFAULT_SPACING)
   const font = clamp(theme?.fontScale ?? DEFAULT_FONT_SCALE, FONT_SCALE_RANGE, DEFAULT_FONT_SCALE)
   const gap = Math.max(4, scaled(G, spacing))
+  const bodyFontSize = scaled(BODY_FONT_SIZE, font)
   const cardHeaderHeight = scaled(CARD_HEADER_HEIGHT, font)
   const titledCardStyle = theme?.titledCardStyle ?? DEFAULT_TITLED_CARD_STYLE
   return {
@@ -174,7 +178,8 @@ export function themeMetrics(theme?: Partial<PresentationTheme>): ThemeMetrics {
     referenceEntryGap: Math.max(4, scaled(REFERENCE_ENTRY_GAP, spacing)),
     headingSpacing: Math.max(2, scaled(HEADING_SPACING, spacing)),
     listIndent: Math.max(8, scaled(LIST_INDENT, spacing)),
-    bodyFontSize: scaled(BODY_FONT_SIZE, font),
+    quoteIndent: scaled(bodyFontSize, QUOTE_INDENT_EM),
+    bodyFontSize,
     headingFontSize: scaled(HEADING_FONT_SIZE, font),
     titleFontSize: scaled(TITLE_FONT_SIZE, font),
     sectionSubtitleFontSize: scaled(SECTION_SUBTITLE_FONT_SIZE, font),

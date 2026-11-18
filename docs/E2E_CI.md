@@ -50,6 +50,7 @@ Taggene i testfilene er sannhetskilden. `npx playwright test --list --grep @pr` 
 | `reference-lookup.spec.ts` | En DOI-lenke limt inn i teksten blir straks et citation-nummer med indikator, skrivingen fortsetter mens referansen hentes, og referansen er fylt ut etterpå |
 | `sections.spec.ts` | En inndelingslinje merkes som forminsket bare når den faktisk er satt mindre, og merket står på pillen |
 | `title-ink.spec.ts` | Ingen bokstav i slidetittelen eller pillene på en inndelingsside klippes: nedstreker som rekker under linjen, tegnes under den, i redigering og i visning |
+| `quote.spec.ts` | Et sitat har ett stort innledende gåseøye til venstre for første linje og ingen avsluttende; alle linjene står mot samme innrykk, tegnet får plass i innrykket også med største skrift, og det står i vater med de store bokstavene i første linje |
 | `auth.spec.ts` | Innlogging med engangskode (sifrene sender inn selv), feil kode med nytt forsøk, «Hold meg innlogget» overlever at nettleseren lukkes og ellers ikke, ut og inn uten at en lagret presentasjon går tapt, deaktivering stenger en åpen økt |
 | `theme-editor.spec.ts` | Et nytt dekk åpner temaeditoren, og forhåndsvisningen er en ekte slide med kort med tittel, beholder og kort uten tittel, all tekst midtstilt og hele bildet synlig uten rulling |
 | `theme-logo.spec.ts` | En logo lastet opp i temaeditoren står på forsiden og på slidene, aldri over tittel eller soner, i miniatyrbildene og etter omlasting |

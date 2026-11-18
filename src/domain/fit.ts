@@ -302,8 +302,9 @@ function estimateNodeHeight(
       return estimateParagraphTextHeight(node, width, context) + tokens.paragraphSpacing
     }
     case 'blockquote': {
+      // Innrykket bare til venstre, der sitattegnet henger – se sitatregelen i `slide.css`.
       const inner = (node.content ?? []).reduce(
-        (total, child) => total + estimateNodeHeight(child, width - indent, context),
+        (total, child) => total + estimateNodeHeight(child, width - tokens.quoteIndent, context),
         0,
       )
       return inner + tokens.blockSpacing * 2

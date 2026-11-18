@@ -319,6 +319,16 @@ export const BLOCK_SPACING = 6
 export const PARAGRAPH_SPACING = 10
 export const HEADING_SPACING = 10
 export const LIST_INDENT = 24
+/**
+ * Hvor langt et sitat er rykket inn, i brødtekstens skriftstørrelse (em).
+ *
+ * Sitattegnet henger i dette innrykket, til venstre for første linje, og det
+ * er like stort som teksten er – derfor følger innrykket skriftstørrelsen og
+ * ikke avstandsinnstillingen slik listeinnrykket gjør: med «Ekstra stor»
+ * skrift og «Kompakt» avstand ville et innrykk i faste piksler gitt et tegn
+ * som stakk ut av feltet.
+ */
+export const QUOTE_INDENT_EM = 2
 
 /**
  * Fallback typography for paginating reference slides.
